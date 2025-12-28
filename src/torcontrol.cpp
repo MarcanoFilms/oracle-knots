@@ -515,6 +515,10 @@ void TorController::authchallenge_cb(TorControlConnection& _conn, const TorContr
 {
     if (reply.code == 250) {
         LogDebug(BCLog::TOR, "SAFECOOKIE authentication challenge successful\n");
+        if (reply.lines.empty()) {
+            LogWarning("tor: AUTHCHALLENGE reply was empty");
+            return;
+        }
         std::pair<std::string,std::string> l = SplitTorReplyLine(reply.lines[0]);
         if (l.first == "AUTHCHALLENGE") {
             std::map<std::string,std::string> m = ParseTorReplyMapping(l.second);
