@@ -4274,9 +4274,9 @@ bool Chainstate::LoadChainTip()
     auto target = tip;
     while (target) {
         const bool is_candidate{setBlockIndexCandidates.contains(target)};
-        if (is_candidate) setBlockIndexCandidates.erase(tip);
+        if (is_candidate) setBlockIndexCandidates.erase(target);
         target->nSequenceId = SEQ_ID_BEST_CHAIN_FROM_DISK;
-        if (is_candidate) setBlockIndexCandidates.insert(tip);
+        if (is_candidate) setBlockIndexCandidates.insert(target);
         target = target->pprev;
     }
     PruneBlockIndexCandidates();
