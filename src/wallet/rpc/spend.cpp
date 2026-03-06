@@ -1125,7 +1125,7 @@ static RPCHelpMan bumpfee_helper(std::string method_name)
 
     if ((!options.exists("require_replacable")) || options["require_replacable"].get_bool()) {
         const auto wtx = pwallet->GetWalletTx(hash);
-        if (!SignalsOptInRBF(*wtx->tx)) {
+        if (wtx && !SignalsOptInRBF(*wtx->tx)) {
             throw JSONRPCError(RPC_WALLET_ERROR, "Transaction is not BIP 125 replaceable");
         }
     }
