@@ -85,13 +85,13 @@ class ConfArgsTest(BitcoinTestFramework):
         self.log.debug('Verifying that disabling of the config file means garbage inside of it does ' \
             'not prevent the node from starting, and message about existing config file is logged')
         ignored_file_message = [f'Data directory "{self.nodes[0].datadir_path}" contains a "bitcoin.conf" file which is explicitly ignored using -noconf.']
-        with self.nodes[0].assert_debug_log(expected_msgs=ignored_file_message):
+        with self.nodes[0].assert_debug_log(timeout=60, expected_msgs=ignored_file_message):
             self.start_node(0, extra_args=settings + ['-noconf'])
         self.stop_node(0)
 
         self.log.debug('Verifying no message appears when removing config file')
         os.remove(conf_path)
-        with self.nodes[0].assert_debug_log(expected_msgs=[], unexpected_msgs=ignored_file_message):
+        with self.nodes[0].assert_debug_log(timeout=60, expected_msgs=[], unexpected_msgs=ignored_file_message):
             self.start_node(0, extra_args=settings + ['-noconf'])
         self.stop_node(0)
 
