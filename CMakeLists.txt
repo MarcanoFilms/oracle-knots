@@ -105,6 +105,8 @@ option(WITH_SYSTEM_LEVELDB "Build with system LevelDB instead of embedded fork."
 mark_as_advanced(WITH_SYSTEM_LEVELDB)
 if(WITH_SYSTEM_LEVELDB)
   find_package(LevelDB MODULE REQUIRED)
+else()
+  set(EMBEDDED_LEVELDB TRUE)
 endif()  # WITH_SYSTEM_LEVELDB
 
 option(ENABLE_WALLET "Enable wallet." ON)
