@@ -38,7 +38,7 @@ BOOST_AUTO_TEST_CASE(default_dbcache_formula_by_total_ram)
 
     BOOST_CHECK_EQUAL(GetDefaultDBCache(3_GiB), 256_MiB);
 
-    if constexpr (SIZE_MAX == UINT64_MAX) {
+    if constexpr (SIZE_MAX > UINT32_MAX) {
         for (const auto& [total_ram_64, expected] : std::array<std::pair<uint64_t, uint64_t>, 3>{{
             {8_GiB, 1536_MiB},
             {16_GiB, MAX_DEFAULT_DBCACHE},

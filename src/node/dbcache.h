@@ -18,11 +18,11 @@ static constexpr uint64_t MIN_DEFAULT_DBCACHE{100_MiB};
 //! Automatic -dbcache cap (bytes)
 static constexpr uint64_t MAX_DEFAULT_DBCACHE{2_GiB};
 //! Assumed total RAM when we cannot determine it.
-static constexpr uint64_t FALLBACK_RAM_BYTES{SIZE_MAX == UINT64_MAX ? 4_GiB : 2_GiB};
+static constexpr uint64_t FALLBACK_RAM_BYTES{SIZE_MAX > UINT32_MAX ? 4_GiB : 2_GiB};
 //! Reserved non-dbcache memory usage.
 static constexpr uint64_t RESERVED_RAM{2_GiB};
 //! Maximum dbcache size on current architecture.
-static constexpr uint64_t MAX_DBCACHE_BYTES{SIZE_MAX == UINT64_MAX ? std::numeric_limits<uint64_t>::max() : 1_GiB};
+static constexpr uint64_t MAX_DBCACHE_BYTES{SIZE_MAX > UINT32_MAX ? std::numeric_limits<uint64_t>::max() : 1_GiB};
 
 namespace node {
 size_t GetTotalRam() noexcept;
