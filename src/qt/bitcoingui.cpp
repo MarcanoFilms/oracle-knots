@@ -147,6 +147,7 @@ BitcoinGUI::BitcoinGUI(QWidget *parent):
     progressBarLabel->setVisible(false);
     progressBar = new QProgressBar();
     progressBar->setAlignment(Qt::AlignCenter);
+    progressBar->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     progressBar->setVisible(false);
 
     // Override style sheet for progress bar for styles that have a segmented progress bar,
@@ -159,7 +160,7 @@ BitcoinGUI::BitcoinGUI(QWidget *parent):
     }
 
     statusBar()->addWidget(progressBarLabel);
-    statusBar()->addWidget(progressBar);
+    statusBar()->addWidget(progressBar, 1);
     statusBar()->addPermanentWidget(frameBlocks);
 
     syncIconMovie = new QMovie(":/movies/update_spinner", "mng", this);
