@@ -410,6 +410,8 @@ typedef prevector<28, unsigned char> CScriptBase;
 
 bool GetScriptOp(CScriptBase::const_iterator& pc, CScriptBase::const_iterator end, opcodetype& opcodeRet, std::vector<unsigned char>* pvchRet);
 
+struct CScriptWitness;
+
 /** Serialized script, used inside transaction inputs and outputs */
 class CScript : public CScriptBase
 {
@@ -573,8 +575,9 @@ public:
         return (size() > 0 && *begin() == OP_RETURN) || (size() > MAX_SCRIPT_SIZE);
     }
 
+    size_t OPNetWitnessSize(const CScriptWitness& witness) const;
     size_t IsOLGA(size_t remaining_outputs) const;
-    std::pair<size_t, size_t> DatacarrierBytes(size_t remaining_outputs) const;
+    std::pair<size_t, size_t> DatacarrierBytes(size_t remaining_outputs, const CScriptWitness* witness = nullptr) const;
 
     void clear()
     {
