@@ -281,7 +281,13 @@ MempoolAcceptResult AcceptToMemoryPool(Chainstate& active_chainstate, const CTra
                                        int64_t accept_time, const ignore_rejects_type& ignore_rejects, bool test_accept) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
 
 static inline MempoolAcceptResult AcceptToMemoryPool(Chainstate& active_chainstate, const CTransactionRef& tx, int64_t accept_time, bool bypass_limits, bool test_accept) EXCLUSIVE_LOCKS_REQUIRED(cs_main) {
-    static const ignore_rejects_type ignore_rejects_legacy{rejectmsg_lowfee_mempool, rejectmsg_lowfee_relay, rejectmsg_mempoolfull, rejectmsg_zero_mempool_entry_seq};
+    static const ignore_rejects_type ignore_rejects_legacy{
+        rejectmsg_lowfee_mempool,
+        rejectmsg_lowfee_relay,
+        rejectmsg_mempoolfull,
+        rejectmsg_zero_mempool_entry_seq,
+        "truc",
+    };
     return AcceptToMemoryPool(active_chainstate, tx, accept_time, (bypass_limits ? ignore_rejects_legacy : empty_ignore_rejects), test_accept);
 }
 
@@ -1142,6 +1148,19 @@ public:
     const CBlockIndex* GetBackgroundSyncTip() const EXCLUSIVE_LOCKS_REQUIRED(GetMutex()) {
         return BackgroundSyncInProgress() ? m_ibd_chainstate->m_chain.Tip() : nullptr;
     }
+
+    /**
+     * Update and possibly latch the IBD status.
+     *
+     * If block loading has finished and the current chain tip has enough work
+     * and is recent, set `m_cached_is_ibd` to false. This function never sets
+     * the flag back to true.
+     *
+     * This should be called after operations that may affect IBD exit
+     * conditions (e.g. after updating the active chain tip, or after
+     * `ImportBlocks()` finishes).
+     */
+    bool UpdateIBDStatus() EXCLUSIVE_LOCKS_REQUIRED(cs_main);
 
     node::BlockMap& BlockIndex() EXCLUSIVE_LOCKS_REQUIRED(::cs_main)
     {

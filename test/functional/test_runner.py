@@ -170,6 +170,8 @@ BASE_SCRIPTS = [
     'wallet_listreceivedby.py --descriptors',
     'wallet_abandonconflict.py --legacy-wallet',
     'wallet_abandonconflict.py --descriptors',
+    'wallet_anchor.py --legacy-wallet',
+    'wallet_anchor.py --descriptors',
     'feature_reindex.py',
     'feature_reindex_readonly.py',
     'wallet_labels.py --legacy-wallet',
@@ -196,7 +198,7 @@ BASE_SCRIPTS = [
     'mempool_resurrect.py',
     'wallet_sweepprivkeys.py',
     'wallet_txn_doublespend.py --mineblock',
-    'tool_cli_bash_completion.py',
+    'tool_cli_completion.py',
     'tool_wallet.py --legacy-wallet',
     'tool_wallet.py --legacy-wallet --bdbro',
     'tool_wallet.py --legacy-wallet --bdbro --swap-bdb-endian',
@@ -394,6 +396,7 @@ BASE_SCRIPTS = [
     'mempool_compatibility.py',
     'mempool_accept_wtxid.py',
     'mempool_dust.py',
+    'mempool_subdust_fee_penalty.py',
     'mempool_sigoplimit.py',
     'rpc_deriveaddresses.py',
     'rpc_deriveaddresses.py --usecli',
@@ -825,7 +828,7 @@ class TestHandler:
                         status = "Passed"
                     elif proc.returncode == TEST_EXIT_SKIPPED:
                         status = "Skipped"
-                        skip_reason = re.search(r"Test Skipped: (.*)", stdout).group(1)
+                        skip_reason = re.search(r"Test Skipped: (.*)", stdout).group(1).strip()
                     else:
                         status = "Failed"
                     self.jobs.remove(job)

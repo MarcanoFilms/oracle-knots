@@ -84,6 +84,7 @@
 #include <util/fs_helpers.h>
 #include <util/mempressure.h>
 #include <util/moneystr.h>
+#include <util/overflow.h>
 #include <util/result.h>
 #include <util/signalinterrupt.h>
 #include <util/strencodings.h>
@@ -207,7 +208,7 @@ static void RemovePidFile(const ArgsManager& args)
     const auto pid_path{GetPidFile(args)};
     if (std::error_code error; !fs::remove(pid_path, error)) {
         std::string msg{error ? error.message() : "File does not exist"};
-        LogPrintf("Unable to remove PID file (%s): %s\n", fs::PathToString(pid_path), msg);
+        LogWarning("Unable to remove PID file (%s): %s", fs::PathToString(pid_path), msg);
     }
 }
 
@@ -275,6 +276,8 @@ void Interrupt(NodeContext& node)
 #if HAVE_SYSTEM
     ShutdownNotify(*node.args);
 #endif
+    // Wake any threads that may be waiting for the tip to change.
+    if (node.notifications) WITH_LOCK(node.notifications->m_tip_block_mutex, node.notifications->m_tip_block_cv.notify_all());
     InterruptHTTPServer();
     InterruptHTTPRPC();
     InterruptRPC();
@@ -671,7 +674,7 @@ void SetupServerArgs(ArgsManager& argsman, bool can_listen_ipc)
     argsman.AddArg("-checkpoints", strprintf("Enable rejection of any forks from the known historical chain until block %s (default: %u)", defaultChainParams->Checkpoints().GetHeight(), DEFAULT_CHECKPOINTS_ENABLED), ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::DEBUG_TEST);
     argsman.AddArg("-deprecatedrpc=<method>", "Allows deprecated RPC method(s) to be used", ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::DEBUG_TEST);
     argsman.AddArg("-stopafterblockimport", strprintf("Stop running after importing blocks from disk (default: %u)", DEFAULT_STOPAFTERBLOCKIMPORT), ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::DEBUG_TEST);
-    argsman.AddArg("-stopatheight", strprintf("Stop running after reaching the given height in the main chain (default: %u)", DEFAULT_STOPATHEIGHT), ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::DEBUG_TEST);
+    argsman.AddArg("-stopatheight", strprintf("Stop running after reaching the given height in the main chain (default: %u). Blocks after target height may be processed during shutdown.", DEFAULT_STOPATHEIGHT), ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::DEBUG_TEST);
     argsman.AddArg("-limitancestorcount=<n>", strprintf("Do not accept transactions if number of in-mempool ancestors is <n> or more (default: %u)", DEFAULT_ANCESTOR_LIMIT), ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::DEBUG_TEST);
     argsman.AddArg("-limitancestorsize=<n>", strprintf("Do not accept transactions whose size with all in-mempool ancestors exceeds <n> kilobytes (default: %u)", DEFAULT_ANCESTOR_SIZE_LIMIT_KVB), ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::DEBUG_TEST);
     argsman.AddArg("-limitdescendantcount=<n>", strprintf("Do not accept transactions if any ancestor would have <n> or more in-mempool descendants (default: %u)", DEFAULT_DESCENDANT_LIMIT), ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::DEBUG_TEST);
@@ -755,6 +758,10 @@ void SetupServerArgs(ArgsManager& argsman, bool can_listen_ipc)
     argsman.AddArg("-rejecttokens",
                    strprintf("Refuse to relay or mine transactions involving non-bitcoin tokens (default: %u)",
                              DEFAULT_REJECT_TOKENS),
+                   ArgsManager::ALLOW_ANY, OptionsCategory::NODE_RELAY);
+    argsman.AddArg("-subdustfeepenalty",
+                   strprintf("Reduce effective fee by the dust threshold for each sub-dust output, making dust-creating transactions require higher fees (default: %u)",
+                             DEFAULT_SUBDUSTFEEPENALTY),
                    ArgsManager::ALLOW_ANY, OptionsCategory::NODE_RELAY);
     argsman.AddArg("-spkreuse=<policy>", strprintf("Either \"allow\" to relay/mine transactions reusing addresses or other pubkey scripts, or \"conflict\" to treat them as exclusive prior to being mined (default: %s)", DEFAULT_SPKREUSE), ArgsManager::ALLOW_ANY, OptionsCategory::NODE_RELAY);
     argsman.AddArg("-whitelistforcerelay", strprintf("Add 'forcerelay' permission to whitelisted peers with default permissions. This will relay transactions even if the transactions were already in the mempool. (default: %d)", DEFAULT_WHITELISTFORCERELAY), ArgsManager::ALLOW_ANY, OptionsCategory::NODE_RELAY);
@@ -1464,10 +1471,6 @@ static ChainstateLoadResult InitAndLoadChainstate(
         LogPrintf("* Flushing caches if available system memory drops below %s MiB\n", g_low_memory_threshold / 1024 / 1024);
     }
 
-    if (mempool_opts.rbf_policy == RBFPolicy::Always) {
-        g_local_services = ServiceFlags(g_local_services | NODE_REPLACE_BY_FEE);
-    }
-
     ChainstateManager::Options chainman_opts{
         .chainparams = chainparams,
         .datadir = args.GetDataDirNet(),
@@ -1519,7 +1522,7 @@ static ChainstateLoadResult InitAndLoadChainstate(
             index->Interrupt();
             index->Stop();
             if (!(index->Init() && index->StartBackgroundSync())) {
-                LogPrintf("[snapshot] WARNING failed to restart index %s on snapshot chain\n", index->GetName());
+                LogWarning("[snapshot] Failed to restart index %s on snapshot chain", index->GetName());
             }
         }
     };
@@ -1583,11 +1586,11 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
 
     // Warn about relative -datadir path.
     if (args.IsArgSet("-datadir") && !args.GetPathArg("-datadir").is_absolute()) {
-        LogPrintf("Warning: relative datadir option '%s' specified, which will be interpreted relative to the "
-                  "current working directory '%s'. This is fragile, because if bitcoin is started in the future "
-                  "from a different location, it will be unable to locate the current data files. There could "
-                  "also be data loss if bitcoin is started while in a temporary directory.\n",
-                  args.GetArg("-datadir", ""), fs::PathToString(fs::current_path()));
+        LogWarning("Relative datadir option '%s' specified, which will be interpreted relative to the "
+                   "current working directory '%s'. This is fragile, because if bitcoin is started in the future "
+                   "from a different location, it will be unable to locate the current data files. There could "
+                   "also be data loss if bitcoin is started while in a temporary directory.",
+                   args.GetArg("-datadir", ""), fs::PathToString(fs::current_path()));
     }
 
     assert(!node.scheduler);
@@ -2017,7 +2020,7 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
     // requested to kill the GUI during the last operation. If so, exit.
     if (ShutdownRequested(node)) {
         LogPrintf("Shutdown requested. Exiting.\n");
-        return false;
+        return true;
     }
 
     ChainstateManager& chainman = *Assert(node.chainman);
@@ -2072,7 +2075,7 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
     } else {
         // Prior to setting NODE_NETWORK, check if we can provide historical blocks.
         if (!WITH_LOCK(chainman.GetMutex(), return chainman.BackgroundSyncInProgress())) {
-            LogPrintf("Setting NODE_NETWORK on non-prune mode\n");
+            LogInfo("Setting NODE_NETWORK in non-prune mode");
             g_local_services = ServiceFlags(g_local_services | NODE_NETWORK);
         } else {
             LogPrintf("Running node in NODE_NETWORK_LIMITED mode until snapshot background sync completes\n");
@@ -2106,7 +2109,7 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
                     "Approximately %u GB of data will be stored in this directory."
                 ),
                 fs::quoted(fs::PathToString(args.GetBlocksDirPath())),
-                additional_bytes_needed / 1'000'000'000
+                CeilDiv(additional_bytes_needed, 1'000'000'000)
             ));
         }
     }
@@ -2136,6 +2139,7 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
         ScheduleBatchPriority();
         // Import blocks and ActivateBestChain()
         ImportBlocks(chainman, vImportFiles);
+        WITH_LOCK(::cs_main, chainman.UpdateIBDStatus());
         if (args.GetBoolArg("-stopafterblockimport", DEFAULT_STOPAFTERBLOCKIMPORT)) {
             LogPrintf("Stopping after block import\n");
             if (!(Assert(node.shutdown_request))()) {
@@ -2178,7 +2182,7 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
     }
 
     if (ShutdownRequested(node)) {
-        return false;
+        return true;
     }
 
     // ********************************************************* Step 12: start node
@@ -2219,6 +2223,7 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
     connOptions.m_peer_connect_timeout = peer_connect_timeout;
     connOptions.whitelist_forcerelay = args.GetBoolArg("-whitelistforcerelay", DEFAULT_WHITELISTFORCERELAY);
     connOptions.whitelist_relay = args.GetBoolArg("-whitelistrelay", DEFAULT_WHITELISTRELAY);
+    connOptions.m_capture_messages = args.GetBoolArg("-capturemessages", false);
     connOptions.disable_v1conn_clearnet = args.GetBoolArg("-v2onlyclearnet", false);
 
     // Port to bind to if `-bind=addr` is provided without a `:port` suffix.
@@ -2284,21 +2289,45 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
         }
     }
 
+    connOptions.listenonion = args.GetBoolArg("-listenonion", DEFAULT_LISTEN_ONION);
+
     CService onion_service_target;
     if (!connOptions.onion_binds.empty()) {
         onion_service_target = connOptions.onion_binds.front();
     } else if (!connOptions.vBinds.empty()) {
         onion_service_target = connOptions.vBinds.front();
+        if (connOptions.listenonion) {
+            std::string alternate_connections{"clearnet"}, only_from_localhost;
+            if (onion_service_target.IsBindAny()) {
+                only_from_localhost = " from localhost";
+            } else if (onion_service_target.IsLocal()) {
+                alternate_connections = "local";
+            }
+            InitWarning(strprintf(_("You are using a common listening port (%s) for both Tor and %s connections. All connections to this port%s will be assumed to be Tor connections, and will be denied any whitelist permissions. If this is not your intent, setup a separate -bind=<addr>[:<port>]=onion configuration, or set -listenonion=0."),
+                                  onion_service_target.ToStringAddrPort(),
+                                  alternate_connections,
+                                  only_from_localhost));
+        }
     } else {
         onion_service_target = DefaultOnionServiceTarget(default_bind_port_onion);
         connOptions.onion_binds.push_back(onion_service_target);
     }
 
-    if (args.GetBoolArg("-listenonion", DEFAULT_LISTEN_ONION)) {
+    if (connOptions.listenonion) {
         if (connOptions.onion_binds.size() > 1) {
             InitWarning(strprintf(_("More than one onion bind address is provided. Using %s "
                                     "for the automatically created Tor onion service."),
                                   onion_service_target.ToStringAddrPort()));
+        }
+        if (onion_service_target.IsBindAny()) {
+            CNetAddr loopback_addr = onion_service_target;
+            // NOTE: GetNetwork is not_publicly_routable here
+            if (onion_service_target.ToStringAddr() == "0.0.0.0") {
+                loopback_addr = LookupHost("127.0.0.1", /*fAllowLookup=*/false).value();
+            } else {
+                loopback_addr = LookupHost("[::1]", /*fAllowLookup=*/false).value();
+            }
+            onion_service_target.SetIP(loopback_addr);
         }
         StartTorControl(onion_service_target);
     }

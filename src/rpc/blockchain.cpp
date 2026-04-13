@@ -82,6 +82,7 @@
 using kernel::CCoinsStats;
 using kernel::CoinStatsHashType;
 
+using interfaces::BlockRef;
 using interfaces::Mining;
 using node::BlockManager;
 using node::NodeContext;
@@ -186,7 +187,7 @@ UniValue blockheaderToJSON(const CBlockIndex& tip, const CBlockIndex& blockindex
     result.pushKV("mediantime", blockindex.GetMedianTimePast());
     result.pushKV("nonce", blockindex.nNonce);
     result.pushKV("bits", strprintf("%08x", blockindex.nBits));
-    result.pushKV("target", GetTarget(tip, pow_limit).GetHex());
+    result.pushKV("target", GetTarget(blockindex, pow_limit).GetHex());
     result.pushKV("difficulty", GetDifficulty(blockindex));
     result.pushKV("chainwork", blockindex.nChainWork.GetHex());
     result.pushKV("nTx", blockindex.nTx);
@@ -322,11 +323,13 @@ static RPCHelpMan waitfornewblock()
         ? block.hash
         : ParseHashV(request.params[1], "current_tip")};
 
-    if (IsRPCRunning()) {
-        // If the user provided an invalid current_tip then this call immediately
-        // returns the current tip.
-        block = timeout ? miner.waitTipChanged(tip_hash, std::chrono::milliseconds(timeout)) : miner.waitTipChanged(tip_hash);
-    }
+    // If the user provided an invalid current_tip then this call immediately
+    // returns the current tip.
+    std::optional<BlockRef> new_block = timeout ? miner.waitTipChanged(tip_hash, std::chrono::milliseconds(timeout)) :
+                                              miner.waitTipChanged(tip_hash);
+
+    // Return current block upon shutdown
+    if (new_block) block = *new_block;
 
     UniValue ret(UniValue::VOBJ);
     ret.pushKV("hash", block.hash.GetHex());
@@ -371,15 +374,19 @@ static RPCHelpMan waitforblock()
 
     auto block{CHECK_NONFATAL(miner.getTip()).value()};
     const auto deadline{std::chrono::steady_clock::now() + 1ms * timeout};
-    while (IsRPCRunning() && block.hash != hash) {
+    while (block.hash != hash) {
+        std::optional<BlockRef> new_block;
         if (timeout) {
             auto now{std::chrono::steady_clock::now()};
             if (now >= deadline) break;
             const MillisecondsDouble remaining{deadline - now};
-            block = miner.waitTipChanged(block.hash, remaining);
+            new_block = miner.waitTipChanged(block.hash, remaining);
         } else {
-            block = miner.waitTipChanged(block.hash);
+            new_block = miner.waitTipChanged(block.hash);
         }
+        // Return current block upon shutdown
+        if (!new_block) break;
+        block = *new_block;
     }
 
     UniValue ret(UniValue::VOBJ);
@@ -427,15 +434,19 @@ static RPCHelpMan waitforblockheight()
     auto block{CHECK_NONFATAL(miner.getTip()).value()};
     const auto deadline{std::chrono::steady_clock::now() + 1ms * timeout};
 
-    while (IsRPCRunning() && block.height < height) {
+    while (block.height < height) {
+        std::optional<BlockRef> new_block;
         if (timeout) {
             auto now{std::chrono::steady_clock::now()};
             if (now >= deadline) break;
             const MillisecondsDouble remaining{deadline - now};
-            block = miner.waitTipChanged(block.hash, remaining);
+            new_block = miner.waitTipChanged(block.hash, remaining);
         } else {
-            block = miner.waitTipChanged(block.hash);
+            new_block = miner.waitTipChanged(block.hash);
         }
+        // Return current block on shutdown
+        if (!new_block) break;
+        block = *new_block;
     }
 
     UniValue ret(UniValue::VOBJ);

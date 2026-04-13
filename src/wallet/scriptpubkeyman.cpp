@@ -303,7 +303,7 @@ bool LegacyDataSPKM::CheckDecryptionKey(const CKeyingMaterial& master_key)
         }
         if (keyPass && keyFail)
         {
-            LogPrintf("The wallet is probably corrupted: Some keys decrypt but not all.\n");
+            LogWarning("The wallet is probably corrupted: Some keys decrypt but not all.");
             throw std::runtime_error("Error unlocking wallet: some keys decrypt but not all. Your wallet file may be corrupt.");
         }
         if (keyFail || !keyPass)
@@ -1887,9 +1887,29 @@ std::optional<MigrationData> LegacyDataSPKM::MigrateToDescriptor()
 
     WalletBatch batch(m_storage.GetDatabase());
     if (!batch.TxnBegin()) {
-        LogPrintf("Error generating descriptors for migration, cannot initialize db transaction\n");
+        LogWarning("Error generating descriptors for migration, cannot initialize db transaction");
         return std::nullopt;
     }
+
+    constexpr auto sanitycheck = [](const bool erased, const bool maybe_compressed_key, const CScript &spk, const LegacyDataSPKM& self, const DescriptorScriptPubKeyMan& desc_spk_man) {
+        assert(desc_spk_man.IsMine(spk) == ISMINE_SPENDABLE);
+        if (erased) {
+            assert(self.IsMine(spk) == ISMINE_SPENDABLE);
+            return;
+        }
+        if (maybe_compressed_key && !g_implicit_segwit) {
+            // combo() includes segwit
+            if (spk.IsPayToScriptHash()) return;
+            int witness_version;
+            std::vector<unsigned char> witness_program;
+            if (spk.IsWitnessProgram(witness_version, witness_program)) {
+                if (witness_version == 0 && witness_program.size() == 20) {
+                    return;
+                }
+            }
+        }
+        assert(erased);
+    };
 
     // keyids is now all non-HD keys. Each key will have its own combo descriptor
     for (const CKeyID& keyid : keyids) {
@@ -1928,8 +1948,7 @@ std::optional<MigrationData> LegacyDataSPKM::MigrateToDescriptor()
         // Remove the scriptPubKeys from our current set
         for (const CScript& spk : desc_spks) {
             size_t erased = spks.erase(spk);
-            assert(erased == 1);
-            assert(IsMine(spk) == ISMINE_SPENDABLE);
+            sanitycheck(erased, key.IsCompressed(), spk, *this, *desc_spk_man);
         }
 
         out.desc_spkms.push_back(std::move(desc_spk_man));
@@ -1974,8 +1993,7 @@ std::optional<MigrationData> LegacyDataSPKM::MigrateToDescriptor()
             // Remove the scriptPubKeys from our current set
             for (const CScript& spk : desc_spks) {
                 size_t erased = spks.erase(spk);
-                assert(erased == 1);
-                assert(IsMine(spk) == ISMINE_SPENDABLE);
+                sanitycheck(erased, /*maybe_compressed_key=*/true, spk, *this, *desc_spk_man);
             }
 
             out.desc_spkms.push_back(std::move(desc_spk_man));
@@ -2069,7 +2087,7 @@ std::optional<MigrationData> LegacyDataSPKM::MigrateToDescriptor()
 
     // Make sure that we have accounted for all scriptPubKeys
     if (!Assume(spks.empty())) {
-        LogPrintf("%s\n", STR_INTERNAL_BUG("Error: Some output scripts were not migrated.\n"));
+        LogError("%s", STR_INTERNAL_BUG("Error: Some output scripts were not migrated."));
         return std::nullopt;
     }
 
@@ -2123,7 +2141,7 @@ std::optional<MigrationData> LegacyDataSPKM::MigrateToDescriptor()
 
     // Finalize transaction
     if (!batch.TxnCommit()) {
-        LogPrintf("Error generating descriptors for migration, cannot commit db transaction\n");
+        LogWarning("Error generating descriptors for migration, cannot commit db transaction");
         return std::nullopt;
     }
 
@@ -2213,7 +2231,7 @@ bool DescriptorScriptPubKeyMan::CheckDecryptionKey(const CKeyingMaterial& master
             break;
     }
     if (keyPass && keyFail) {
-        LogPrintf("The wallet is probably corrupted: Some keys decrypt but not all.\n");
+        LogWarning("The wallet is probably corrupted: Some keys decrypt but not all.");
         throw std::runtime_error("Error unlocking wallet: some keys decrypt but not all. Your wallet file may be corrupt.");
     }
     if (keyFail || !keyPass) {

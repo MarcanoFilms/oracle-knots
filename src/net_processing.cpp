@@ -556,12 +556,6 @@ private:
                                  bool via_compact_block, const std::string& message = "")
         EXCLUSIVE_LOCKS_REQUIRED(!m_peer_mutex);
 
-    /**
-     * Potentially disconnect and discourage a node based on the contents of a TxValidationState object
-     */
-    void MaybePunishNodeForTx(NodeId nodeid, const TxValidationState& state)
-        EXCLUSIVE_LOCKS_REQUIRED(!m_peer_mutex);
-
     /** Maybe disconnect a peer and discourage future connections from its address.
      *
      * @param[in]   pnode     The node to check.
@@ -786,7 +780,7 @@ private:
 
     uint32_t GetFetchFlags(const Peer& peer) const;
 
-    std::atomic<std::chrono::microseconds> m_next_inv_to_inbounds{0us};
+    std::map<uint64_t, std::chrono::microseconds> m_next_inv_to_inbounds_per_network_key GUARDED_BY(g_msgproc_mutex);
 
     /** Number of nodes with fSyncStarted. */
     int nSyncStarted GUARDED_BY(cs_main) = 0;
@@ -816,12 +810,14 @@ private:
 
     /**
      * For sending `inv`s to inbound peers, we use a single (exponentially
-     * distributed) timer for all peers. If we used a separate timer for each
+     * distributed) timer for all peers with the same network key. If we used a separate timer for each
      * peer, a spy node could make multiple inbound connections to us to
-     * accurately determine when we received the transaction (and potentially
-     * determine the transaction's origin). */
+     * accurately determine when we received a transaction (and potentially
+     * determine the transaction's origin). Each network key has its own timer
+     * to make fingerprinting harder. */
     std::chrono::microseconds NextInvToInbounds(std::chrono::microseconds now,
-                                                std::chrono::seconds average_interval) EXCLUSIVE_LOCKS_REQUIRED(g_msgproc_mutex);
+                                                std::chrono::seconds average_interval,
+                                                uint64_t network_key) EXCLUSIVE_LOCKS_REQUIRED(g_msgproc_mutex);
 
 
     // All of the following cache a recent block, and are protected by m_most_recent_block_mutex
@@ -1124,15 +1120,15 @@ static bool CanServeWitnesses(const Peer& peer)
 }
 
 std::chrono::microseconds PeerManagerImpl::NextInvToInbounds(std::chrono::microseconds now,
-                                                             std::chrono::seconds average_interval)
+                                                             std::chrono::seconds average_interval,
+                                                             uint64_t network_key)
 {
-    if (m_next_inv_to_inbounds.load() < now) {
-        // If this function were called from multiple threads simultaneously
-        // it would possible that both update the next send variable, and return a different result to their caller.
-        // This is not possible in practice as only the net processing thread invokes this function.
-        m_next_inv_to_inbounds = now + m_rng.rand_exp_duration(average_interval);
+    auto [it, inserted] = m_next_inv_to_inbounds_per_network_key.try_emplace(network_key, 0us);
+    auto& timer{it->second};
+    if (timer < now) {
+        timer = now + m_rng.rand_exp_duration(average_interval);
     }
-    return m_next_inv_to_inbounds;
+    return timer;
 }
 
 bool PeerManagerImpl::IsBlockRequested(const uint256& hash)
@@ -1863,32 +1859,6 @@ void PeerManagerImpl::MaybePunishNodeForBlock(NodeId nodeid, const BlockValidati
     }
     if (message != "") {
         LogDebug(BCLog::NET, "peer=%d: %s\n", nodeid, message);
-    }
-}
-
-void PeerManagerImpl::MaybePunishNodeForTx(NodeId nodeid, const TxValidationState& state)
-{
-    PeerRef peer{GetPeerRef(nodeid)};
-    switch (state.GetResult()) {
-    case TxValidationResult::TX_RESULT_UNSET:
-        break;
-    // The node is providing invalid data:
-    case TxValidationResult::TX_CONSENSUS:
-        HandleDoSPunishment(m_connman, nodeid, 100, "transaction");
-        return;
-    // Conflicting (but not necessarily invalid) data or different policy:
-    case TxValidationResult::TX_INPUTS_NOT_STANDARD:
-    case TxValidationResult::TX_NOT_STANDARD:
-    case TxValidationResult::TX_MISSING_INPUTS:
-    case TxValidationResult::TX_PREMATURE_SPEND:
-    case TxValidationResult::TX_WITNESS_MUTATED:
-    case TxValidationResult::TX_WITNESS_STRIPPED:
-    case TxValidationResult::TX_CONFLICT:
-    case TxValidationResult::TX_MEMPOOL_POLICY:
-    case TxValidationResult::TX_NO_MEMPOOL:
-    case TxValidationResult::TX_RECONSIDERABLE:
-    case TxValidationResult::TX_UNKNOWN:
-        break;
     }
 }
 
@@ -3065,8 +3035,6 @@ std::optional<node::PackageToValidate> PeerManagerImpl::ProcessInvalidTx(NodeId 
         if (peer) AddKnownTx(*peer, parent_txid);
     }
 
-    MaybePunishNodeForTx(nodeid, state);
-
     return package_to_validate;
 }
 
@@ -3654,10 +3622,11 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
         }
 
         const auto mapped_as{m_connman.GetMappedAS(pfrom.addr)};
-        LogDebug(BCLog::NET, "receive version message: %s: version %d, blocks=%d, us=%s, txrelay=%d, peer=%d%s%s\n",
+        LogDebug(BCLog::NET, "receive version message: %s: version %d, blocks=%d, us=%s, txrelay=%d, peer=%d%s%s%s\n",
                   SanitizeString(cleanSubVer, SAFE_CHARS_DEFAULT, true), pfrom.nVersion,
                   peer->m_starting_height, addrMe.ToStringAddrPort(), fRelay, pfrom.GetId(),
-                  pfrom.LogIP(fLogIPs), (mapped_as ? strprintf(", mapped_as=%d", mapped_as) : ""));
+                  fLogIPs ? "," : "", pfrom.LogIP(fLogIPs),
+                  (mapped_as ? strprintf(", mapped_as=%d", mapped_as) : ""));
 
         peer->m_time_offset = NodeSeconds{std::chrono::seconds{nTime}} - Now<NodeSeconds>();
         if (!pfrom.IsInboundConn()) {
@@ -3697,11 +3666,12 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
         // can be triggered by an attacker at high rate.
         if (!pfrom.IsInboundConn() || LogAcceptCategory(BCLog::NET, BCLog::Level::Debug)) {
             const auto mapped_as{m_connman.GetMappedAS(pfrom.addr)};
-            LogPrintf("New %s %s peer connected: version: %d, blocks=%d, peer=%d%s%s\n",
+            LogPrintf("New %s %s peer connected: version: %d, blocks=%d, peer=%d%s%s%s\n",
                       pfrom.ConnectionTypeAsString(),
                       TransportTypeAsString(pfrom.m_transport->GetInfo().transport_type),
                       pfrom.nVersion.load(), peer->m_starting_height,
-                      pfrom.GetId(), pfrom.LogIP(fLogIPs),
+                      pfrom.GetId(),
+                      fLogIPs ? "," : "", pfrom.LogIP(fLogIPs),
                       (mapped_as ? strprintf(", mapped_as=%d", mapped_as) : ""));
         }
 
@@ -4984,13 +4954,13 @@ bool PeerManagerImpl::MaybeDiscourageAndDisconnect(CNode& pnode, Peer& peer)
 
     if (pnode.HasPermission(NetPermissionFlags::NoBan)) {
         // We never disconnect or discourage peers for bad behavior if they have NetPermissionFlags::NoBan permission
-        LogPrintf("Warning: not punishing noban peer %d!\n", peer.m_id);
+        LogWarning("Not punishing noban peer %d!", peer.m_id);
         return false;
     }
 
     if (pnode.IsManualConn()) {
         // We never disconnect or discourage manual peers for bad behavior
-        LogPrintf("Warning: not punishing manually connected peer %d!\n", peer.m_id);
+        LogWarning("Not punishing manually connected peer %d!", peer.m_id);
         return false;
     }
 
@@ -5762,7 +5732,7 @@ bool PeerManagerImpl::SendMessages(CNode* pto)
                 if (tx_relay->m_next_inv_send_time < current_time) {
                     fSendTrickle = true;
                     if (pto->IsInboundConn()) {
-                        tx_relay->m_next_inv_send_time = NextInvToInbounds(current_time, INBOUND_INVENTORY_BROADCAST_INTERVAL);
+                        tx_relay->m_next_inv_send_time = NextInvToInbounds(current_time, INBOUND_INVENTORY_BROADCAST_INTERVAL, pto->m_network_key);
                     } else {
                         tx_relay->m_next_inv_send_time = current_time + m_rng.rand_exp_duration(OUTBOUND_INVENTORY_BROADCAST_INTERVAL);
                     }

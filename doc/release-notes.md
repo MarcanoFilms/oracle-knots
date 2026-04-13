@@ -1,6 +1,6 @@
-Bitcoin Core version 29.2rc1 is now available from:
+Bitcoin Core version 29.3 is now available from:
 
-  <https://bitcoincore.org/bin/bitcoin-core-29.2/test.rc1/>
+  <https://bitcoincore.org/bin/bitcoin-core-29.3/>
 
 This release includes various bug fixes and performance
 improvements, as well as updated translations.
@@ -39,35 +39,67 @@ Notable changes
 
 ### P2P
 
-- #32646 p2p: Add witness mutation check inside FillBlock
-- #33296 net: check for empty header before calling FillBlock
-- #33395 net: do not apply whitelist permissions to onion inbounds
+- #33050 net, validation: don't punish peers for consensus-invalid txs
+- #33723 chainparams: remove dnsseed.bitcoin.dashjr-list-of-p2p-nodes.us
 
-### CI
+### Validation
 
-- #32999 ci: Use APT_LLVM_V in msan task
-- #33099 ci: allow for any libc++ intrumentation & use it for TSAN
-- #33258 ci: use LLVM 21
-- #33364 ci: always use tag for LLVM checkout
+- #32473 Introduce per-txin sighash midstate cache for legacy/p2sh/segwitv0 scripts
+- #33105 validation: detect witness stripping without re-running Script checks
+
+### Wallet
+
+- #33268 wallet: Identify transactions spending 0-value outputs, and add tests for anchor outputs in a wallet
+- #34156 wallet: fix unnamed legacy wallet migration failure
+- #34226 wallet: test: Relative wallet failed migration cleanup
+- #34123 wallet: migration, avoid creating spendable wallet from a watch-only legacy wallet
+- #34215 wallettool: fix unnamed createfromdump failure walletsdir deletion
+- #34370 wallet: Additional cleanups for migration, and fixes for createfromdump with BDB
+
+### Mining
+
+- #33475 bugfix: miner: fix `addPackageTxs` unsigned integer overflow
+
+### Build
+
+- #34227 guix: Fix `osslsigncode` tests
+
+### Documentation
+
+- #33623 doc: document capnproto and libmultiprocess deps in 29.x
+
+### Test
+
+- #33612 test: change log rate limit version gate
 
 ### Misc
 
-- #33310 trace: Workaround GCC bug compiling with old systemtap
-- #33340 Fix benchmark CSV output
+- #32513 ci: remove 3rd party js from windows dll gha job
+- #33508 ci: fix buildx gha cache authentication on forks
+- #33581 ci: Properly include $FILE_ENV in DEPENDS_HASH
+- #34344 ci: update GitHub Actions versions
 
 Credits
 =======
 
 Thanks to everyone who directly contributed to this release:
 
+- Anthony Towns
+- Antoine Poinsot
+- Ava Chow
+- David Gumberg
 - Eugene Siegel
 - fanquake
-- Greg Sanders
+- furszy
 - Hennadii Stepanov
-- Luke Dashjr
-- MarcoFalke
-- Martin Zumsande
-- Vasil Dimov
+- ismaelsadeeq
+- luke-jr
+- m3dwards
+- Padraic Slattery
+- Pieter Wuille
+- SatsAndSports
+- sedited
+- willcl-ark
 
 As well as to everyone that helped with translations on
 [Transifex](https://explore.transifex.com/bitcoin/bitcoin/).

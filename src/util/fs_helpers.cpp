@@ -8,6 +8,7 @@
 #include <bitcoin-build-config.h> // IWYU pragma: keep
 
 #include <logging.h>
+#include <random.h>
 #include <sync.h>
 #include <util/fs.h>
 #include <util/syserror.h>
@@ -108,28 +109,28 @@ std::streampos GetFileSize(const char* path, std::streamsize max)
 bool FileCommit(FILE* file)
 {
     if (fflush(file) != 0) { // harmless if redundantly called
-        LogPrintf("fflush failed: %s\n", SysErrorString(errno));
+        LogError("fflush failed: %s", SysErrorString(errno));
         return false;
     }
 #ifdef WIN32
     HANDLE hFile = (HANDLE)_get_osfhandle(_fileno(file));
     if (FlushFileBuffers(hFile) == 0) {
-        LogPrintf("FlushFileBuffers failed: %s\n", Win32ErrorString(GetLastError()));
+        LogError("FlushFileBuffers failed: %s", Win32ErrorString(GetLastError()));
         return false;
     }
 #elif defined(__APPLE__) && defined(F_FULLFSYNC)
     if (fcntl(fileno(file), F_FULLFSYNC, 0) == -1) { // Manpage says "value other than -1" is returned on success
-        LogPrintf("fcntl F_FULLFSYNC failed: %s\n", SysErrorString(errno));
+        LogError("fcntl F_FULLFSYNC failed: %s", SysErrorString(errno));
         return false;
     }
 #elif HAVE_FDATASYNC
     if (fdatasync(fileno(file)) != 0 && errno != EINVAL) { // Ignore EINVAL for filesystems that don't support sync
-        LogPrintf("fdatasync failed: %s\n", SysErrorString(errno));
+        LogError("fdatasync failed: %s", SysErrorString(errno));
         return false;
     }
 #else
     if (fsync(fileno(file)) != 0 && errno != EINVAL) {
-        LogPrintf("fsync failed: %s\n", SysErrorString(errno));
+        LogError("fsync failed: %s", SysErrorString(errno));
         return false;
     }
 #endif
@@ -300,7 +301,7 @@ fs::path GetSpecialFolderPath(int nFolder, bool fCreate)
         return fs::path(pszPath);
     }
 
-    LogPrintf("SHGetSpecialFolderPathW() failed, could not obtain requested path.\n");
+    LogError("SHGetSpecialFolderPathW() failed, could not obtain requested path.");
     return fs::path("");
 }
 #endif
@@ -401,4 +402,20 @@ std::optional<fs::perms> InterpretPermString(const std::string& s)
     } else {
         return std::nullopt;
     }
+}
+
+bool IsDirWritable(const fs::path& dir_path)
+{
+    // Attempt to create a tmp file in the directory
+    if (!fs::is_directory(dir_path)) throw std::runtime_error(strprintf("Path %s is not a directory", fs::PathToString(dir_path)));
+    FastRandomContext rng;
+    const auto tmp = dir_path / fs::PathFromString(strprintf(".tmp_%d", rng.rand64()));
+
+    if (const auto created{fsbridge::fopen(tmp, "wbx")}) {
+        std::fclose(created);
+        std::error_code ec;
+        fs::remove(tmp, ec); // clean up, ignore errors
+        return true;
+    }
+    return false;
 }

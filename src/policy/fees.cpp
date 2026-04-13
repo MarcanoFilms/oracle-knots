@@ -423,7 +423,6 @@ void TxConfirmStats::Read(AutoFile& filein, size_t numBuckets)
     // Read data file and do some very basic sanity checking
     // buckets and bucketMap are not updated yet, so don't access them
     // If there is a read failure, we'll just discard this entire object anyway
-    size_t maxConfirms, maxPeriods;
 
     // The current version will store the decay with each individual TxConfirmStats and also keep a scale factor
     filein >> Using<EncodedDoubleFormatter>(decay);
@@ -444,10 +443,9 @@ void TxConfirmStats::Read(AutoFile& filein, size_t numBuckets)
         throw std::runtime_error("Corrupt estimates file. Mismatch in tx count bucket count");
     }
     filein >> Using<VectorFormatter<VectorFormatter<EncodedDoubleFormatter>>>(confAvg);
-    maxPeriods = confAvg.size();
-    maxConfirms = scale * maxPeriods;
+    const size_t maxPeriods = confAvg.size();
 
-    if (maxConfirms <= 0 || maxConfirms > 6 * 24 * 7) { // one week
+    if (maxPeriods == 0 || scale > (6 * 24 * 7) / maxPeriods) { // one week
         throw std::runtime_error("Corrupt estimates file.  Must maintain estimates for between 1 and 1008 (one week) confirms");
     }
     for (unsigned int i = 0; i < maxPeriods; i++) {
@@ -470,6 +468,7 @@ void TxConfirmStats::Read(AutoFile& filein, size_t numBuckets)
     // to match the number of confirms and buckets
     resizeInMemoryCounters(numBuckets);
 
+    const size_t maxConfirms = scale * maxPeriods;
     LogDebug(BCLog::ESTIMATEFEE, "Reading estimates: %u buckets counting confirms up to %u blocks\n",
              numBuckets, maxConfirms);
 }
@@ -567,12 +566,12 @@ CBlockPolicyEstimator::CBlockPolicyEstimator(const fs::path& estimation_filepath
 
     std::chrono::hours file_age = GetFeeEstimatorFileAge();
     if (file_age > MAX_FILE_AGE && !read_stale_estimates) {
-        LogPrintf("Fee estimation file %s too old (age=%lld > %lld hours) and will not be used to avoid serving stale estimates.\n", fs::PathToString(m_estimation_filepath), Ticks<std::chrono::hours>(file_age), Ticks<std::chrono::hours>(MAX_FILE_AGE));
+        LogWarning("Fee estimation file %s too old (age=%lld > %lld hours) and will not be used to avoid serving stale estimates.", fs::PathToString(m_estimation_filepath), Ticks<std::chrono::hours>(file_age), Ticks<std::chrono::hours>(MAX_FILE_AGE));
         return;
     }
 
     if (!Read(est_file)) {
-        LogPrintf("Failed to read fee estimates from %s. Continue anyway.\n", fs::PathToString(m_estimation_filepath));
+        LogWarning("Failed to read fee estimates from %s. Continue anyway.", fs::PathToString(m_estimation_filepath));
     }
 }
 
@@ -955,11 +954,11 @@ bool CBlockPolicyEstimator::FlushFeeEstimates() const
 {
     AutoFile est_file{fsbridge::fopen(m_estimation_filepath, "wb")};
     if (est_file.IsNull() || !Write(est_file)) {
-        LogPrintf("Failed to write fee estimates to %s. Continue anyway.\n", fs::PathToString(m_estimation_filepath));
+        LogWarning("Failed to write fee estimates to %s. Continue anyway.", fs::PathToString(m_estimation_filepath));
         (void)est_file.fclose();
         return false;
     } else if (est_file.fclose() != 0) {
-        LogError("Failed to close fee estimates file %s: %s. Continuing anyway.", fs::PathToString(m_estimation_filepath), SysErrorString(errno));
+        LogWarning("Failed to close fee estimates file %s: %s. Continuing anyway.", fs::PathToString(m_estimation_filepath), SysErrorString(errno));
         return false;
     } else {
         LogPrintf("Flushed fee estimates to %s.\n", fs::PathToString(m_estimation_filepath.filename()));
