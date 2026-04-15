@@ -65,7 +65,17 @@ file(GLOB ts_files RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} locale/*.ts)
 set_source_files_properties(${ts_files} PROPERTIES OUTPUT_LOCATION ${CMAKE_CURRENT_BINARY_DIR}/locale)
 cmake_language(CALL "qt${WITH_QT_VERSION}_add_translation" qm_files ${ts_files})
 
+set(FONT_PATH "res/fonts/RobotoTonalMono-Bold.ttf")
+file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/res/fonts")
+add_custom_command(
+  OUTPUT ${FONT_PATH}
+  COMMAND ${PYTHON_COMMAND} -c "import base64, lzma, sys; sys.stdout.buffer.write(lzma.decompress(base64.b85decode(sys.stdin.read())))" < "${CMAKE_CURRENT_SOURCE_DIR}/${FONT_PATH}.in" > "${FONT_PATH}.new" && mv "${FONT_PATH}.new" "${FONT_PATH}"
+  DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/${FONT_PATH}.in
+  VERBATIM
+)
+
 configure_file(bitcoin_locale.qrc bitcoin_locale.qrc USE_SOURCE_PERMISSIONS COPYONLY)
+configure_file(font.qrc font.qrc USE_SOURCE_PERMISSIONS COPYONLY)
 
 # The bitcoinqt sources have to include headers in
 # order to parse them to collect translatable strings.
@@ -82,6 +92,8 @@ add_library(bitcoinqt STATIC EXCLUDE_FROM_ALL
   bitcoingui.h
   bitcoinunits.cpp
   bitcoinunits.h
+  blockview.cpp
+  blockview.h
   clientmodel.cpp
   clientmodel.h
   csvmodelwriter.cpp
@@ -99,7 +111,9 @@ add_library(bitcoinqt STATIC EXCLUDE_FROM_ALL
   $<$<PLATFORM_ID:Darwin>:macos_appnap.h>
   $<$<PLATFORM_ID:Darwin>:macos_appnap.mm>
   modaloverlay.cpp
+  mempoolstats.cpp
   modaloverlay.h
+  netwatch.cpp
   networkstyle.cpp
   networkstyle.h
   notificator.cpp
@@ -108,12 +122,16 @@ add_library(bitcoinqt STATIC EXCLUDE_FROM_ALL
   optionsdialog.h
   optionsmodel.cpp
   optionsmodel.h
+  pairingpage.cpp
+  pairingpage.h
   peertablemodel.cpp
   peertablemodel.h
   peertablesortproxy.cpp
   peertablesortproxy.h
   platformstyle.cpp
   platformstyle.h
+  qrimagewidget.cpp
+  qrimagewidget.h
   qvalidatedlineedit.cpp
   qvalidatedlineedit.h
   qvaluecombobox.cpp
@@ -122,6 +140,8 @@ add_library(bitcoinqt STATIC EXCLUDE_FROM_ALL
   rpcconsole.h
   splashscreen.cpp
   splashscreen.h
+  tonalutils.cpp
+  tonalutils.h
   trafficgraphwidget.cpp
   trafficgraphwidget.h
   utilitydialog.cpp
@@ -130,6 +150,7 @@ add_library(bitcoinqt STATIC EXCLUDE_FROM_ALL
   $<$<PLATFORM_ID:Windows>:winshutdownmonitor.h>
   bitcoin.qrc
   ${CMAKE_CURRENT_BINARY_DIR}/bitcoin_locale.qrc
+  ${CMAKE_CURRENT_BINARY_DIR}/font.qrc
 )
 target_compile_definitions(bitcoinqt
   PUBLIC
@@ -152,6 +173,7 @@ target_link_libraries(bitcoinqt
     bitcoin_cli
     leveldb
     Boost::headers
+    $<TARGET_NAME_IF_EXISTS:MiniUPnPc::MiniUPnPc>
     $<TARGET_NAME_IF_EXISTS:QRencode::QRencode>
     $<$<PLATFORM_ID:Darwin>:-framework\ AppKit>
     $<$<CXX_COMPILER_ID:MSVC>:shlwapi>
@@ -230,6 +252,13 @@ endif()
 
 if(WITH_DBUS)
   target_link_libraries(bitcoinqt PRIVATE "Qt${WITH_QT_VERSION}::DBus")
+endif()
+if(WITH_TASKBAR_PROGRESS)
+  target_link_libraries(bitcoinqt
+    PRIVATE
+      "Qt${WITH_QT_VERSION}::WinExtras"
+      $<$<PLATFORM_ID:Windows>:dwmapi>
+  )
 endif()
 
 if(qt_lib_type STREQUAL "STATIC_LIBRARY")

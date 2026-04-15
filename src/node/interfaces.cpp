@@ -8,6 +8,7 @@
 #include <chain.h>
 #include <chainparams.h>
 #include <common/args.h>
+#include <common/pcp.h>
 #include <consensus/merkle.h>
 #include <consensus/validation.h>
 #include <deploymentstatus.h>
@@ -188,7 +189,13 @@ public:
         });
         args().WriteSettingsFile();
     }
-    void mapPort(bool enable) override { StartMapPort(enable); }
+    void mapPort(bool use_upnp, bool use_pcp) override {
+        if (use_pcp && !MapPortIsProtoEnabled(MapPortProtoFlag::PCP)) {
+            // Explicitly enabling PCP
+            g_pcp_warn_for_unauthorized = true;
+        }
+        StartMapPort(use_upnp, use_pcp);
+    }
     bool getProxy(Network net, Proxy& proxy_info) override { return GetProxy(net, proxy_info); }
     size_t getNodeCount(ConnectionDirection flags) override
     {
@@ -351,6 +358,7 @@ public:
         req.params = params;
         req.strMethod = command;
         req.URI = uri;
+        req.m_wallet_restriction.clear();
         return ::tableRPC.execute(req);
     }
     std::vector<std::string> listRpcCommands() override { return ::tableRPC.listCommands(); }
@@ -396,6 +404,10 @@ public:
     std::unique_ptr<Handler> handleNotifyNetworkActiveChanged(NotifyNetworkActiveChangedFn fn) override
     {
         return MakeSignalHandler(::uiInterface.NotifyNetworkActiveChanged_connect(fn));
+    }
+    std::unique_ptr<Handler> handleNotifyNetworkLocalChanged(NotifyNetworkLocalChangedFn fn) override
+    {
+        return MakeSignalHandler(::uiInterface.NotifyNetworkLocalChanged_connect(fn));
     }
     std::unique_ptr<Handler> handleNotifyAlertChanged(NotifyAlertChangedFn fn) override
     {
@@ -559,6 +571,24 @@ public:
         LOCK(::cs_main);
         const CBlockIndex* block{chainman().ActiveChain()[height]};
         return block && ((block->nStatus & BLOCK_HAVE_DATA) != 0) && block->nTx > 0;
+    }
+    bool pruneLockExists(const std::string& name) const override
+    {
+        LOCK(cs_main);
+        auto& blockman = m_node.chainman->m_blockman;
+        return blockman.PruneLockExists(name);
+    }
+    bool updatePruneLock(const std::string& name, const node::PruneLockInfo& lock_info, bool sync) override
+    {
+        LOCK(cs_main);
+        auto& blockman = m_node.chainman->m_blockman;
+        return blockman.UpdatePruneLock(name, lock_info, sync);
+    }
+    bool deletePruneLock(const std::string& name) override
+    {
+        LOCK(cs_main);
+        auto& blockman = m_node.chainman->m_blockman;
+        return blockman.DeletePruneLock(name);
     }
     CBlockLocator getTipLocator() override
     {
@@ -732,7 +762,7 @@ public:
     {
         if (!m_node.mempool) return {};
         LockPoints lp;
-        CTxMemPoolEntry entry(tx, 0, 0, 0, 0, false, 0, lp);
+        CTxMemPoolEntry entry(tx, 0, 0, 0, 0, COIN_AGE_CACHE_ZERO, false, /*extra_weight=*/0, 0, lp);
         LOCK(m_node.mempool->cs);
         return m_node.mempool->CheckPackageLimits({tx}, entry.GetTxSize());
     }
@@ -880,47 +910,52 @@ public:
 class BlockTemplateImpl : public BlockTemplate
 {
 public:
-    explicit BlockTemplateImpl(std::unique_ptr<CBlockTemplate> block_template, NodeContext& node) : m_block_template(std::move(block_template)), m_node(node)
+    explicit BlockTemplateImpl(std::shared_ptr<CBlockTemplate> block_template, NodeContext& node) : m_block_template(std::move(block_template)), m_node(node)
     {
         assert(m_block_template);
     }
 
-    CBlockHeader getBlockHeader() override
+    const CBlockHeader& getBlockHeader() const override
     {
         return m_block_template->block;
     }
 
-    CBlock getBlock() override
+    const CBlock& getBlock() const override
     {
         return m_block_template->block;
     }
 
-    std::vector<CAmount> getTxFees() override
+    const std::vector<CAmount>& getTxFees() const override
     {
         return m_block_template->vTxFees;
     }
 
-    std::vector<int64_t> getTxSigops() override
+    const std::vector<int64_t>& getTxSigops() const override
     {
         return m_block_template->vTxSigOpsCost;
     }
 
-    CTransactionRef getCoinbaseTx() override
+    const std::vector<double>& getTxCoinAgePriorities() const override
+    {
+        return m_block_template->vTxPriorities;
+    }
+
+    CTransactionRef getCoinbaseTx() const override
     {
         return m_block_template->block.vtx[0];
     }
 
-    std::vector<unsigned char> getCoinbaseCommitment() override
+    const std::vector<unsigned char>& getCoinbaseCommitment() const override
     {
         return m_block_template->vchCoinbaseCommitment;
     }
 
-    int getWitnessCommitmentIndex() override
+    int getWitnessCommitmentIndex() const override
     {
         return GetWitnessCommitmentIndex(m_block_template->block);
     }
 
-    std::vector<uint256> getCoinbaseMerklePath() override
+    std::vector<uint256> getCoinbaseMerklePath() const override
     {
         return TransactionMerklePath(m_block_template->block, 0);
     }
@@ -945,7 +980,7 @@ public:
         return chainman().ProcessNewBlock(block_ptr, /*force_processing=*/true, /*min_pow_checked=*/true, /*new_block=*/nullptr);
     }
 
-    const std::unique_ptr<CBlockTemplate> m_block_template;
+    const std::shared_ptr<CBlockTemplate> m_block_template;
 
     ChainstateManager& chainman() { return *Assert(m_node.chainman); }
     NodeContext& m_node;
@@ -1009,7 +1044,12 @@ public:
 
         BlockAssembler::Options assemble_options{options};
         ApplyArgsManOptions(*Assert(m_node.args), assemble_options);
-        return std::make_unique<BlockTemplateImpl>(BlockAssembler{chainman().ActiveChainstate(), context()->mempool.get(), assemble_options}.CreateNewBlock(), m_node);
+        return createNewBlock2(assemble_options);
+    }
+
+    std::unique_ptr<BlockTemplate> createNewBlock2(const BlockCreateOptions& assemble_options) override
+    {
+        return std::make_unique<BlockTemplateImpl>(BlockAssembler{chainman().ActiveChainstate(), context()->mempool.get(), assemble_options, m_node}.CreateNewBlock(), m_node);
     }
 
     NodeContext* context() override { return &m_node; }

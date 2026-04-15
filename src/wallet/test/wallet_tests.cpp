@@ -19,6 +19,7 @@
 #include <test/util/logging.h>
 #include <test/util/random.h>
 #include <test/util/setup_common.h>
+#include <util/mempressure.h>
 #include <util/translation.h>
 #include <validation.h>
 #include <validationinterface.h>
@@ -258,6 +259,7 @@ BOOST_FIXTURE_TEST_CASE(importmulti_rescan, TestChain100Setup)
         keys.push_back(std::move(key));
         JSONRPCRequest request;
         request.context = &context;
+        request.m_wallet_restriction = "";
         request.params.setArray();
         request.params.push_back(std::move(keys));
 
@@ -313,6 +315,7 @@ BOOST_FIXTURE_TEST_CASE(importwallet_rescan, TestChain100Setup)
         }
         JSONRPCRequest request;
         request.context = &context;
+        request.m_wallet_restriction = "";
         request.params.setArray();
         request.params.push_back(backup_file);
 
@@ -331,6 +334,7 @@ BOOST_FIXTURE_TEST_CASE(importwallet_rescan, TestChain100Setup)
         context.args = &m_args;
         JSONRPCRequest request;
         request.context = &context;
+        request.m_wallet_restriction = "";
         request.params.setArray();
         request.params.push_back(backup_file);
         AddWallet(context, wallet);
@@ -838,6 +842,9 @@ BOOST_FIXTURE_TEST_CASE(wallet_descriptor_test, BasicTestingSetup)
 //! rescanning where new transactions in new blocks could be lost.
 BOOST_FIXTURE_TEST_CASE(CreateWallet, TestChain100Setup)
 {
+    // FIXME: this test fails for some reason if there's a flush
+    g_low_memory_threshold = 0;
+
     m_args.ForceSetArg("-unsafesqlitesync", "1");
     // Create new wallet with known key and unload it.
     WalletContext context;

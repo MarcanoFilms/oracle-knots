@@ -14,10 +14,12 @@
 #include <qt/optionsmodel.h>
 
 #include <common/system.h>
+#include <index/blockfilterindex.h>
 #include <interfaces/node.h>
 #include <netbase.h>
 #include <node/caches.h>
 #include <node/chainstatemanager_args.h>
+#include <outputtype.h>
 #include <util/strencodings.h>
 
 #include <chrono>
@@ -58,7 +60,7 @@ void setupFontOptions(QComboBox* cb, QLabel* preview)
 {
     QFont embedded_font{GUIUtil::fixedPitchFont(true)};
     QFont system_font{GUIUtil::fixedPitchFont(false)};
-    cb->addItem(QObject::tr("Embedded \"%1\"").arg(QFontInfo(embedded_font).family()), QVariant::fromValue(OptionsModel::FontChoice{OptionsModel::FontChoiceAbstract::EmbeddedFont}));
+    cb->addItem(QObject::tr("%1").arg(QFontInfo(embedded_font).family()), QVariant::fromValue(OptionsModel::FontChoice{OptionsModel::FontChoiceAbstract::EmbeddedFont}));
     cb->addItem(QObject::tr("Default system font \"%1\"").arg(QFontInfo(system_font).family()), QVariant::fromValue(OptionsModel::FontChoice{OptionsModel::FontChoiceAbstract::BestSystemFont}));
     cb->addItem(QObject::tr("Custom…"));
 
@@ -101,10 +103,23 @@ OptionsDialog::OptionsDialog(QWidget* parent, bool enableWallet)
     ui->pruneWarning->setVisible(false);
     ui->pruneWarning->setStyleSheet("QLabel { color: red; }");
 
-    ui->pruneSize->setEnabled(false);
-    connect(ui->prune, &QPushButton::toggled, ui->pruneSize, &QWidget::setEnabled);
+    ui->pruneSizeMiB->setEnabled(false);
+#if (QT_VERSION >= QT_VERSION_CHECK(6, 7, 0))
+    connect(ui->prune, &QCheckBox::checkStateChanged, [this](const Qt::CheckState state){
+#else
+    connect(ui->prune, &QCheckBox::stateChanged, [this](const int state){
+#endif
+        ui->pruneSizeMiB->setEnabled(state == Qt::Checked);
+    });
+
+    ui->networkPort->setValidator(new QIntValidator(1024, 65535, this));
+    connect(ui->networkPort, SIGNAL(textChanged(const QString&)), this, SLOT(checkLineEdit()));
 
     /* Network elements init */
+#ifndef USE_UPNP
+    ui->mapPortUpnp->setEnabled(false);
+#endif
+
     ui->proxyIp->setEnabled(false);
     ui->proxyPort->setEnabled(false);
     ui->proxyPort->setValidator(new QIntValidator(1, 65535, this));
@@ -121,6 +136,10 @@ OptionsDialog::OptionsDialog(QWidget* parent, bool enableWallet)
     connect(ui->connectSocksTor, &QPushButton::toggled, ui->proxyPortTor, &QWidget::setEnabled);
     connect(ui->connectSocksTor, &QPushButton::toggled, this, &OptionsDialog::updateProxyValidationState);
 
+    ui->maxuploadtarget->setMinimum(144 /* MiB/day */);
+    ui->maxuploadtarget->setMaximum(std::numeric_limits<int>::max());
+    connect(ui->maxuploadtargetCheckbox, SIGNAL(toggled(bool)), ui->maxuploadtarget, SLOT(setEnabled(bool)));
+
     /* Window elements init */
 #ifdef Q_OS_MACOS
     /* remove Window tab on Mac */
@@ -136,6 +155,15 @@ OptionsDialog::OptionsDialog(QWidget* parent, bool enableWallet)
         ui->tabWidget->removeTab(ui->tabWidget->indexOf(ui->tabWallet));
         ui->thirdPartyTxUrlsLabel->setVisible(false);
         ui->thirdPartyTxUrls->setVisible(false);
+    } else {
+        for (OutputType type : OUTPUT_TYPES) {
+            const QString& val = QString::fromStdString(FormatOutputType(type));
+            const auto [text, tooltip] = GetOutputTypeDescription(type);
+
+            const auto index = ui->addressType->count();
+            ui->addressType->addItem(text, val);
+            ui->addressType->setItemData(index, tooltip, Qt::ToolTipRole);
+        }
     }
 
 #ifdef ENABLE_EXTERNAL_SIGNER
@@ -205,8 +233,15 @@ OptionsDialog::OptionsDialog(QWidget* parent, bool enableWallet)
     }
 
     setupFontOptions(ui->moneyFont, ui->moneyFont_preview);
+    setupFontOptions(ui->qrFont, ui->qrFont_preview);
+#ifndef USE_QRCODE
+    ui->qrFontLabel->setVisible(false);
+    ui->qrFont->setVisible(false);
+    ui->qrFont_preview->setVisible(false);
+#endif
 
     GUIUtil::handleCloseWindowShortcut(this);
+    updateThemeColors();
 }
 
 OptionsDialog::~OptionsDialog()
@@ -229,9 +264,8 @@ void OptionsDialog::setModel(OptionsModel *_model)
         if (_model->isRestartRequired())
             showRestartWarning(true);
 
-        // Prune values are in GB to be consistent with intro.cpp
-        static constexpr uint64_t nMinDiskSpace = (MIN_DISK_SPACE_FOR_BLOCK_FILES / GB_BYTES) + (MIN_DISK_SPACE_FOR_BLOCK_FILES % GB_BYTES) ? 1 : 0;
-        ui->pruneSize->setRange(nMinDiskSpace, std::numeric_limits<int>::max());
+        static constexpr uint64_t nMinDiskSpace = (MIN_DISK_SPACE_FOR_BLOCK_FILES + MiB_BYTES - 1) / MiB_BYTES;
+        ui->pruneSizeMiB->setRange(nMinDiskSpace, std::numeric_limits<int>::max());
 
         QString strLabel = _model->getOverriddenByCommandLine();
         if (strLabel.isEmpty())
@@ -245,6 +279,9 @@ void OptionsDialog::setModel(OptionsModel *_model)
         const auto& font_for_money = _model->data(_model->index(OptionsModel::FontForMoney, 0), Qt::EditRole).value<OptionsModel::FontChoice>();
         setFontChoice(ui->moneyFont, font_for_money);
 
+        const auto& font_for_qrcodes = _model->data(_model->index(OptionsModel::FontForQRCodes, 0), Qt::EditRole).value<OptionsModel::FontChoice>();
+        setFontChoice(ui->qrFont, font_for_qrcodes);
+
         updateDefaultProxyNets();
     }
 
@@ -253,17 +290,20 @@ void OptionsDialog::setModel(OptionsModel *_model)
     /* Main */
     connect(ui->prune, &QCheckBox::clicked, this, &OptionsDialog::showRestartWarning);
     connect(ui->prune, &QCheckBox::clicked, this, &OptionsDialog::togglePruneWarning);
-    connect(ui->pruneSize, qOverload<int>(&QSpinBox::valueChanged), this, &OptionsDialog::showRestartWarning);
+    connect(ui->pruneSizeMiB, qOverload<int>(&QSpinBox::valueChanged), this, &OptionsDialog::showRestartWarning);
     connect(ui->databaseCache, qOverload<int>(&QSpinBox::valueChanged), this, &OptionsDialog::showRestartWarning);
     connect(ui->externalSignerPath, &QLineEdit::textChanged, [this]{ showRestartWarning(); });
     connect(ui->threadsScriptVerif, qOverload<int>(&QSpinBox::valueChanged), this, &OptionsDialog::showRestartWarning);
     /* Wallet */
     connect(ui->spendZeroConfChange, &QCheckBox::clicked, this, &OptionsDialog::showRestartWarning);
     /* Network */
+    connect(ui->networkPort, SIGNAL(textChanged(const QString &)), this, SLOT(showRestartWarning()));
     connect(ui->allowIncoming, &QCheckBox::clicked, this, &OptionsDialog::showRestartWarning);
     connect(ui->enableServer, &QCheckBox::clicked, this, &OptionsDialog::showRestartWarning);
     connect(ui->connectSocks, &QCheckBox::clicked, this, &OptionsDialog::showRestartWarning);
     connect(ui->connectSocksTor, &QCheckBox::clicked, this, &OptionsDialog::showRestartWarning);
+    connect(ui->peerbloomfilters, &QCheckBox::clicked, this, &OptionsDialog::showRestartWarning);
+    connect(ui->peerblockfilters, &QCheckBox::clicked, this, &OptionsDialog::showRestartWarning);
     /* Display */
     connect(ui->lang, qOverload<>(&QValueComboBox::valueChanged), [this]{ showRestartWarning(); });
     connect(ui->thirdPartyTxUrls, &QLineEdit::textChanged, [this]{ showRestartWarning(); });
@@ -285,10 +325,16 @@ void OptionsDialog::setMapper()
     mapper->addMapping(ui->bitcoinAtStartup, OptionsModel::StartAtStartup);
     mapper->addMapping(ui->threadsScriptVerif, OptionsModel::ThreadsScriptVerif);
     mapper->addMapping(ui->databaseCache, OptionsModel::DatabaseCache);
-    mapper->addMapping(ui->prune, OptionsModel::Prune);
-    mapper->addMapping(ui->pruneSize, OptionsModel::PruneSize);
+
+    const auto prune_checkstate = model->data(model->index(OptionsModel::PruneTristate, 0), Qt::EditRole).value<Qt::CheckState>();
+    if (prune_checkstate == Qt::PartiallyChecked) {
+        ui->prune->setTristate();
+    }
+    ui->prune->setCheckState(prune_checkstate);
+    mapper->addMapping(ui->pruneSizeMiB, OptionsModel::PruneSizeMiB);
 
     /* Wallet */
+    mapper->addMapping(ui->addressType, OptionsModel::addresstype);
     mapper->addMapping(ui->spendZeroConfChange, OptionsModel::SpendZeroConfChange);
     mapper->addMapping(ui->coinControlFeatures, OptionsModel::CoinControlFeatures);
     mapper->addMapping(ui->subFeeFromAmount, OptionsModel::SubFeeFromAmount);
@@ -296,6 +342,8 @@ void OptionsDialog::setMapper()
     mapper->addMapping(ui->m_enable_psbt_controls, OptionsModel::EnablePSBTControls);
 
     /* Network */
+    mapper->addMapping(ui->networkPort, OptionsModel::NetworkPort);
+    mapper->addMapping(ui->mapPortUpnp, OptionsModel::MapPortUPnP);
     mapper->addMapping(ui->mapPortNatpmp, OptionsModel::MapPortNatpmp);
     mapper->addMapping(ui->allowIncoming, OptionsModel::Listen);
     mapper->addMapping(ui->enableServer, OptionsModel::Server);
@@ -308,6 +356,30 @@ void OptionsDialog::setMapper()
     mapper->addMapping(ui->proxyIpTor, OptionsModel::ProxyIPTor);
     mapper->addMapping(ui->proxyPortTor, OptionsModel::ProxyPortTor);
 
+    int current_maxuploadtarget = model->data(model->index(OptionsModel::maxuploadtarget, 0), Qt::EditRole).toInt();
+    if (current_maxuploadtarget == 0) {
+        ui->maxuploadtargetCheckbox->setChecked(false);
+        ui->maxuploadtarget->setEnabled(false);
+        ui->maxuploadtarget->setValue(ui->maxuploadtarget->minimum());
+    } else {
+        if (current_maxuploadtarget < ui->maxuploadtarget->minimum()) {
+            ui->maxuploadtarget->setMinimum(current_maxuploadtarget);
+        }
+        ui->maxuploadtargetCheckbox->setChecked(true);
+        ui->maxuploadtarget->setEnabled(true);
+        ui->maxuploadtarget->setValue(current_maxuploadtarget);
+    }
+
+    mapper->addMapping(ui->peerbloomfilters, OptionsModel::peerbloomfilters);
+    mapper->addMapping(ui->peerblockfilters, OptionsModel::peerblockfilters);
+    if (prune_checkstate != Qt::Unchecked && !GetBlockFilterIndex(BlockFilterType::BASIC)) {
+        // Once pruning begins, it's too late to enable block filters, and doing so will prevent starting the client
+        // Rather than try to monitor sync state, just disable the option once pruning is enabled
+        // Advanced users can override this manually anyway
+        ui->peerblockfilters->setEnabled(false);
+        ui->peerblockfilters->setToolTip(ui->peerblockfilters->toolTip() + " " + tr("(only available if enabled at least once before turning on pruning)"));
+    }
+
     /* Window */
 #ifndef Q_OS_MACOS
     if (QSystemTrayIcon::isSystemTrayAvailable()) {
@@ -318,9 +390,24 @@ void OptionsDialog::setMapper()
 #endif
 
     /* Display */
+    mapper->addMapping(ui->peersTabAlternatingRowColors, OptionsModel::PeersTabAlternatingRowColors);
     mapper->addMapping(ui->lang, OptionsModel::Language);
     mapper->addMapping(ui->unit, OptionsModel::DisplayUnit);
+    mapper->addMapping(ui->displayAddresses, OptionsModel::DisplayAddresses);
     mapper->addMapping(ui->thirdPartyTxUrls, OptionsModel::ThirdPartyTxUrls);
+}
+
+void OptionsDialog::checkLineEdit()
+{
+    QLineEdit * const lineedit = qobject_cast<QLineEdit*>(QObject::sender());
+    if (lineedit->hasAcceptableInput()) {
+        lineedit->setStyleSheet("");
+    } else {
+        // Check the line edit's actual background to choose appropriate warning color
+        const bool lineedit_dark = GUIUtil::isDarkMode(lineedit->palette().color(lineedit->backgroundRole()));
+        const QColor lineedit_warning = lineedit_dark ? QColor("#FF8080") : QColor("#FF0000");
+        lineedit->setStyleSheet(QStringLiteral("color: %1;").arg(lineedit_warning.name()));
+    }
 }
 
 void OptionsDialog::setOkButtonState(bool fState)
@@ -382,7 +469,35 @@ void OptionsDialog::on_openBitcoinConfButton_clicked()
 
 void OptionsDialog::on_okButton_clicked()
 {
+    for (int i = 0; i < ui->tabWidget->count(); ++i) {
+        QWidget * const tab = ui->tabWidget->widget(i);
+        Q_FOREACH(QObject* o, tab->children()) {
+            QLineEdit * const lineedit = qobject_cast<QLineEdit*>(o);
+            if (lineedit && !lineedit->hasAcceptableInput()) {
+                int row = mapper->mappedSection(lineedit);
+                if (model->data(model->index(row, 0), Qt::EditRole) == lineedit->text()) {
+                    // Allow unchanged fields through
+                    continue;
+                }
+                ui->tabWidget->setCurrentWidget(tab);
+                lineedit->setFocus(Qt::OtherFocusReason);
+                lineedit->selectAll();
+                QMessageBox::critical(this, tr("Invalid setting"), tr("The value entered is invalid."));
+                return;
+            }
+        }
+    }
+
+    model->setData(model->index(OptionsModel::PruneTristate, 0), ui->prune->checkState());
+
     model->setData(model->index(OptionsModel::FontForMoney, 0), ui->moneyFont->itemData(ui->moneyFont->currentIndex()));
+    model->setData(model->index(OptionsModel::FontForQRCodes, 0), ui->qrFont->itemData(ui->qrFont->currentIndex()));
+
+    if (ui->maxuploadtargetCheckbox->isChecked()) {
+        model->setData(model->index(OptionsModel::maxuploadtarget, 0), ui->maxuploadtarget->value());
+    } else {
+        model->setData(model->index(OptionsModel::maxuploadtarget, 0), 0);
+    }
 
     mapper->submit();
     accept();
@@ -404,6 +519,15 @@ void OptionsDialog::on_showTrayIcon_stateChanged(int state)
     }
 }
 
+void OptionsDialog::changeEvent(QEvent* e)
+{
+    if (e->type() == QEvent::PaletteChange) {
+        updateThemeColors();
+    }
+
+    QWidget::changeEvent(e);
+}
+
 void OptionsDialog::togglePruneWarning(bool enabled)
 {
     ui->pruneWarning->setVisible(!ui->pruneWarning->isVisible());
@@ -411,8 +535,6 @@ void OptionsDialog::togglePruneWarning(bool enabled)
 
 void OptionsDialog::showRestartWarning(bool fPersistent)
 {
-    ui->statusLabel->setStyleSheet("QLabel { color: red; }");
-
     if(fPersistent)
     {
         ui->statusLabel->setText(tr("Client restart required to activate changes."));
@@ -446,7 +568,6 @@ void OptionsDialog::updateProxyValidationState()
     else
     {
         setOkButtonState(false);
-        ui->statusLabel->setStyleSheet("QLabel { color: red; }");
         ui->statusLabel->setText(tr("The supplied proxy address is invalid."));
     }
 }
@@ -471,6 +592,25 @@ void OptionsDialog::updateDefaultProxyNets()
 
     has_proxy = model->node().getProxy(NET_ONION, proxy);
     ui->proxyReachTor->setChecked(has_proxy && proxy.ToString() == proxyIpText);
+}
+
+void OptionsDialog::updateThemeColors()
+{
+    // Detect dark mode for color palette selection
+    const bool dark_mode = GUIUtil::isDarkMode(palette().color(backgroundRole()));
+
+    // set message warning color based on dark mode
+    const QColor warning_color = dark_mode ? QColor("#FF8080") : QColor("#FF0000");
+    ui->pruneWarning->setStyleSheet(QStringLiteral("QLabel { color: %1; }").arg(warning_color.name()));
+    ui->statusLabel->setStyleSheet(QStringLiteral("QLabel { color: %1; }").arg(warning_color.name()));
+
+    // Update networkPort line edit color if it has validation errors
+    if (!ui->networkPort->hasAcceptableInput()) {
+        // Check networkPort's actual background for appropriate warning color
+        const bool networkport_dark = GUIUtil::isDarkMode(ui->networkPort->palette().color(ui->networkPort->backgroundRole()));
+        const QColor networkport_warning = networkport_dark ? QColor("#FF8080") : QColor("#FF0000");
+        ui->networkPort->setStyleSheet(QStringLiteral("color: %1;").arg(networkport_warning.name()));
+    }
 }
 
 ProxyAddressValidator::ProxyAddressValidator(QObject *parent) :

@@ -25,8 +25,10 @@ add_executable(test_bitcoin
   blockmanager_tests.cpp
   bloom_tests.cpp
   bswap_tests.cpp
+  chainstate_write_tests.cpp
   checkqueue_tests.cpp
   cluster_linearize_tests.cpp
+  codex32_tests.cpp
   coins_tests.cpp
   coinscachepair_tests.cpp
   coinstatsindex_tests.cpp
@@ -121,6 +123,7 @@ add_executable(test_bitcoin
   validation_tests.cpp
   validationinterface_tests.cpp
   versionbits_tests.cpp
+  ../stats/test/stats_tests.cpp
 )
 
 include(TargetDataSources)
@@ -142,6 +145,7 @@ target_raw_data_sources(test_bitcoin NAMESPACE test::data
 target_link_libraries(test_bitcoin
   core_interface
   test_util
+  $<TARGET_NAME_IF_EXISTS:bitcoinconsensus>
   bitcoin_cli
   bitcoin_node
   bitcoin_consensus
@@ -206,4 +210,5 @@ endfunction()
 
 add_all_test_targets()
 
+make_libbitcoinconsensus_dll_available(test_bitcoin)
 install_binary_component(test_bitcoin)

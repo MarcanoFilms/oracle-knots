@@ -47,6 +47,7 @@
 #include <string>
 #include <unordered_map>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include <boost/signals2/signal.hpp>
@@ -157,6 +158,7 @@ static constexpr uint64_t KNOWN_WALLET_FLAGS =
     |   WALLET_FLAG_EXTERNAL_SIGNER;
 
 static constexpr uint64_t MUTABLE_WALLET_FLAGS =
+        WALLET_FLAG_EXTERNAL_SIGNER |
         WALLET_FLAG_AVOID_REUSE;
 
 static const std::map<std::string,WalletFlags> WALLET_FLAG_MAP{
@@ -235,6 +237,12 @@ struct CAddressBookData
      * non-change addresses by wallet transaction listing and fee bumping code.
      */
     std::optional<std::string> label;
+
+    /** Whether address is the destination of any wallet transation.
+     * Unlike other fields in address data struct, the used value is determined
+     * at runtime and not serialized as part of address data.
+     */
+    bool m_used{false};
 
     /**
      * Address purpose which was originally recorded for payment protocol
@@ -335,6 +343,9 @@ private:
     TxSpends mapTxSpends GUARDED_BY(cs_wallet);
     void AddToSpends(const COutPoint& outpoint, const uint256& wtxid, WalletBatch* batch = nullptr) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
     void AddToSpends(const CWalletTx& wtx, WalletBatch* batch = nullptr) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+
+    void InitialiseAddressBookUsed() EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    void UpdateAddressBookUsed(const CWalletTx&) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
 
     /**
      * Add a transaction to the wallet, or update it.  confirm.block_* should
@@ -556,6 +567,8 @@ public:
     bool UnlockAllCoins() EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
     void ListLockedCoins(std::vector<COutPoint>& vOutpts) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
 
+    bool FindScriptPubKeyUsed(const std::set<CScript>& keys, const std::variant<std::monostate, std::function<void(const CWalletTx&)>, std::function<void(const CWalletTx&, uint32_t)>>& callback = std::monostate()) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+
     /*
      * Rescan abort properties
      */
@@ -653,8 +666,8 @@ public:
     /** Fetch the inputs and sign with SIGHASH_ALL. */
     bool SignTransaction(CMutableTransaction& tx) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
     /** Sign the tx given the input coins and sighash. */
-    bool SignTransaction(CMutableTransaction& tx, const std::map<COutPoint, Coin>& coins, int sighash, std::map<int, bilingual_str>& input_errors) const;
-    SigningResult SignMessage(const std::string& message, const PKHash& pkhash, std::string& str_sig) const;
+    bool SignTransaction(CMutableTransaction& tx, const std::map<COutPoint, Coin>& coins, int sighash, std::map<int, bilingual_str>& input_errors, std::optional<CAmount>* inputs_amount_sum = nullptr) const;
+    SigningResult SignMessage(const MessageSignatureFormat format, const std::string& message, const CTxDestination& address, std::string& str_sig) const;
 
     /**
      * Fills out a PSBT with information from the wallet. Fills in UTXOs if we have
@@ -744,7 +757,7 @@ public:
     int64_t m_keypool_size{DEFAULT_KEYPOOL_SIZE};
 
     /** Notify external script when a wallet transaction comes in or is updated (handled by -walletnotify) */
-    std::string m_notify_tx_changed_script;
+    std::vector<std::string> m_notify_tx_changed_scripts;
 
     size_t KeypoolCountExternalKeys() const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
     bool TopUpKeyPool(unsigned int kpSize = 0);
@@ -777,6 +790,11 @@ public:
     void ForEachAddrBookEntry(const ListAddrBookFunc& func) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
 
     /**
+     * Determines if a destination is in the active spkm (not imported and not dumped for a new keypool)
+     */
+    [[nodiscard]] bool IsDestinationActive(const CTxDestination& dest) const;
+
+    /**
      * Marks all outputs in each one of the destinations dirty, so their cache is
      * reset and does not return outdated information.
      */
@@ -800,7 +818,8 @@ public:
     CAmount GetDebit(const CTransaction& tx, const isminefilter& filter) const;
     void chainStateFlushed(ChainstateRole role, const CBlockLocator& loc) override;
 
-    DBErrors LoadWallet();
+    enum class do_init_used_flag { Init, Skip };
+    DBErrors LoadWallet(const do_init_used_flag do_init_used_flag_val = do_init_used_flag::Init);
 
     /** Erases the provided transactions from the wallet. */
     util::Result<void> RemoveTxs(std::vector<uint256>& txs_to_remove) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
@@ -855,6 +874,9 @@ public:
      * @note called with lock cs_wallet held.
      */
     boost::signals2::signal<void(const uint256& hashTx, ChangeType status)> NotifyTransactionChanged;
+
+    static boost::signals2::signal<void (const CTransactionRef &ptxn,
+                                  const uint256 &blockHash)> TransactionAddedToWallet;
 
     /** Show progress e.g. for rescan */
     boost::signals2::signal<void (const std::string &title, int nProgress)> ShowProgress;

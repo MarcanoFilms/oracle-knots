@@ -424,6 +424,80 @@ RPCHelpMan sendmany()
     };
 }
 
+RPCHelpMan setfeerate()
+{
+    return RPCHelpMan{
+        "setfeerate",
+        "\nSet the transaction fee rate in " + CURRENCY_ATOM + "/vB for this wallet.\n"
+        "Overrides the global -paytxfee configuration option. Like -paytxfee, it is not persisted after bitcoind shutdown/restart.\n"
+        "Can be deactivated by passing 0 as the fee rate, in which case automatic fee selection will be used by default.\n",
+        {
+            {"amount", RPCArg::Type::AMOUNT, RPCArg::Optional::NO, "The transaction fee rate in " + CURRENCY_ATOM + "/vB to set (0 to unset)"},
+        },
+        RPCResult{
+            RPCResult::Type::OBJ, "", "",
+            {
+                {RPCResult::Type::STR, "wallet_name", "Name of the wallet the fee rate setting applies to"},
+                {RPCResult::Type::NUM, "fee_rate", "Fee rate in " + CURRENCY_ATOM + "/vB for the wallet after this operation"},
+                {RPCResult::Type::STR, "result", /* optional */ true, "Description of result, if successful"},
+                {RPCResult::Type::STR, "error", /* optional */ true, "Description of error, if any"},
+            },
+        },
+        RPCExamples{
+            ""
+            "\nSet a fee rate of 1 " + CURRENCY_ATOM + "/vB\n"
+            + HelpExampleCli("setfeerate", "1") +
+            "\nSet a fee rate of 3.141 " + CURRENCY_ATOM + "/vB\n"
+            + HelpExampleCli("setfeerate", "3.141") +
+            "\nSet a fee rate of 7.75 " + CURRENCY_ATOM + "/vB with named arguments\n"
+            + HelpExampleCli("-named setfeerate", "amount=\"7.75\"") +
+            "\nSet a fee rate of 25 " + CURRENCY_ATOM + "/vB with the RPC\n"
+            + HelpExampleRpc("setfeerate", "25")
+        },
+        [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue {
+            std::shared_ptr<CWallet> const rpc_wallet{GetWalletForJSONRPCRequest(request)};
+            if (!rpc_wallet) return NullUniValue;
+            CWallet& wallet = *rpc_wallet;
+
+            LOCK(wallet.cs_wallet);
+            const CFeeRate amount{AmountFromValue(request.params[0]), COIN /* sat/vB */};
+            const CFeeRate relay_min_feerate{wallet.chain().relayMinFee().GetFeePerK()};
+            const CFeeRate wallet_min_feerate{wallet.m_min_fee.GetFeePerK()};
+            const CFeeRate wallet_max_feerate{wallet.m_default_max_tx_fee, 1000 /* BTC/kvB */};
+            const CFeeRate zero{CFeeRate{0}};
+            const std::string amount_str{amount.ToString(FeeEstimateMode::SAT_VB)};
+            const std::string current_setting{strprintf("The current setting of %s for this wallet remains unchanged.", wallet.m_pay_tx_fee == zero ? "0 (unset)" : wallet.m_pay_tx_fee.ToString(FeeEstimateMode::SAT_VB))};
+            std::string result, error;
+
+            if (amount == zero) {
+                if (request.params[0].get_real() != 0) throw JSONRPCError(RPC_TYPE_ERROR, "Invalid amount");
+                wallet.m_pay_tx_fee = amount;
+                result = "Fee rate for transactions with this wallet successfully unset. By default, automatic fee selection will be used.";
+            } else if (amount < relay_min_feerate) {
+                error = strprintf("The requested fee rate of %s cannot be less than the minimum relay fee rate of %s. %s", amount_str, relay_min_feerate.ToString(FeeEstimateMode::SAT_VB), current_setting);
+            } else if (amount < wallet_min_feerate) {
+                error = strprintf("The requested fee rate of %s cannot be less than the wallet min fee rate of %s. %s", amount_str, wallet_min_feerate.ToString(FeeEstimateMode::SAT_VB), current_setting);
+            } else if (amount > wallet_max_feerate) {
+                error = strprintf("The requested fee rate of %s cannot be greater than the wallet max fee rate of %s. %s", amount_str, wallet_max_feerate.ToString(FeeEstimateMode::SAT_VB), current_setting);
+            } else {
+                wallet.m_pay_tx_fee = amount;
+                result = "Fee rate for transactions with this wallet successfully set to " + amount_str;
+            }
+            CHECK_NONFATAL(result.empty() != error.empty());
+
+            UniValue obj{UniValue::VOBJ};
+            obj.pushKV("wallet_name", wallet.GetName());
+            obj.pushKV("fee_rate", ValueFromFeeRate(wallet.m_pay_tx_fee));
+            if (error.empty()) {
+                obj.pushKV("result", result);
+            } else {
+                obj.pushKV("error", error);
+            }
+            return obj;
+        },
+    };
+}
+
 RPCHelpMan settxfee()
 {
     return RPCHelpMan{"settxfee",
@@ -552,11 +626,16 @@ CreatedTransactionResult FundTransaction(CWallet& wallet, const CMutableTransact
                 {"maxconf", UniValueType(UniValue::VNUM)},
                 {"input_weights", UniValueType(UniValue::VARR)},
                 {"max_tx_weight", UniValueType(UniValue::VNUM)},
+                {"segwit_inputs_only", UniValueType(UniValue::VBOOL)},
             },
             true, true);
 
         if (options.exists("add_inputs")) {
             coinControl.m_allow_other_inputs = options["add_inputs"].get_bool();
+        }
+
+        if (options.exists("segwit_inputs_only")) {
+            coinControl.m_segwit_inputs_only = options["segwit_inputs_only"].get_bool();
         }
 
         if (options.exists("changeAddress") || options.exists("change_address")) {
@@ -807,6 +886,7 @@ RPCHelpMan fundrawtransaction()
                              },
                             {"max_tx_weight", RPCArg::Type::NUM, RPCArg::Default{MAX_STANDARD_TX_WEIGHT}, "The maximum acceptable transaction weight.\n"
                                                           "Transaction building will fail if this can not be satisfied."},
+                            {"segwit_inputs_only", RPCArg::Type::BOOL, RPCArg::Default{false}, "Whether to only use segwit inputs for transaction."},
                         },
                         FundTxDoc()),
                         RPCArgOptions{
@@ -918,6 +998,8 @@ RPCHelpMan signrawtransactionwithwallet()
                     {
                         {RPCResult::Type::STR_HEX, "hex", "The hex-encoded raw transaction with signature(s)"},
                         {RPCResult::Type::BOOL, "complete", "If the transaction has a complete set of signatures"},
+                        {RPCResult::Type::STR_AMOUNT, "fee", /*optional=*/true, "The fee (input amounts minus output amounts), if known"},
+                        {RPCResult::Type::STR_AMOUNT, "feerate", /*optional=*/true, "The fee rate (in " + CURRENCY_UNIT + "/kB), if fee is known"},
                         {RPCResult::Type::ARR, "errors", /*optional=*/true, "Script verification errors (if there are any)",
                         {
                             {RPCResult::Type::OBJ, "", "",
@@ -967,10 +1049,11 @@ RPCHelpMan signrawtransactionwithwallet()
 
     // Script verification errors
     std::map<int, bilingual_str> input_errors;
+    std::optional<CAmount> inputs_amount_sum;
 
-    bool complete = pwallet->SignTransaction(mtx, coins, nHashType, input_errors);
+    bool complete = pwallet->SignTransaction(mtx, coins, nHashType, input_errors, &inputs_amount_sum);
     UniValue result(UniValue::VOBJ);
-    SignTransactionResultToJSON(mtx, complete, coins, input_errors, result);
+    SignTransactionResultToJSON(mtx, complete, coins, input_errors, result, inputs_amount_sum);
     return result;
 },
     };
@@ -1002,9 +1085,9 @@ static RPCHelpMan bumpfee_helper(std::string method_name)
     const std::string incremental_fee{CFeeRate(DEFAULT_INCREMENTAL_RELAY_FEE).ToString(FeeEstimateMode::SAT_VB)};
 
     return RPCHelpMan{method_name,
-        "\nBumps the fee of an opt-in-RBF transaction T, replacing it with a new transaction B.\n"
+        "Bumps the fee of a transaction T, replacing it with a new transaction B.\n"
         + std::string(want_psbt ? "Returns a PSBT instead of creating and signing a new transaction.\n" : "") +
-        "An opt-in RBF transaction with the given txid must be in the wallet.\n"
+        "A transaction with the given txid must be in the wallet.\n"
         "The command will pay the additional fee by reducing change outputs or adding inputs when necessary.\n"
         "It may add a new change output if one does not already exist.\n"
         "All inputs in the original transaction will be included in the replacement transaction.\n"
@@ -1024,13 +1107,17 @@ static RPCHelpMan bumpfee_helper(std::string method_name)
                              "\nSpecify a fee rate in " + CURRENCY_ATOM + "/vB instead of relying on the built-in fee estimator.\n"
                              "Must be at least " + incremental_fee + " higher than the current transaction fee rate.\n"
                              "WARNING: before version 0.21, fee_rate was in " + CURRENCY_UNIT + "/kvB. As of 0.21, fee_rate is in " + CURRENCY_ATOM + "/vB.\n"},
-                    {"replaceable", RPCArg::Type::BOOL, RPCArg::Default{true}, "Whether the new transaction should still be\n"
+                    {"replaceable", RPCArg::Type::BOOL, RPCArg::Default{true},
+                             "Whether the new transaction should be\n"
                              "marked bip-125 replaceable. If true, the sequence numbers in the transaction will\n"
-                             "be left unchanged from the original. If false, any input sequence numbers in the\n"
-                             "original transaction that were less than 0xfffffffe will be increased to 0xfffffffe\n"
+                             "be set to 0xfffffffd. If false, any input sequence numbers in the\n"
+                             "transaction will be set to 0xfffffffe\n"
                              "so the new transaction will not be explicitly bip-125 replaceable (though it may\n"
                              "still be replaceable in practice, for example if it has unconfirmed ancestors which\n"
                              "are replaceable).\n"},
+                    {"require_replacable", RPCArg::Type::BOOL, RPCArg::Default{true},
+                        "Fail (with an exception) if the target txid is not considered replacable (eg, BIP 125)."
+                    },
                     {"estimate_mode", RPCArg::Type::STR, RPCArg::Default{"unset"}, "The fee estimate mode, must be one of (case insensitive):\n"
                               + FeeModesDetail(std::string("economical mode is used if the transaction is replaceable;\notherwise, conservative mode is used"))},
                     {"outputs", RPCArg::Type::ARR, RPCArg::Default{UniValue::VARR}, "The outputs specified as key-value pairs.\n"
@@ -1084,14 +1171,15 @@ static RPCHelpMan bumpfee_helper(std::string method_name)
 
     std::optional<uint32_t> original_change_index;
 
+    const UniValue& options = request.params[1];
     if (!request.params[1].isNull()) {
-        UniValue options = request.params[1];
         RPCTypeCheckObj(options,
             {
                 {"confTarget", UniValueType(UniValue::VNUM)},
                 {"conf_target", UniValueType(UniValue::VNUM)},
                 {"fee_rate", UniValueType()}, // will be checked by AmountFromValue() in SetFeeEstimateMode()
                 {"replaceable", UniValueType(UniValue::VBOOL)},
+                {"require_replacable", UniValueType(UniValue::VBOOL)},
                 {"estimate_mode", UniValueType(UniValue::VSTR)},
                 {"outputs", UniValueType()}, // will be checked by AddOutputs()
                 {"original_change_index", UniValueType(UniValue::VNUM)},
@@ -1129,6 +1217,13 @@ static RPCHelpMan bumpfee_helper(std::string method_name)
     pwallet->BlockUntilSyncedToCurrentChain();
 
     LOCK(pwallet->cs_wallet);
+
+    if ((!options.exists("require_replacable")) || options["require_replacable"].get_bool()) {
+        const auto wtx = pwallet->GetWalletTx(hash);
+        if (!SignalsOptInRBF(*wtx->tx)) {
+            throw JSONRPCError(RPC_WALLET_ERROR, "Transaction is not BIP 125 replaceable");
+        }
+    }
 
     EnsureWalletIsUnlocked(*pwallet);
 
@@ -1597,17 +1692,25 @@ RPCHelpMan walletprocesspsbt()
         HELP_REQUIRING_PASSPHRASE,
                 {
                     {"psbt", RPCArg::Type::STR, RPCArg::Optional::NO, "The transaction base64 string"},
-                    {"sign", RPCArg::Type::BOOL, RPCArg::Default{true}, "Also sign the transaction when updating (requires wallet to be unlocked)"},
-                    {"sighashtype", RPCArg::Type::STR, RPCArg::Default{"DEFAULT for Taproot, ALL otherwise"}, "The signature hash type to sign with if not specified by the PSBT. Must be one of\n"
-            "       \"DEFAULT\"\n"
-            "       \"ALL\"\n"
-            "       \"NONE\"\n"
-            "       \"SINGLE\"\n"
-            "       \"ALL|ANYONECANPAY\"\n"
-            "       \"NONE|ANYONECANPAY\"\n"
-            "       \"SINGLE|ANYONECANPAY\""},
-                    {"bip32derivs", RPCArg::Type::BOOL, RPCArg::Default{true}, "Include BIP 32 derivation paths for public keys if we know them"},
-                    {"finalize", RPCArg::Type::BOOL, RPCArg::Default{true}, "Also finalize inputs if possible"},
+                    {"options|sign", {RPCArg::Type::OBJ_NAMED_PARAMS, RPCArg::Type::BOOL}, RPCArg::Optional::OMITTED, "",
+                        {
+                            {"sign", RPCArg::Type::BOOL, RPCArg::Default{true}, "Also sign the transaction when updating (requires wallet to be unlocked)", RPCArgOptions{.also_positional = true}},
+                            {"sighashtype", RPCArg::Type::STR, RPCArg::Default{"DEFAULT for Taproot, ALL otherwise"}, "The signature hash type to sign with if not specified by the PSBT. Must be one of\n"
+                    "       \"DEFAULT\"\n"
+                    "       \"ALL\"\n"
+                    "       \"NONE\"\n"
+                    "       \"SINGLE\"\n"
+                    "       \"ALL|ANYONECANPAY\"\n"
+                    "       \"NONE|ANYONECANPAY\"\n"
+                    "       \"SINGLE|ANYONECANPAY\"",
+                                RPCArgOptions{.also_positional = true}},
+                            {"bip32derivs", RPCArg::Type::BOOL, RPCArg::Default{true}, "Include BIP 32 derivation paths for public keys if we know them", RPCArgOptions{.also_positional = true}},
+                            {"finalize", RPCArg::Type::BOOL, RPCArg::Default{true}, "Also finalize inputs if possible", RPCArgOptions{.also_positional = true}},
+                        },
+                    RPCArgOptions{.oneline_description="options"}},
+                    {"sighashtype", RPCArg::Type::STR, RPCArg::Default{"DEFAULT"}, "for backwards compatibility", RPCArgOptions{.hidden=true}},
+                    {"bip32derivs", RPCArg::Type::BOOL, RPCArg::Default{true}, "for backwards compatibility", RPCArgOptions{.hidden=true}},
+                    {"finalize", RPCArg::Type::BOOL, RPCArg::Default{true}, "for backwards compatibility", RPCArgOptions{.hidden=true}},
                 },
                 RPCResult{
                     RPCResult::Type::OBJ, "", "",
@@ -1637,13 +1740,47 @@ RPCHelpMan walletprocesspsbt()
         throw JSONRPCError(RPC_DESERIALIZATION_ERROR, strprintf("TX decode failed %s", error));
     }
 
-    // Get the sighash type
-    int nHashType = ParseSighashString(request.params[2]);
+    // Get options
+    bool sign = true;
+    bool bip32derivs = true;
+    bool finalize = true;
+    int nHashType = ParseSighashString(NullUniValue); // Use ParseSighashString default
+    if (request.params[1].isBool() || request.params[1].isNull()) {
+        // Old style positional parameters
+        sign = request.params[1].isNull() ? true : request.params[1].get_bool();
+        nHashType = ParseSighashString(request.params[2]);
+        bip32derivs = request.params[3].isNull() ? true : request.params[3].get_bool();
+        finalize = request.params[4].isNull() ? true : request.params[4].get_bool();
+    } else {
+        // New style options are in an object
+        UniValue options = request.params[1];
+        RPCTypeCheckObj(options,
+            {
+                {"sign", UniValueType(UniValue::VBOOL)},
+                {"bip32derivs", UniValueType(UniValue::VBOOL)},
+                {"finalize", UniValueType(UniValue::VBOOL)},
+                {"sighashtype", UniValueType(UniValue::VSTR)},
+            },
+            true, true);
+        if (options.exists("sign")) {
+            sign = options["sign"].get_bool();
+        }
+        if (options.exists("bip32derivs")) {
+            bip32derivs = options["bip32derivs"].get_bool();
+        }
+        if (options.exists("finalize")) {
+            finalize = options["finalize"].get_bool();
+        }
+        if (options.exists("sighashtype")) {
+            nHashType = ParseSighashString(options["sighashtype"]);
+        }
+        if (request.params.size() > 2) {
+            // Same behaviour as too many args passed normally
+            throw std::runtime_error(self.ToString());
+        }
+    }
 
     // Fill transaction with our data and also sign
-    bool sign = request.params[1].isNull() ? true : request.params[1].get_bool();
-    bool bip32derivs = request.params[3].isNull() ? true : request.params[3].get_bool();
-    bool finalize = request.params[4].isNull() ? true : request.params[4].get_bool();
     bool complete = true;
 
     if (sign) EnsureWalletIsUnlocked(*pwallet);

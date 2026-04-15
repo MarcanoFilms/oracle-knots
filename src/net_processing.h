@@ -50,6 +50,7 @@ struct CNodeStateStats {
     ServiceFlags their_services;
     int64_t presync_height{-1};
     std::chrono::seconds time_offset{0};
+    NodeSeconds m_last_block_announcement;
 };
 
 struct PeerManagerInfo {
@@ -86,13 +87,14 @@ public:
     virtual ~PeerManager() = default;
 
     /**
-     * Attempt to manually fetch block from a given peer. We must already have the header.
+     * Attempt to manually fetch block from a given peer.
      *
      * @param[in]  peer_id      The peer id
      * @param[in]  block_index  The blockindex
      * @returns std::nullopt if a request was successfully made, otherwise an error message
      */
-    virtual std::optional<std::string> FetchBlock(NodeId peer_id, const CBlockIndex& block_index) = 0;
+    std::optional<std::string> FetchBlock(NodeId peer_id, const CBlockIndex& block_index);
+    virtual std::optional<std::string> FetchBlock(NodeId peer_id, const uint256& hash, const CBlockIndex* block_index) = 0;
 
     /** Begin running background tasks, should only be called once */
     virtual void StartScheduledTasks(CScheduler& scheduler) = 0;
@@ -152,6 +154,9 @@ public:
      * we do not have a confirmed set of service flags.
     */
     virtual ServiceFlags GetDesirableServiceFlags(ServiceFlags services) const = 0;
+
+    /** Get number of peers from which we're downloading blocks */
+    virtual int GetNumberOfPeersWithValidatedDownloads() const EXCLUSIVE_LOCKS_REQUIRED(::cs_main) = 0;
 };
 
 #endif // BITCOIN_NET_PROCESSING_H

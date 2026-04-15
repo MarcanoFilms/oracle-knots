@@ -13,6 +13,7 @@
 
 #include <QApplication>
 #include <QEvent>
+#include <QFont>
 #include <QHeaderView>
 #include <QItemDelegate>
 #include <QLabel>
@@ -22,6 +23,7 @@
 #include <QProgressBar>
 #include <QString>
 #include <QTableView>
+#include <Qt>
 
 #include <cassert>
 #include <chrono>
@@ -46,6 +48,7 @@ class QFont;
 class QKeySequence;
 class QLineEdit;
 class QMenu;
+class QColor;
 class QPoint;
 class QProgressDialog;
 class QUrl;
@@ -60,11 +63,15 @@ namespace GUIUtil
     constexpr auto dialog_flags = Qt::WindowTitleHint | Qt::WindowSystemMenuHint | Qt::WindowCloseButtonHint;
 
     // Create human-readable string from date
+    QString dateStr(const QDate &datetime);
+    QString dateStr(qint64 nTime);
     QString dateTimeStr(const QDateTime &datetime);
     QString dateTimeStr(qint64 nTime);
 
     // Return a monospace font
     QFont fixedPitchFont(bool use_embedded_font = false);
+
+    QString fontToCss(const QFont& font);
 
     // Set up widget for address
     void setupAddressWidget(QValidatedLineEdit *widget, QWidget *parent);
@@ -285,6 +292,10 @@ namespace GUIUtil
     QString formatNiceTimeOffset(qint64 secs);
 
     QString formatBytes(uint64_t bytes);
+    QString formatBytesps(float bytes);
+
+    /** Check if a background color indicates dark mode */
+    bool isDarkMode(const QColor& color);
 
     qreal calculateIdealFontSize(int width, const QString& text, QFont font, qreal minPointSize = 4, qreal startPointSize = 14);
 
@@ -464,7 +475,7 @@ namespace GUIUtil
     /**
      * Shows a QDialog instance asynchronously, and deletes it on close.
      */
-    void ShowModalDialogAsynchronously(QDialog* dialog);
+    void ShowModalDialogAsynchronously(QDialog* dialog, Qt::WindowModality modality=Qt::ApplicationModal);
 
     inline bool IsEscapeOrBack(int key)
     {

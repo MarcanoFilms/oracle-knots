@@ -160,7 +160,7 @@ class MultiWalletTest(BitcoinTestFramework):
         assert_equal(set(node.listwallets()), set(wallet_names))
 
         # should raise rpc error if wallet path can't be created
-        err_code = -4 if self.options.descriptors else -1
+        err_code = -4
         assert_raises_rpc_error(err_code, "filesystem error:" if platform.system() != 'Windows' else "create_directories:", self.nodes[0].createwallet, "w8/bad")
 
         # check that all requested wallets were created
@@ -268,11 +268,17 @@ class MultiWalletTest(BitcoinTestFramework):
         assert_equal(batch[0]["result"]["chain"], self.chain)
         assert_equal(batch[1]["result"]["walletname"], "w1")
 
-        self.log.info('Check for per-wallet settxfee call')
+        self.log.info('Test per-wallet setfeerate and settxfee calls')
         assert_equal(w1.getwalletinfo()['paytxfee'], 0)
         assert_equal(w2.getwalletinfo()['paytxfee'], 0)
+        w2.setfeerate(200)
+        assert_equal(w1.getwalletinfo()['paytxfee'], 0)
+        assert_equal(w2.getwalletinfo()['paytxfee'], Decimal('0.00200000'))
         w2.settxfee(0.001)
         assert_equal(w1.getwalletinfo()['paytxfee'], 0)
+        assert_equal(w2.getwalletinfo()['paytxfee'], Decimal('0.00100000'))
+        w1.setfeerate(30)
+        assert_equal(w1.getwalletinfo()['paytxfee'], Decimal('0.00030000'))
         assert_equal(w2.getwalletinfo()['paytxfee'], Decimal('0.00100000'))
 
         self.log.info("Test dynamic wallet loading")

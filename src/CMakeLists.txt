@@ -138,6 +138,7 @@ add_library(bitcoin_common STATIC EXCLUDE_FROM_ALL
   chain.cpp
   chainparams.cpp
   chainparamsbase.cpp
+  codex32.cpp
   coins.cpp
   common/args.cpp
   common/bloom.cpp
@@ -167,6 +168,7 @@ add_library(bitcoin_common STATIC EXCLUDE_FROM_ALL
   netaddress.cpp
   netbase.cpp
   outputtype.cpp
+  policy/coin_age_priority.cpp
   policy/feerate.cpp
   policy/policy.cpp
   pow.cpp
@@ -212,6 +214,7 @@ if(ENABLE_WALLET)
       bitcoin_wallet
       bitcoin_common
       bitcoin_util
+      univalue
       Boost::headers
     )
     install_binary_component(bitcoin-wallet HAS_MANPAGE)
@@ -303,6 +306,9 @@ add_library(bitcoin_node STATIC EXCLUDE_FROM_ALL
   rpc/txoutproof.cpp
   script/sigcache.cpp
   signet.cpp
+  stats/init.cpp
+  stats/rpc_stats.cpp
+  stats/stats.cpp
   torcontrol.cpp
   txdb.cpp
   txmempool.cpp
@@ -326,6 +332,7 @@ target_link_libraries(bitcoin_node
     $<TARGET_NAME_IF_EXISTS:libevent::core>
     $<TARGET_NAME_IF_EXISTS:libevent::extra>
     $<TARGET_NAME_IF_EXISTS:libevent::pthreads>
+    $<TARGET_NAME_IF_EXISTS:MiniUPnPc::MiniUPnPc>
     $<TARGET_NAME_IF_EXISTS:USDT::headers>
 )
 
@@ -431,6 +438,10 @@ if(BUILD_GUI)
   add_subdirectory(qt)
 endif()
 
+
+if(BUILD_BITCOINCONSENSUS_LIB)
+  add_subdirectory(consensus)
+endif()
 
 if(BUILD_KERNEL_LIB)
   add_subdirectory(kernel)
