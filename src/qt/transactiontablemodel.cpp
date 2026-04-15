@@ -320,6 +320,9 @@ QString TransactionTableModel::formatTxStatus(const TransactionRecord *wtx) cons
     case TransactionStatus::Abandoned:
         status = tr("Abandoned");
         break;
+    case TransactionStatus::AssumedConfirmed:
+        status = tr("Unconfirmed (%1 confirmations pending verification of historical blocks)").arg(wtx->status.depth);
+        break;
     case TransactionStatus::Confirming:
         status = tr("Confirming (%1 of %2 recommended confirmations)").arg(wtx->status.depth).arg(TransactionRecord::RecommendedNumConfirmations);
         break;
@@ -462,11 +465,12 @@ QVariant TransactionTableModel::txStatusDecoration(const TransactionRecord *wtx)
     switch(wtx->status.status)
     {
     case TransactionStatus::Unconfirmed:
+    case TransactionStatus::AssumedConfirmed:
         return QIcon(":/icons/transaction_0");
     case TransactionStatus::Abandoned:
         return QIcon(":/icons/transaction_abandoned");
     case TransactionStatus::Confirming:
-        switch(wtx->status.depth)
+        switch (wtx->status.depth * 6 / TransactionRecord::RecommendedNumConfirmations)
         {
         case 1: return QIcon(":/icons/transaction_1");
         case 2: return QIcon(":/icons/transaction_2");

@@ -517,9 +517,21 @@ std::optional<bool> ArgsManager::GetBoolArg(const std::string& strArg) const
 
 std::optional<bool> SettingToBool(const common::SettingsValue& value)
 {
-    if (value.isNull()) return std::nullopt;
-    if (value.isBool()) return value.get_bool();
-    return InterpretBool(value.get_str());
+    switch (value.getType()) {
+        case UniValue::VNULL:
+            return std::nullopt;
+        case UniValue::VBOOL:
+            return value.get_bool();
+        case UniValue::VOBJ:
+        case UniValue::VARR:
+            // Throws an exception
+            value.get_str();
+            assert(false);
+        case UniValue::VSTR:
+        case UniValue::VNUM:
+            return InterpretBool(value.getValStr());
+    }
+    assert(false);
 }
 
 bool SettingToBool(const common::SettingsValue& value, bool fDefault)
@@ -545,8 +557,13 @@ bool ArgsManager::SoftSetBoolArg(const std::string& strArg, bool fValue)
 
 void ArgsManager::ForceSetArg(const std::string& strArg, const std::string& strValue)
 {
+    ForceSetArgV(strArg, common::SettingsValue{strValue});
+}
+
+void ArgsManager::ForceSetArgV(const std::string& arg, const common::SettingsValue& value)
+{
     LOCK(cs_args);
-    m_settings.forced_settings[SettingName(strArg)] = strValue;
+    m_settings.forced_settings[SettingName(arg)] = value;
 }
 
 void ArgsManager::AddCommand(const std::string& cmd, const std::string& help)
@@ -582,10 +599,10 @@ void ArgsManager::AddArg(const std::string& name, const std::string& help, unsig
     }
 }
 
-void ArgsManager::AddHiddenArgs(const std::vector<std::string>& names)
+void ArgsManager::AddHiddenArgs(const std::vector<std::string>& names, unsigned int flags)
 {
     for (const std::string& name : names) {
-        AddArg(name, "", ArgsManager::ALLOW_ANY, OptionsCategory::HIDDEN);
+        AddArg(name, "", flags, OptionsCategory::HIDDEN);
     }
 }
 
@@ -688,8 +705,8 @@ bool HelpRequested(const ArgsManager& args)
 
 void SetupHelpOptions(ArgsManager& args)
 {
-    args.AddArg("-help", "Print this help message and exit (also -h or -?)", ArgsManager::ALLOW_ANY, OptionsCategory::OPTIONS);
-    args.AddHiddenArgs({"-h", "-?"});
+    args.AddArg("-help", "Print this help message and exit (also -h or -?)", ArgsManager::DISALLOW_NEGATION, OptionsCategory::OPTIONS);
+    args.AddHiddenArgs({"-h", "-?"}, ArgsManager::DISALLOW_NEGATION);
 }
 
 static const int screenWidth = 79;
@@ -709,6 +726,7 @@ std::string HelpMessageOpt(const std::string &option, const std::string &message
 
 const std::vector<std::string> TEST_OPTIONS_DOC{
     "addrman (use deterministic addrman)",
+    "reindex_after_failure_noninteractive_yes (When asked for a reindex after failure interactively, simulate as-if answered with 'yes')",
     "bip94 (enforce BIP94 consensus rules)",
 };
 

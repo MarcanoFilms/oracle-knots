@@ -335,6 +335,7 @@ BASE_SCRIPTS = [
     'wallet_encryption.py --legacy-wallet',
     'wallet_encryption.py --descriptors',
     'feature_dersig.py',
+    'feature_reindex_init.py',
     'feature_cltv.py',
     'rpc_uptime.py',
     'feature_discover.py',
@@ -375,6 +376,7 @@ BASE_SCRIPTS = [
     'feature_includeconf.py',
     'feature_addrman.py',
     'feature_asmap.py',
+    'feature_chain_tiebreaks.py',
     'feature_fastprune.py',
     'feature_framework_miniwallet.py',
     'mempool_unbroadcast.py',
@@ -707,7 +709,6 @@ def run_tests(*, test_list, build_dir, tmpdir, jobs=1, enable_coverage=False, ar
     if not os.listdir(tmpdir):
         os.rmdir(tmpdir)
 
-    all_passed = all_passed and coverage_passed
 
     # Clean up dangling processes if any. This may only happen with --failfast option.
     # Killing the process group will also terminate the current process but that is

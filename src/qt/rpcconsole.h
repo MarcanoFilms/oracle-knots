@@ -15,6 +15,9 @@
 
 #include <QByteArray>
 #include <QCompleter>
+#include <QMimeData>
+#include <QTextDocumentFragment>
+#include <QTextEdit>
 #include <QThread>
 #include <QWidget>
 
@@ -103,6 +106,8 @@ private Q_SLOTS:
     void showOrHideBanTableIfRequired();
     /** clear the selected node */
     void clearSelectedNode();
+    /** reset all fields in UI detailed information to N/A */
+    void resetDetailWidget();
     /** show detailed information on ui about selected node */
     void updateDetailWidget();
 
@@ -142,7 +147,7 @@ public Q_SLOTS:
 private:
     struct TranslatedStrings {
         const QString yes{tr("Yes")}, no{tr("No")}, to{tr("To")}, from{tr("From")},
-            ban_for{tr("Ban for")}, na{tr("N/A")}, unknown{tr("Unknown")};
+            ban_for{tr("Ban for")}, na{tr("N/A")}, unknown{tr("Unknown")}, no_permissions{tr("None")};
     } const ts;
 
     void startExecutor();
@@ -191,6 +196,22 @@ private:
 
 private Q_SLOTS:
     void updateAlerts(const QString& warnings);
+};
+
+/**
+ * A version of QTextEdit that only populates plaintext mime data from a
+ * selection, this avoids some bad behavior in QT's HTML->Markdown conversion.
+ */
+class PlainCopyTextEdit : public QTextEdit {
+    Q_OBJECT
+public:
+    using QTextEdit::QTextEdit;
+protected:
+    QMimeData* createMimeDataFromSelection() const override {
+        auto md = new QMimeData();
+        md->setText(textCursor().selection().toPlainText());
+        return md;
+    }
 };
 
 #endif // BITCOIN_QT_RPCCONSOLE_H

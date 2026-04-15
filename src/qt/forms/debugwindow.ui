@@ -573,7 +573,7 @@
         </layout>
        </item>
        <item>
-        <widget class="QTextEdit" name="messagesWidget">
+        <widget class="PlainCopyTextEdit" name="messagesWidget">
          <property name="minimumSize">
           <size>
            <width>0</width>
@@ -1144,7 +1144,7 @@
                 <height>426</height>
                </rect>
               </property>
-              <layout class="QGridLayout" name="gridLayout_2" columnstretch="0,1">
+              <layout class="QGridLayout" name="peerDetailsGrid" columnstretch="0,1">
                <item row="0" column="0">
                 <widget class="QLabel" name="label_30">
                  <property name="text">
@@ -1867,6 +1867,10 @@
    <slots>
     <slot>clear()</slot>
    </slots>
+  </customwidget>
+  <customwidget>
+   <class>PlainCopyTextEdit</class>
+   <extends>QTextEdit</extends>
   </customwidget>
  </customwidgets>
  <resources>

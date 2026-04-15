@@ -997,6 +997,22 @@ static void DiscourageFeeSniping(CMutableTransaction& tx, FastRandomContext& rng
     }
 }
 
+void MaybeDiscourageFeeSniping2(const CWallet &wallet,
+                               CMutableTransaction& tx)
+{
+    for (const CTxIn& tx_in : tx.vin) {
+        // Checks sequence values consistent with DiscourageFeeSniping
+        if (tx_in.nSequence != CTxIn::MAX_SEQUENCE_NONFINAL && tx_in.nSequence != MAX_BIP125_RBF_SEQUENCE) {
+            // If an input has an incompatible sequence, we can't do anti-fee-sniping
+            return;
+        }
+    }
+
+    FastRandomContext rng_fast;
+    LOCK(wallet.cs_wallet);
+    DiscourageFeeSniping(tx, rng_fast, wallet.chain(), wallet.GetLastBlockHash(), wallet.GetLastBlockHeight());
+}
+
 size_t GetSerializeSizeForRecipient(const CRecipient& recipient)
 {
     return ::GetSerializeSize(CTxOut(recipient.nAmount, GetScriptForDestination(recipient.dest)));

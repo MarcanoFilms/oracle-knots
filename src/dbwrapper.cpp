@@ -12,17 +12,19 @@
 #include <util/fs.h>
 #include <util/fs_helpers.h>
 #include <util/strencodings.h>
+#include <util/translation.h>
 
 #include <algorithm>
 #include <cassert>
 #include <cstdarg>
 #include <cstdint>
 #include <cstdio>
+#include <leveldb/c.h>
 #include <leveldb/cache.h>
 #include <leveldb/db.h>
 #include <leveldb/env.h>
 #include <leveldb/filter_policy.h>
-#include <leveldb/helpers/memenv/memenv.h>
+#include <memenv.h>
 #include <leveldb/iterator.h>
 #include <leveldb/options.h>
 #include <leveldb/slice.h>
@@ -50,6 +52,41 @@ static void HandleError(const leveldb::Status& status)
     LogPrintf("You can use -debug=leveldb to get more complete diagnostic messages\n");
     throw dbwrapper_error(errmsg);
 }
+
+util::Result<void> dbwrapper_SanityCheck()
+{
+    unsigned long header_version = (leveldb::kMajorVersion << 16) | leveldb::kMinorVersion;
+    unsigned long library_version = (leveldb_major_version() << 16) | leveldb_minor_version();
+
+    if (header_version != library_version) {
+        return util::Error{Untranslated(strprintf("Compiled with LevelDB %d.%d, but linked with LevelDB %d.%d (incompatible).",
+            leveldb::kMajorVersion, leveldb::kMinorVersion,
+            leveldb_major_version(), leveldb_minor_version()
+        ))};
+    }
+
+    return {};
+}
+
+#ifndef WIN32
+namespace leveldb {
+class EnvPosixTestHelper {
+    static void SetReadOnlyMMapLimit(int limit);
+public:
+    static inline void SetReadOnlyMMapLimitForBitcoin(int limit) { SetReadOnlyMMapLimit(limit); }
+};
+}
+
+class BitcoinLevelDBInit {
+public:
+    BitcoinLevelDBInit() {
+        if (sizeof(void*) >= 8) {
+            leveldb::EnvPosixTestHelper::SetReadOnlyMMapLimitForBitcoin(4096);
+        }
+    }
+};
+static BitcoinLevelDBInit g_bitcoin_leveldb_init;
+#endif
 
 class CBitcoinLevelDBLogger : public leveldb::Logger {
 public:
@@ -158,14 +195,17 @@ struct CDBBatch::WriteBatchImpl {
 
 CDBBatch::CDBBatch(const CDBWrapper& _parent)
     : parent{_parent},
-      m_impl_batch{std::make_unique<CDBBatch::WriteBatchImpl>()} {};
+      m_impl_batch{std::make_unique<CDBBatch::WriteBatchImpl>()}
+{
+    Clear();
+};
 
 CDBBatch::~CDBBatch() = default;
 
 void CDBBatch::Clear()
 {
     m_impl_batch->batch.Clear();
-    size_estimate = 0;
+    size_estimate = kHeader;
 }
 
 void CDBBatch::WriteImpl(Span<const std::byte> key, DataStream& ssValue)
