@@ -125,8 +125,17 @@ void TransactionFilterProxy::setMinAmount(const CAmount& minimum)
 
 void TransactionFilterProxy::setWatchOnlyFilter(WatchOnlyFilter filter)
 {
+#if QT_VERSION >= QT_VERSION_CHECK(6, 10, 0)
+    beginFilterChange();
+#endif
+
     this->watchOnlyFilter = filter;
+
+#if QT_VERSION >= QT_VERSION_CHECK(6, 10, 0)
+    endFilterChange(QSortFilterProxyModel::Direction::Rows);
+#else
     invalidateFilter();
+#endif
 }
 
 void TransactionFilterProxy::setLimit(int limit)
