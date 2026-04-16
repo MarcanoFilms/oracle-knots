@@ -106,6 +106,7 @@ class MockTorControlServer:
 class TorControlTest(BitcoinTestFramework):
     def set_test_params(self):
         self.num_nodes = 1
+        self.tor_p2p_port = self.next_port()
 
     def next_port(self):
         self._port_counter = getattr(self, '_port_counter', 0) + 1
@@ -115,6 +116,7 @@ class TorControlTest(BitcoinTestFramework):
         mock_tor.start()
         self.restart_node(0, extra_args=[
             f"-torcontrol=127.0.0.1:{mock_tor.port}",
+            f'-bind=127.0.0.1:{self.tor_p2p_port}=onion',
             "-listenonion=1",
             "-debug=tor",
         ])
