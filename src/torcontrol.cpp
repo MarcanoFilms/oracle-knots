@@ -94,6 +94,7 @@ void TorControlConnection::readcb(struct bufferevent *bev, void *ctx)
             free(line);
             LogWarning("tor: Disconnecting because MAX_LINE_LENGTH exceeded");
             self->Disconnect();
+            self->disconnected(*self);
             return;
         }
         std::string s(line, n_read_out);
@@ -128,6 +129,7 @@ void TorControlConnection::readcb(struct bufferevent *bev, void *ctx)
     if (evbuffer_get_length(input) + 1 >= MAX_LINE_LENGTH) {
         LogWarning("tor: Disconnecting because MAX_LINE_LENGTH exceeded");
         self->Disconnect();
+        self->disconnected(*self);
     }
 }
 
