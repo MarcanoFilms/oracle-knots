@@ -173,7 +173,7 @@ int RaiseFileDescriptorLimit(int nMinFD)
         // If the current soft limit is already higher, don't raise it
         if (limitFD.rlim_cur != RLIM_INFINITY && std::cmp_less(limitFD.rlim_cur, nMinFD)) {
             const auto current_limit{limitFD.rlim_cur};
-            limitFD.rlim_cur = Assume(std::in_range<rlim_t>(nMinFD)) ? static_cast<rlim_t>(nMinFD) : limitFD.rlim_max;
+            limitFD.rlim_cur = std::in_range<rlim_t>(nMinFD) ? static_cast<rlim_t>(nMinFD) : limitFD.rlim_max;
             // Don't raise soft limit beyond hard limit
             if (limitFD.rlim_max != RLIM_INFINITY && (
                 limitFD.rlim_cur > limitFD.rlim_max
