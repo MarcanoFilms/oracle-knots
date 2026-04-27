@@ -7,6 +7,7 @@
 
 #include <util/overflow.h>
 
+#include <cstdint>
 #include <limits>
 #include <stdexcept>
 
