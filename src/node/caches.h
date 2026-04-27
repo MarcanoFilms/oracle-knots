@@ -6,6 +6,7 @@
 #define BITCOIN_NODE_CACHES_H
 
 #include <kernel/caches.h>
+#include <util/byte_units.h>
 
 #include <cstddef>
 

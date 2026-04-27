@@ -15,6 +15,7 @@
 #include <mapport.h>
 #include <net.h>
 #include <netbase.h>
+#include <node/caches.h>
 #include <node/dbcache.h>
 #include <node/chainstatemanager_args.h>
 #include <util/string.h>
