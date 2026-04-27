@@ -11,13 +11,13 @@
 #include <util/string.h>
 #include <util/time.h>
 
-#ifdef WIN32
-#include <codecvt>
-#include <compat/compat.h>
-#include <windows.h>
-#else
+#ifndef WIN32
 #include <sys/stat.h>
 #include <unistd.h>
+#else
+#include <compat/compat.h>
+#include <codecvt>
+#include <windows.h>
 #endif
 
 #ifdef HAVE_MALLOPT_ARENA_MAX
