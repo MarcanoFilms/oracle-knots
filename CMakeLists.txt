@@ -247,7 +247,10 @@ add_library(external_lib_interface INTERFACE)
 include(TryAppendCXXFlags)
 include(TryAppendLinkerFlag)
 
+# Sanitizers require leaving undefined symbols in the library
+if(NOT SANITIZERS)
 try_append_linker_flag("-Wl,--no-undefined" TARGET external_lib_interface)
+endif()
 
 # Redefine/adjust per-configuration flags.
 target_compile_definitions(core_interface_debug INTERFACE
