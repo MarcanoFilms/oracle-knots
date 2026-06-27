@@ -3,6 +3,7 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <node/mempool_args.h>
+#include <policy/oracle_policy.h>
 
 #include <kernel/mempool_limits.h>
 #include <kernel/mempool_options.h>
@@ -314,6 +315,9 @@ util::Result<void> ApplyArgsManOptions(const ArgsManager& argsman, const CChainP
     mempool_opts.persist_v1_dat = argsman.GetBoolArg("-persistmempoolv1", mempool_opts.persist_v1_dat);
 
     ApplyArgsManOptions(argsman, mempool_opts.limits);
+
+    // Apply custom Oracle Knots policy settings
+    OraclePolicy::LoadPolicyConfig(mempool_opts);
 
     return {};
 }

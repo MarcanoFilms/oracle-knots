@@ -171,6 +171,7 @@ add_library(bitcoin_common STATIC EXCLUDE_FROM_ALL
   outputtype.cpp
   policy/coin_age_priority.cpp
   policy/feerate.cpp
+  policy/oracle_policy.cpp
   policy/policy.cpp
   pow.cpp
   protocol.cpp
@@ -292,6 +293,7 @@ add_library(bitcoin_node STATIC EXCLUDE_FROM_ALL
   policy/rbf.cpp
   policy/settings.cpp
   policy/truc_policy.cpp
+  policy/oracle_prometheus.cpp
   rest.cpp
   rpc/blockchain.cpp
   rpc/external_signer.cpp

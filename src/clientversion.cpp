@@ -71,7 +71,7 @@ std::string FormatSubVersion(const std::string& name, int nClientVersion, const 
     if (!base_name_only) {
         static const auto ua_knots = []() -> std::string {
             const auto pos{CLIENT_BUILD.find(".knots")};
-            return "Knots:" + CLIENT_BUILD.substr(pos + 6) + "/";
+            return "OracleKnots:" + CLIENT_BUILD.substr(pos + 6) + "/";
         }();
         ua += ua_knots;
     }

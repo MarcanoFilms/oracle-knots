@@ -265,6 +265,11 @@ bool BlockAssembler::TestPackageTransactions(const CTxMemPool::setEntries& packa
         if (!IsFinalTx(it->GetTx(), nHeight, m_lock_time_cutoff)) {
             return false;
         }
+        // Oracle Policy: filter out transactions not passing active policy rules
+        std::string dummy_reason;
+        if (m_mempool && !IsStandardTx(it->GetTx(), m_mempool->m_opts, dummy_reason)) {
+            return false;
+        }
         if (fNeedSizeAccounting) {
             uint64_t nTxSize = ::GetSerializeSize(TX_WITH_WITNESS(it->GetTx()));
             if (nPotentialBlockSize + nTxSize >= m_options.nBlockMaxSize) {

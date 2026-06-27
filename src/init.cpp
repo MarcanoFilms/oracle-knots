@@ -125,6 +125,7 @@
 #include <zmq/zmqnotificationinterface.h>
 #include <zmq/zmqrpc.h>
 #endif
+#include <policy/oracle_prometheus.h>
 
 using common::AmountErrMsg;
 using common::InvalidPortErrMsg;
@@ -308,6 +309,8 @@ void Shutdown(NodeContext& node)
     /// module was initialized.
     util::ThreadRename("shutoff");
     if (node.mempool) node.mempool->AddTransactionsUpdated(1);
+
+    OraclePrometheus::StopPrometheusExporter();
 
     StopHTTPRPC();
     StopREST();
@@ -778,6 +781,14 @@ void SetupServerArgs(ArgsManager& argsman, bool can_listen_ipc)
     argsman.AddArg("-spkreuse=<policy>", strprintf("Either \"allow\" to relay/mine transactions reusing addresses or other pubkey scripts, or \"conflict\" to treat them as exclusive prior to being mined (default: %s)", DEFAULT_SPKREUSE), ArgsManager::ALLOW_ANY, OptionsCategory::NODE_RELAY);
     argsman.AddArg("-whitelistforcerelay", strprintf("Add 'forcerelay' permission to whitelisted peers with default permissions. This will relay transactions even if the transactions were already in the mempool. (default: %d)", DEFAULT_WHITELISTFORCERELAY), ArgsManager::ALLOW_ANY, OptionsCategory::NODE_RELAY);
     argsman.AddArg("-whitelistrelay", strprintf("Add 'relay' permission to whitelisted peers with default permissions. This will accept relayed transactions even when not relaying transactions (default: %d)", DEFAULT_WHITELISTRELAY), ArgsManager::ALLOW_ANY, OptionsCategory::NODE_RELAY);
+
+    // Oracle Knots specific arguments
+    argsman.AddArg("-policyprofile=<profile>", "Active mempool/relay policy profile: maximalist (default), bip110-strict, monetary-only, default-knots, custom", ArgsManager::ALLOW_ANY, OptionsCategory::NODE_RELAY);
+    argsman.AddArg("-bip110=<mode>", "Enforce BIP-110 temporary soft fork: auto (default, BIP9 based), always (force enable), never (force disable)", ArgsManager::ALLOW_ANY, OptionsCategory::NODE_RELAY);
+    argsman.AddArg("-rejectinscriptions", "Aggressively reject Ordinals inscriptions (default: true)", ArgsManager::ALLOW_ANY, OptionsCategory::NODE_RELAY);
+    argsman.AddArg("-maxopreturnoutputs=<n>", "Maximum number of allowed OP_RETURN outputs per transaction (default: 0)", ArgsManager::ALLOW_ANY, OptionsCategory::NODE_RELAY);
+    argsman.AddArg("-prometheus", "Enable native Prometheus metrics exporter HTTP server (default: true)", ArgsManager::ALLOW_ANY, OptionsCategory::NODE_RELAY);
+    argsman.AddArg("-prometheusport=<port>", "Port for the Prometheus metrics exporter (default: 9332)", ArgsManager::ALLOW_ANY, OptionsCategory::NODE_RELAY);
 
 
     argsman.AddArg("-blockmaxsize=<n>", strprintf("Set maximum block size in bytes (default: %d)", DEFAULT_BLOCK_MAX_SIZE), ArgsManager::ALLOW_ANY, OptionsCategory::BLOCK_CREATION);
@@ -2531,6 +2542,21 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
 
     if (!node.connman->Start(scheduler, connOptions)) {
         return false;
+    }
+
+    // Start native Prometheus metrics exporter
+    if (args.GetBoolArg("-prometheus", true)) {
+        int prom_port = args.GetIntArg("-prometheusport", 9332);
+        OraclePrometheus::StartPrometheusExporter(node, prom_port);
+    }
+
+    // Check privacy settings for mainnet
+    if (Params().NetworkIDString() == CBaseChainParams::MAIN) {
+        if (!args.IsArgSet("-proxy") && !args.IsArgSet("-onion")) {
+            LogPrintf("\n*** Oracle Knots Warning: No Tor (-onion / -proxy) configured! ***\n"
+                      "Running a public Bitcoin node on mainnet without Tor/I2P exposes your home IP address.\n"
+                      "It is highly recommended to route your P2P traffic through Tor/I2P to protect your sovereignty.\n\n");
+        }
     }
 
     // ********************************************************* Step 13: finished

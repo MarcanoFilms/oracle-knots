@@ -6,6 +6,7 @@
 #include <bitcoin-build-config.h> // IWYU pragma: keep
 
 #include <rpc/blockchain.h>
+#include <policy/oracle_policy.h>
 
 #include <blockfilter.h>
 #include <chain.h>
@@ -233,9 +234,18 @@ UniValue blockToJSON(BlockManager& blockman, const CBlock& block, const CBlockIn
                 txs.push_back(std::move(objTx));
             }
             break;
-    }
-
     result.pushKV("tx", std::move(txs));
+
+    // Check BIP-110 compliance of all transactions in this block
+    bool bip110_compliant = true;
+    for (const CTransactionRef& tx : block.vtx) {
+        TxValidationState tx_state;
+        if (!Consensus::CheckOutputSizes(*tx, tx_state)) {
+            bip110_compliant = false;
+            break;
+        }
+    }
+    result.pushKV("bip110_compliant", bip110_compliant);
 
     return result;
 }
@@ -4147,6 +4157,122 @@ static RPCHelpMan getblocklocations()
     };
 }
 
+static RPCHelpMan checkbip110status()
+{
+    return RPCHelpMan{"checkbip110status",
+                "\nReturns active status, enforcement mode, and compliance stats for BIP-110 (RDTS).\n",
+                {},
+                RPCResult{
+                    RPCResult::Type::OBJ, "", "",
+                    {
+                        {RPCResult::Type::BOOL, "bip110_enforced", "Whether BIP-110 consensus rules are currently enforced"},
+                        {RPCResult::Type::STR, "bip110_mode", "Enforcement mode: auto, always, or never"},
+                        {RPCResult::Type::STR, "active_policy_profile", "Active declarative policy profile"},
+                        {RPCResult::Type::BOOL, "reject_inscriptions", "Whether Ordinals inscriptions are being rejected"},
+                        {RPCResult::Type::NUM, "max_op_return_outputs", "Maximum number of allowed OP_RETURN outputs"},
+                        {RPCResult::Type::OBJ, "rejections_by_reason", "Statistics of rejected transactions since startup",
+                        {
+                            {RPCResult::Type::NUM, "total", "Total transactions rejected"},
+                            {RPCResult::Type::NUM, "inscription", "Rejected due to containing inscriptions"},
+                            {RPCResult::Type::NUM, "tokens-runes", "Rejected due to containing Runes"},
+                            {RPCResult::Type::NUM, "tokens-olga", "Rejected due to containing OLGA tokens"},
+                            {RPCResult::Type::NUM, "max-op-returns", "Rejected due to exceeding allowed OP_RETURN outputs"},
+                        }},
+                    }},
+                RPCExamples{
+                    HelpExampleCli("checkbip110status", "")
+            + HelpExampleRpc("checkbip110status", "")
+                },
+        [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue
+{
+    ChainstateManager& chainman = EnsureAnyChainman(request.context);
+    LOCK(cs_main);
+    
+    CBlockIndex* tip = chainman.ActiveChain().Tip();
+    bool consensus_active = false;
+    if (OraclePolicy::g_bip110_mode == "always") {
+        consensus_active = true;
+    } else if (OraclePolicy::g_bip110_mode == "never") {
+        consensus_active = false;
+    } else if (tip) {
+        consensus_active = DeploymentActiveAt(*tip, chainman, Consensus::DEPLOYMENT_REDUCED_DATA);
+    }
+
+    UniValue result(UniValue::VOBJ);
+    result.pushKV("bip110_enforced", consensus_active);
+    result.pushKV("bip110_mode", OraclePolicy::g_bip110_mode);
+    result.pushKV("active_policy_profile", OraclePolicy::g_active_profile);
+    result.pushKV("reject_inscriptions", OraclePolicy::g_reject_inscriptions);
+    result.pushKV("max_op_return_outputs", OraclePolicy::g_max_op_return_outputs);
+
+    UniValue stats(UniValue::VOBJ);
+    for (const auto& entry : OraclePolicy::g_rejection_counts) {
+        stats.pushKV(entry.first, (int64_t)entry.second);
+    }
+    result.pushKV("rejections_by_reason", stats);
+
+    return result;
+},
+    };
+}
+
+static RPCHelpMan setsovereignpolicy()
+{
+    return RPCHelpMan{"setsovereignpolicy",
+                "\nSets mempool and relay policy dynamically at runtime.\n",
+                {
+                    {"profile", RPCArg::Type::STR, RPCArg::Optional::OMITTED, "The policy profile name (maximalist, bip110-strict, monetary-only, default-knots, custom)"},
+                    {"reject_inscriptions", RPCArg::Type::BOOL, RPCArg::Optional::OMITTED, "Whether to reject Ordinals inscriptions"},
+                    {"max_op_return_outputs", RPCArg::Type::NUM, RPCArg::Optional::OMITTED, "Maximum allowed OP_RETURN outputs per transaction"},
+                    {"reject_tokens", RPCArg::Type::BOOL, RPCArg::Optional::OMITTED, "Whether to reject non-bitcoin tokens (Runes, BRC-20)"},
+                    {"datacarrier_size", RPCArg::Type::NUM, RPCArg::Optional::OMITTED, "OP_RETURN payload limit in bytes (0 to block entirely)"},
+                },
+                RPCResult{
+                    RPCResult::Type::OBJ, "", "Status output",
+                    {
+                        {RPCResult::Type::STR, "status", "Success or error description"},
+                        {RPCResult::Type::STR, "active_policy_profile", "The new active policy profile"},
+                    }},
+                RPCExamples{
+                    HelpExampleCli("setsovereignpolicy", "monetary-only")
+            + HelpExampleRpc("setsovereignpolicy", "monetary-only")
+                },
+        [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue
+{
+    LOCK(cs_main);
+    NodeContext& node = EnsureAnyNodeContext(request.context);
+    if (!node.mempool) {
+        throw JSONRPCError(RPC_INTERNAL_ERROR, "Mempool not available");
+    }
+
+    if (request.params[0].isStr()) {
+        OraclePolicy::g_active_profile = request.params[0].get_str();
+    }
+    if (request.params[1].isBool()) {
+        OraclePolicy::g_reject_inscriptions = request.params[1].get_bool();
+    }
+    if (request.params[2].isNum()) {
+        OraclePolicy::g_max_op_return_outputs = request.params[2].getInt<int>();
+    }
+    if (request.params[3].isBool()) {
+        OraclePolicy::g_reject_tokens = request.params[3].get_bool();
+    }
+    if (request.params[4].isNum()) {
+        OraclePolicy::g_max_datacarrier_bytes = request.params[4].getInt<int>();
+    }
+
+    // Reload the config using active options
+    OraclePolicy::LoadPolicyConfig(node.mempool->m_opts);
+    OraclePolicy::SavePolicyConfig();
+
+    UniValue result(UniValue::VOBJ);
+    result.pushKV("status", "success");
+    result.pushKV("active_policy_profile", OraclePolicy::g_active_profile);
+    return result;
+},
+    };
+}
+
 
 void RegisterBlockchainRPCCommands(CRPCTable& t)
 {
@@ -4187,6 +4313,8 @@ void RegisterBlockchainRPCCommands(CRPCTable& t)
         {"blockchain", &waitforblockheight},
         {"hidden", &syncwithvalidationinterfacequeue},
         {"hidden", &getblocklocations},
+        {"blockchain", &checkbip110status},
+        {"blockchain", &setsovereignpolicy},
 
 #ifdef ENABLE_WALLET
         {"wallet", &sweepprivkeys},

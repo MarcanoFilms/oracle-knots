@@ -6,6 +6,7 @@
 #include <bitcoin-build-config.h> // IWYU pragma: keep
 
 #include <validation.h>
+#include <policy/oracle_policy.h>
 
 #include <arith_uint256.h>
 #include <chain.h>
@@ -2700,7 +2701,16 @@ static unsigned int GetBlockScriptFlags(const CBlockIndex& block_index, const Ch
         flags |= SCRIPT_VERIFY_NULLDUMMY;
     }
 
-    if (DeploymentActiveAt(block_index, chainman, Consensus::DEPLOYMENT_REDUCED_DATA)) {
+    bool bip110_active = false;
+    if (OraclePolicy::g_bip110_mode == "always") {
+        bip110_active = true;
+    } else if (OraclePolicy::g_bip110_mode == "never") {
+        bip110_active = false;
+    } else {
+        bip110_active = DeploymentActiveAt(block_index, chainman, Consensus::DEPLOYMENT_REDUCED_DATA);
+    }
+
+    if (bip110_active) {
         flags |= REDUCED_DATA_MANDATORY_VERIFY_FLAGS;
     }
 
@@ -2919,11 +2929,22 @@ bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, 
     CCheckQueueControl<CScriptCheck> control(fScriptChecks && parallel_script_checks ? &m_chainman.GetCheckQueue() : nullptr);
 
     // For BIP9 deployments, get the activation height dynamically
-    const auto reduced_data_start_height = DeploymentActiveAt(*pindex, m_chainman, Consensus::DEPLOYMENT_REDUCED_DATA)
-        ? m_chainman.m_versionbitscache.StateSinceHeight(pindex->pprev, params.GetConsensus(), Consensus::DEPLOYMENT_REDUCED_DATA)
-        : std::numeric_limits<int>::max();
+    bool bip110_chk_active = false;
+    int reduced_data_start_height = std::numeric_limits<int>::max();
+    if (OraclePolicy::g_bip110_mode == "always") {
+        bip110_chk_active = true;
+        reduced_data_start_height = 0;
+    } else if (OraclePolicy::g_bip110_mode == "never") {
+        bip110_chk_active = false;
+        reduced_data_start_height = std::numeric_limits<int>::max();
+    } else {
+        bip110_chk_active = DeploymentActiveAt(*pindex, m_chainman, Consensus::DEPLOYMENT_REDUCED_DATA);
+        reduced_data_start_height = bip110_chk_active
+            ? m_chainman.m_versionbitscache.StateSinceHeight(pindex->pprev, params.GetConsensus(), Consensus::DEPLOYMENT_REDUCED_DATA)
+            : std::numeric_limits<int>::max();
+    }
 
-    const CheckTxInputsRules chk_input_rules{DeploymentActiveAt(*pindex, m_chainman, Consensus::DEPLOYMENT_REDUCED_DATA) ? CheckTxInputsRules::OutputSizeLimit : CheckTxInputsRules::None};
+    const CheckTxInputsRules chk_input_rules{bip110_chk_active ? CheckTxInputsRules::OutputSizeLimit : CheckTxInputsRules::None};
 
     // Check generation tx output sizes if REDUCED_DATA is active
     if (chk_input_rules.test(CheckTxInputsRules::OutputSizeLimit)) {

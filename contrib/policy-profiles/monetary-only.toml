@@ -1,0 +1,17 @@
+# Oracle Knots - Monetary-Only Policy Profile
+#
+# Focus: Reclaiming Bitcoin's purpose as sound money.
+# Same as maximalist, enforcing zero non-financial data relaying.
+
+profile = "monetary-only"
+bip110_mode = "auto"
+
+[custom_rules]
+datacarrier_size = 0          # Disable OP_RETURN
+reject_tokens = true          # Reject BRC-20 / Runes
+reject_inscriptions = true    # Reject Ordinals
+dust_relay_fee = 3000
+permit_bare_multisig = false
+permit_bare_pubkey = false
+reject_parasites = true
+max_op_return_outputs = 0

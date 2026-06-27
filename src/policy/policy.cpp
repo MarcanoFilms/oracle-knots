@@ -6,6 +6,7 @@
 // NOTE: This file is intended to be customised by the end user, and includes only local node policy logic
 
 #include <policy/policy.h>
+#include <policy/oracle_policy.h>
 
 #include <coins.h>
 #include <consensus/amount.h>
@@ -121,6 +122,7 @@ static inline bool MaybeReject_(std::string& out_reason, const std::string& reas
 
 #define MaybeReject(reason)  do {  \
     if (MaybeReject_(out_reason, reason, reason_prefix, ignore_rejects)) {  \
+        OraclePolicy::IncrementRejectionCount(reason);  \
         return false;  \
     }  \
 } while(0)
@@ -128,6 +130,16 @@ static inline bool MaybeReject_(std::string& out_reason, const std::string& reas
 bool IsStandardTx(const CTransaction& tx, const kernel::MemPoolOptions& opts, std::string& out_reason, const ignore_rejects_type& ignore_rejects)
 {
     const std::string reason_prefix;
+
+    // Oracle Policy: reject ordinals/inscriptions
+    if (OraclePolicy::HasInscription(tx)) {
+        MaybeReject("inscription");
+    }
+
+    // Oracle Policy: restrict OP_RETURN outputs
+    if (OraclePolicy::ExceedsMaxOpReturns(tx)) {
+        MaybeReject("max-op-returns");
+    }
 
     if (tx.version > TX_MAX_STANDARD_VERSION || tx.version < 1) {
         MaybeReject("version");
