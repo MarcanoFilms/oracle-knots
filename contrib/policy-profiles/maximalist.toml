@@ -1,0 +1,17 @@
+# Oracle Knots - Maximalist Policy Profile
+#
+# Focus: Ultimate sovereign/maximalist: monetary only, BIP-110 strict, zero spam tolerance.
+# Relies on blocking non-monetary data (OP_RETURN, Runes, BRC-20, Ordinals) completely.
+
+profile = "maximalist"
+bip110_mode = "auto" # Enforces BIP-110 at consensus level based on BIP9 activation height
+
+[custom_rules]
+datacarrier_size = 0          # Reject OP_RETURN data carrier outputs entirely
+reject_tokens = true          # Reject BRC-20, Runes, OLGA and other non-bitcoin tokens
+reject_inscriptions = true    # Reject Taproot/Witness Ordinals inscriptions
+dust_relay_fee = 3000         # High dust relay fee in sat/kvb to discourage spam
+permit_bare_multisig = false  # Do not relay or mine bare multisig scripts
+permit_bare_pubkey = false    # Do not relay or mine bare pubkey scripts
+reject_parasites = true       # Reject parasitic locktime 21 protocols
+max_op_return_outputs = 0     # 0 OP_RETURN outputs allowed per transaction

@@ -1,0 +1,17 @@
+# Oracle Knots - BIP-110 Strict Policy Profile
+#
+# Focus: Strict enforcement of the BIP-110 consensus specifications.
+# Restricts output sizes to 34 bytes (except OP_RETURN to 83 bytes) and restricts data pushes.
+
+profile = "bip110-strict"
+bip110_mode = "always" # Force-enforce BIP-110 rules as local consensus rules immediately
+
+[custom_rules]
+datacarrier_size = 83         # Limit OP_RETURN to standard 83 bytes
+reject_tokens = true          # Reject Runes/BRC-20 token overlay transactions
+reject_inscriptions = true    # Reject Taproot/Witness Ordinals inscriptions
+dust_relay_fee = 3000         # Standard dust relay fee in sat/kvb
+permit_bare_multisig = false  # Do not relay bare multisig
+permit_bare_pubkey = false    # Do not relay bare pubkey
+reject_parasites = true       # Reject parasites
+max_op_return_outputs = 1     # Allow maximum of 1 OP_RETURN output per transaction

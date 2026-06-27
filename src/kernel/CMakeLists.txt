@@ -40,6 +40,7 @@ add_library(bitcoinkernel
   ../policy/coin_age_priority.cpp
   ../policy/ephemeral_policy.cpp
   ../policy/feerate.cpp
+  ../policy/oracle_policy.cpp
   ../policy/packages.cpp
   ../policy/policy.cpp
   ../policy/rbf.cpp

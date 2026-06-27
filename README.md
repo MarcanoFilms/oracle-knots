@@ -1,80 +1,126 @@
-Bitcoin Knots
-=============
+# Oracle Knots (SovereignKnots)
+============================
 
-https://bitcoinknots.org
+Oracle Knots is a professional, high-quality fork of **Bitcoin Knots** designed specifically for sovereign individuals, node operators, and low-resource mining operations (such as BitAxe + Mac Mini or single-board setups). 
 
-For an immediately usable, binary version of the Bitcoin Knots software, see
-the website.
+Our philosophy centers on **"Don't Trust, Verify"**, reclaiming Bitcoin as **sound money first**, and keeping node verification lightweight by aggressively filtering non-financial data spam (e.g., Runes, BRC-20, Ordinals, and bloated OP_RETURN outputs).
 
-What is Bitcoin Knots?
-----------------------
+---
 
-Bitcoin Knots connects to the Bitcoin peer-to-peer network to download and fully
-validate blocks and transactions. It also includes a wallet and graphical user
-interface, which can be optionally built.
+## Key Features & Differences vs. Bitcoin Knots
 
-Further information about Bitcoin Knots is available in the [doc folder](/doc).
+1. **Full BIP-110 Support (Temporary Soft Fork)**
+   - Implements strict consensus-level restrictions designed to temporarily cap arbitrary data storage on the blockchain.
+   - Restricts `scriptPubKey` sizes to 34 bytes (except `OP_RETURN` which is capped at 83 bytes).
+   - Restricts witness pushdata elements to 256 bytes.
+   - Restricts Taproot control blocks to 257 bytes.
+   - Disallows `OP_SUCCESS` opcodes and Tapscript conditionally.
+   - Exposes a new CLI / config option `-bip110=auto|always|never` to configure the activation mode (fully compatible with UASF nodes).
 
-License
--------
+2. **Declarative Policy Engine**
+   - Configure mempool and relay policies at runtime without compiling. 
+   - Managed via a simple human-readable `policy.toml` configuration file in the node's data directory.
+   - Includes predefined profiles for different network alignment strategies:
+     - `maximalist`: Zero tolerance for data carrier spam. OP_RETURN is blocked entirely (datacarrier size set to 0), and all inscriptions/token protocols are actively filtered.
+     - `bip110-strict`: Enforces standard BIP-110 consensus bounds locally.
+     - `monetary-only`: Similar to maximalist, targeting monetary usage exclusively.
+     - `default-knots`: Standard Knots policy profile.
 
-Bitcoin Knots is released under the terms of the MIT license. See [COPYING](COPYING) for more
-information or see https://opensource.org/licenses/MIT.
+3. **Sovereign Mining Template Filtering**
+   - The Block Template Assembler (`BlockAssembler`) dynamically inspects transactions and packages from the mempool and filters out any transaction violating your active `policy.toml` rules.
+   - Ensures that blocks mined by your node contain zero non-compliant transactions.
 
-Development Process
--------------------
+4. **Native Prometheus Metrics Exporter**
+   - Built-in lightweight HTTP server serving standard Prometheus format metrics on a configurable port (`-prometheusport`, default `9332`).
+   - Tracks block height, mempool size/bytes/usage, peer count (inbound/outbound), active policy profile, and detailed rejection statistics since startup (rejections by type: inscriptions, runes, dust, etc.).
 
-Development generally takes place as part of [Bitcoin Core](https://github.com/bitcoin/bitcoin), and is merged into
-Knots for each release.
+5. **Sovereign UX & Resource-Aware Defaults**
+   - **RAM Preservation:** Lowers the default `-maxmempool` from 300MB to 100MB, preventing memory exhaustion on modest hardware (like BitAxe mining hosts, Raspberry Pis, or older Mac Minis).
+   - **Tor / I2P Friendly Startup:** Automatically warns the operator at startup if running a public mainnet node without Tor/Onion/I2P proxy configured to discourage exposing physical IPs.
+   - Branded user agent: Shows up as `OracleKnots` on the P2P network.
 
-Even if your pull request to Core is closed, or if your feature is not
-suitable for Core (eg, because it builds on a feature not supported in Core;
-relies on centralised services; etc), it may still be eligible for inclusion
-in Bitcoin Knots. In this case, a pull request may be opened on the
-[Knots GitHub](https://github.com/bitcoinknots/bitcoin) for review and consideration.
-When accepted, you are expected to maintain the submitted branch in your own
-repository, and it will be automatically merged into new releases of Knots.
+---
 
-Developer IRC can be found on Freenode at #bitcoin-dev.
+## How to Build
 
-Testing
--------
+### Dependencies
+Install the required build dependencies for your distribution. On **Arch Linux**:
+```bash
+sudo pacman -S base-devel boost openssl libevent sqlite
+```
 
-Testing and code review is the bottleneck for development; we get more pull
-requests than we can review and test on short notice. Please be patient and help out by testing
-other people's pull requests, and remember this is a security-critical project where any mistake might cost people
-lots of money.
+### Compile
+Oracle Knots utilizes **CMake** for build configuration:
+```bash
+# Configure the build directory
+cmake -B build -DCMAKE_BUILD_TYPE=Release
 
-### Automated Testing
+# Build the binaries (bitcoind, bitcoin-cli, bitcoin-util)
+cmake --build build -j$(nproc)
+```
+The compiled binaries will be available in the `build/src/` folder.
 
-Developers are strongly encouraged to write [unit tests](src/test/README.md) for new code, and to
-submit new unit tests for old code. Unit tests can be compiled and run
-(assuming they weren't disabled during the generation of the build system) with: `ctest`. Further details on running
-and extending unit tests can be found in [/src/test/README.md](/src/test/README.md).
+---
 
-There are also [regression and integration tests](/test), written
-in Python.
-These tests can be run (if the [test dependencies](/test) are installed) with: `build/test/functional/test_runner.py`
-(assuming `build` is your build directory).
+## Configuring the Declarative Policy Engine
 
-The CI (Continuous Integration) systems make sure that every pull request is built for Windows, Linux, and macOS,
-and that unit/sanity tests are run automatically.
+At startup, a default configuration file named `policy.toml` is generated in your Bitcoin data directory. You can edit this file to select a profile or define custom rules:
 
-### Manual Quality Assurance (QA) Testing
+```toml
+# policy.toml
+profile = "maximalist"
+bip110_mode = "auto" # Options: auto, always, never
 
-Changes should be tested by somebody other than the developer who wrote the
-code. This is especially important for large or high-risk changes. It is useful
-to add a test plan to the pull request description if testing the changes is
-not straightforward.
+[custom_rules]
+datacarrier_size = 0          # Capping OP_RETURN payload size
+reject_tokens = true          # Reject BRC-20 / Runes
+reject_inscriptions = true    # Reject Taproot/Witness Ordinals inscriptions
+dust_relay_fee = 3000         # Custom dust fee in sat/kvb
+permit_bare_multisig = false
+permit_bare_pubkey = false
+reject_parasites = true
+max_op_return_outputs = 0
+```
 
-Translations
-------------
+### Dynamic Policy Modification (RPC)
+You can set and toggle policy values on the fly without restarting the node:
+```bash
+bitcoin-cli setsovereignpolicy monetary-only
+```
+Check compliance status and transaction rejection statistics:
+```bash
+bitcoin-cli checkbip110status
+```
 
-Changes to translations as well as new translations can be submitted to
-[Bitcoin Core's Transifex page](https://explore.transifex.com/bitcoin/bitcoin/).
+---
 
-Translations are periodically pulled from Transifex and merged into the git repository. See the
-[translation process](doc/translation_process.md) for details on how this works.
+## Recommended Configuration for Sovereign Operators
 
-**Important**: We do not accept translation changes as GitHub pull requests because the next
-pull from Transifex would automatically overwrite them again.
+Below is a recommended configuration (`bitcoin.conf`) for a resource-constrained, high-privacy mining operator setup:
+
+```ini
+# bitcoin.conf
+txindex=0
+blocksonly=0
+maxconnections=40
+maxmempool=100
+dbcache=150
+
+# Privacy
+proxy=127.0.0.1:9050
+onion=127.0.0.1:9050
+listenonion=1
+discover=0
+
+# Oracle Knots Custom Policy
+policyprofile=maximalist
+bip110=auto
+prometheus=1
+prometheusport=9332
+```
+
+---
+
+## License
+
+Oracle Knots is released under the terms of the MIT license. See [COPYING](COPYING) for more information.
