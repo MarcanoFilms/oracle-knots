@@ -2551,7 +2551,7 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
     }
 
     // Check privacy settings for mainnet
-    if (Params().NetworkIDString() == CBaseChainParams::MAIN) {
+    if (Params().GetChainType() == ChainType::MAIN) {
         if (!args.IsArgSet("-proxy") && !args.IsArgSet("-onion")) {
             LogPrintf("\n*** Oracle Knots Warning: No Tor (-onion / -proxy) configured! ***\n"
                       "Running a public Bitcoin node on mainnet without Tor/I2P exposes your home IP address.\n"
