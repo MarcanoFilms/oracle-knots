@@ -5,6 +5,11 @@
 
 *.pyc
 
+# Oracle Knots GUI
+gui-venv/
+__pycache__/
+*.pyo
+
 # Only ignore unexpected patches
 *.patch
 !contrib/guix/patches/*.patch

@@ -11,11 +11,19 @@ import urllib.request
 import shlex
 from bottle import route, run, static_file, request, response
 
-# Define paths
-ORACLE_KNOTS_DIR = "/home/marcano/oracle-knots"
-BITCOIND_PATH = os.path.join(ORACLE_KNOTS_DIR, "build", "bin", "bitcoind")
-BITCOIN_CLI_PATH = os.path.join(ORACLE_KNOTS_DIR, "build", "bin", "bitcoin-cli")
+# Define paths (portable — relative to this script)
+ORACLE_KNOTS_DIR = os.path.dirname(os.path.abspath(__file__))
 GUI_DIR = os.path.join(ORACLE_KNOTS_DIR, "gui")
+
+def _resolve_binary(name: str) -> str:
+    for subpath in ("build/bin", "build/src"):
+        path = os.path.join(ORACLE_KNOTS_DIR, subpath, name)
+        if os.path.isfile(path):
+            return path
+    return os.path.join(ORACLE_KNOTS_DIR, "build", "bin", name)
+
+BITCOIND_PATH = _resolve_binary("bitcoind")
+BITCOIN_CLI_PATH = _resolve_binary("bitcoin-cli")
 
 def is_port_in_use(port: int) -> bool:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -80,7 +88,7 @@ def get_prometheus_port(pid):
         pass
     return 9332
 
-def run_bitcoin_cli(args_list, datadir=None, network="mainnet", wallet_name=None):
+def run_bitcoin_cli(args_list, datadir=None, network="mainnet", wallet_name=None, timeout=5.0):
     cmd = [BITCOIN_CLI_PATH]
     if datadir:
         cmd.append(f"-datadir={datadir}")
@@ -94,7 +102,7 @@ def run_bitcoin_cli(args_list, datadir=None, network="mainnet", wallet_name=None
         cmd.append(f"-rpcwallet={wallet_name}")
     cmd.extend(args_list)
     try:
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=5.0)
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
         if res.returncode == 0:
             return True, res.stdout.strip()
         else:
@@ -102,21 +110,39 @@ def run_bitcoin_cli(args_list, datadir=None, network="mainnet", wallet_name=None
     except Exception as e:
         return False, str(e)
 
+def get_network_dir(datadir, network):
+    root_datadir = os.path.abspath(datadir)
+    if network == "testnet":
+        return os.path.join(root_datadir, "testnet3")
+    if network == "regtest":
+        return os.path.join(root_datadir, "regtest")
+    if network == "signet":
+        return os.path.join(root_datadir, "signet")
+    return root_datadir
+
 def get_config_paths(datadir, network):
     root_datadir = os.path.abspath(datadir)
     bitcoin_conf_path = os.path.join(root_datadir, "bitcoin.conf")
-    
-    if network == "testnet":
-        net_dir = os.path.join(root_datadir, "testnet3")
-    elif network == "regtest":
-        net_dir = os.path.join(root_datadir, "regtest")
-    elif network == "signet":
-        net_dir = os.path.join(root_datadir, "signet")
-    else:
-        net_dir = root_datadir
-        
+    net_dir = get_network_dir(datadir, network)
     policy_toml_path = os.path.join(net_dir, "policy.toml")
     return bitcoin_conf_path, policy_toml_path
+
+def get_node_context():
+    """Return (running, datadir, network) for the active bitcoind process."""
+    running, pid = check_node_running()
+    if not running:
+        return False, os.path.expanduser("~/.bitcoin"), "mainnet"
+    return True, get_node_datadir(pid), get_node_network(pid)
+
+def list_wallets_on_disk(datadir, network):
+    net_dir = get_network_dir(datadir, network)
+    wallets_dir = os.path.join(net_dir, "wallets")
+    if not os.path.isdir(wallets_dir):
+        return []
+    return sorted(
+        name for name in os.listdir(wallets_dir)
+        if os.path.isdir(os.path.join(wallets_dir, name))
+    )
 
 def fetch_prometheus_metrics(port):
     try:
@@ -367,6 +393,10 @@ def index():
 @route('/static/<filename:path>')
 def send_static(filename):
     return static_file(filename, root=GUI_DIR)
+
+@route('/static/assets/<filename:path>')
+def send_assets(filename):
+    return static_file(filename, root=os.path.join(GUI_DIR, 'assets'))
 
 @route('/api/status')
 def api_status():
@@ -646,26 +676,99 @@ def api_save_parsed_config():
         return {"success": False, "error": str(e)}
 
 # ----------------------------------------------------
+# Wallet PSBT / Send Helpers
+# ----------------------------------------------------
+def _btc_kvb_to_sat_vb(feerate_btc_kvb):
+    if feerate_btc_kvb is None or feerate_btc_kvb < 0:
+        return None
+    return round(feerate_btc_kvb * 1e5)
+
+def _execute_psbt_send(datadir, network, wallet_name, address, amount, inputs=None, fee_rate=None):
+    """Create, sign, finalize and broadcast a funded PSBT."""
+    inputs_json = json.dumps(inputs or [])
+    outputs_json = json.dumps({address: float(amount)})
+    options = {}
+    if fee_rate is not None:
+        options["fee_rate"] = int(fee_rate)
+    if inputs:
+        options["add_inputs"] = False
+    options_json = json.dumps(options)
+
+    ok, out = run_bitcoin_cli(
+        ["walletcreatefundedpsbt", inputs_json, outputs_json, "0", options_json],
+        datadir, network, wallet_name, timeout=60.0,
+    )
+    if not ok:
+        return False, out
+
+    try:
+        created = json.loads(out)
+        psbt = created.get("psbt", "")
+        fee = created.get("fee")
+    except json.JSONDecodeError:
+        return False, f"Unexpected walletcreatefundedpsbt response: {out}"
+
+    if not psbt:
+        return False, "walletcreatefundedpsbt did not return a PSBT"
+
+    ok, out = run_bitcoin_cli(
+        ["walletprocesspsbt", psbt], datadir, network, wallet_name, timeout=60.0,
+    )
+    if not ok:
+        return False, out
+
+    try:
+        processed = json.loads(out)
+        psbt = processed.get("psbt", psbt)
+    except json.JSONDecodeError:
+        return False, f"Unexpected walletprocesspsbt response: {out}"
+
+    ok, out = run_bitcoin_cli(
+        ["finalizepsbt", psbt], datadir, network, wallet_name, timeout=30.0,
+    )
+    if not ok:
+        return False, out
+
+    try:
+        finalized = json.loads(out)
+        hex_tx = finalized.get("hex", "")
+        complete = finalized.get("complete", False)
+    except json.JSONDecodeError:
+        return False, f"Unexpected finalizepsbt response: {out}"
+
+    if not complete or not hex_tx:
+        return False, "PSBT is not fully signed"
+
+    ok, txid = run_bitcoin_cli(
+        ["sendrawtransaction", hex_tx], datadir, network, timeout=30.0,
+    )
+    if not ok:
+        return False, txid
+
+    return True, {"txid": txid, "fee": fee, "hex": hex_tx}
+
+# ----------------------------------------------------
 # Wallet Management API Endpoints
 # ----------------------------------------------------
 @route('/api/wallet/status')
 def api_wallet_status():
-    running, pid = check_node_running()
+    running, datadir, network = get_node_context()
+    on_disk = list_wallets_on_disk(datadir, network)
     if not running:
-        return {"loaded": False, "wallets": []}
-        
-    datadir = get_node_datadir(pid)
-    network = get_node_network(pid)
-    
+        return {"loaded": False, "wallets": [], "on_disk": on_disk}
+
     success, output = run_bitcoin_cli(["listwallets"], datadir, network)
     if success:
         try:
             wallets = json.loads(output)
-            return {"loaded": len(wallets) > 0, "wallets": wallets}
+            return {
+                "loaded": len(wallets) > 0,
+                "wallets": wallets,
+                "on_disk": on_disk,
+            }
         except Exception as e:
-            return {"loaded": False, "wallets": [], "error": str(e)}
-    else:
-        return {"loaded": False, "wallets": [], "error": output}
+            return {"loaded": False, "wallets": [], "on_disk": on_disk, "error": str(e)}
+    return {"loaded": False, "wallets": [], "on_disk": on_disk, "error": output}
 
 @route('/api/wallet/create', method='POST')
 def api_wallet_create():
@@ -761,24 +864,591 @@ def api_wallet_address():
 def api_wallet_send():
     data = request.json or {}
     name = data.get("name")
-    address = data.get("address")
+    address = data.get("address", "").strip()
     amount = data.get("amount")
-    
+    fee_rate = data.get("fee_rate")
+
     if not name or not address or amount is None:
         return {"success": False, "error": "Wallet name, address, and amount are required"}
-        
-    running, pid = check_node_running()
+
+    running, datadir, network = get_node_context()
     if not running:
         return {"success": False, "error": "Node is offline"}
-        
-    datadir = get_node_datadir(pid)
-    network = get_node_network(pid)
-    
-    success, output = run_bitcoin_cli(["sendtoaddress", address, str(amount)], datadir, network, wallet_name=name)
+
+    if fee_rate is not None:
+        outputs_json = json.dumps({address: float(amount)})
+        options_json = json.dumps({"fee_rate": int(fee_rate)})
+        success, output = run_bitcoin_cli(
+            ["send", outputs_json, options_json],
+            datadir, network, wallet_name=name, timeout=60.0,
+        )
+        if success:
+            return {"success": True, "txid": output.strip('"')}
+        return {"success": False, "error": output}
+
+    success, output = run_bitcoin_cli(
+        ["sendtoaddress", address, str(amount)],
+        datadir, network, wallet_name=name, timeout=60.0,
+    )
     if success:
         return {"success": True, "txid": output}
-    else:
+    return {"success": False, "error": output}
+
+@route('/api/wallet/send-advanced', method='POST')
+def api_wallet_send_advanced():
+    data = request.json or {}
+    name = data.get("name")
+    address = data.get("address", "").strip()
+    amount = data.get("amount")
+    fee_rate = data.get("fee_rate")
+    inputs = data.get("inputs", [])
+
+    if not name or not address or amount is None:
+        return {"success": False, "error": "Wallet name, address, and amount are required"}
+    if not inputs:
+        return {"success": False, "error": "Select at least one UTXO for coin control"}
+
+    running, datadir, network = get_node_context()
+    if not running:
+        return {"success": False, "error": "Node is offline"}
+
+    for inp in inputs:
+        if not inp.get("txid") or inp.get("vout") is None:
+            return {"success": False, "error": "Each input must have txid and vout"}
+
+    success, result = _execute_psbt_send(
+        datadir, network, name, address, amount, inputs=inputs, fee_rate=fee_rate,
+    )
+    if success:
+        return {"success": True, **result}
+    return {"success": False, "error": result}
+
+@route('/api/wallet/utxos')
+def api_wallet_utxos():
+    name = request.query.get("name")
+    if not name:
+        return {"success": False, "error": "Wallet name parameter is required"}
+
+    running, datadir, network = get_node_context()
+    if not running:
+        return {"success": False, "error": "Node is offline"}
+
+    success, output = run_bitcoin_cli(
+        ["listunspent", "0", "9999999"], datadir, network, wallet_name=name, timeout=30.0,
+    )
+    if not success:
         return {"success": False, "error": output}
+
+    locked_set = set()
+    ok_lock, lock_out = run_bitcoin_cli(
+        ["listlockunspent"], datadir, network, wallet_name=name, timeout=10.0,
+    )
+    if ok_lock:
+        try:
+            for item in json.loads(lock_out):
+                locked_set.add((item["txid"], item["vout"]))
+        except json.JSONDecodeError:
+            pass
+
+    try:
+        utxos = json.loads(output)
+        for utxo in utxos:
+            utxo["locked"] = (utxo["txid"], utxo["vout"]) in locked_set
+        return {"success": True, "utxos": utxos}
+    except json.JSONDecodeError as e:
+        return {"success": False, "error": str(e)}
+
+@route('/api/wallet/lock-utxo', method='POST')
+def api_wallet_lock_utxo():
+    data = request.json or {}
+    name = data.get("name")
+    unlock = bool(data.get("unlock", False))
+    inputs = data.get("inputs", [])
+
+    if not name:
+        return {"success": False, "error": "Wallet name is required"}
+    if not inputs:
+        return {"success": False, "error": "At least one UTXO input is required"}
+
+    running, datadir, network = get_node_context()
+    if not running:
+        return {"success": False, "error": "Node is offline"}
+
+    inputs_json = json.dumps(inputs)
+    flag = "true" if unlock else "false"
+    success, output = run_bitcoin_cli(
+        ["lockunspent", flag, inputs_json],
+        datadir, network, wallet_name=name, timeout=15.0,
+    )
+    if success:
+        return {"success": True, "unlocked" if unlock else "locked": True}
+    return {"success": False, "error": output}
+
+@route('/api/wallet/fee-estimate')
+def api_wallet_fee_estimate():
+    blocks = request.query.get("blocks", "6")
+    running, datadir, network = get_node_context()
+    if not running:
+        return {"success": False, "error": "Node is offline"}
+
+    success, output = run_bitcoin_cli(
+        ["estimatesmartfee", str(blocks)], datadir, network, timeout=10.0,
+    )
+    if not success:
+        return {"success": False, "error": output}
+
+    try:
+        estimate = json.loads(output)
+        feerate = estimate.get("feerate")
+        sat_vb = _btc_kvb_to_sat_vb(feerate) if feerate is not None else None
+        return {
+            "success": True,
+            "feerate_btc_kvb": feerate,
+            "sat_vb": sat_vb,
+            "blocks": estimate.get("blocks"),
+            "errors": estimate.get("errors", []),
+        }
+    except json.JSONDecodeError:
+        return {"success": False, "error": output}
+
+@route('/api/wallet/unload', method='POST')
+def api_wallet_unload():
+    data = request.json or {}
+    name = data.get("name")
+    if not name:
+        return {"success": False, "error": "Wallet name is required"}
+
+    running, datadir, network = get_node_context()
+    if not running:
+        return {"success": False, "error": "Node is offline"}
+
+    success, output = run_bitcoin_cli(["unloadwallet", name], datadir, network)
+    if success:
+        return {"success": True, "output": output}
+    return {"success": False, "error": output}
+
+@route('/api/wallet/addresses')
+def api_wallet_addresses():
+    name = request.query.get("name")
+    if not name:
+        return {"success": False, "error": "Wallet name parameter is required"}
+
+    running, datadir, network = get_node_context()
+    if not running:
+        return {"success": False, "error": "Node is offline"}
+
+    success, output = run_bitcoin_cli(
+        ["listreceivedbyaddress", "0", "true", "true"],
+        datadir, network, wallet_name=name,
+    )
+    return {"success": success, "output": output}
+
+@route('/api/wallet/label', method='POST')
+def api_wallet_label():
+    data = request.json or {}
+    name = data.get("name")
+    address = data.get("address", "").strip()
+    label = data.get("label", "").strip()
+    if not name or not address:
+        return {"success": False, "error": "Wallet name and address are required"}
+
+    running, datadir, network = get_node_context()
+    if not running:
+        return {"success": False, "error": "Node is offline"}
+
+    success, output = run_bitcoin_cli(
+        ["setlabel", address, label], datadir, network, wallet_name=name,
+    )
+    if success:
+        return {"success": True}
+    return {"success": False, "error": output}
+
+@route('/api/wallet/sign-message', method='POST')
+def api_wallet_sign_message():
+    data = request.json or {}
+    name = data.get("name")
+    address = data.get("address", "").strip()
+    message = data.get("message", "")
+    if not name or not address or not message:
+        return {"success": False, "error": "Wallet name, address, and message are required"}
+
+    running, datadir, network = get_node_context()
+    if not running:
+        return {"success": False, "error": "Node is offline"}
+
+    success, output = run_bitcoin_cli(
+        ["signmessage", address, message], datadir, network, wallet_name=name,
+    )
+    if success:
+        return {"success": True, "signature": output}
+    return {"success": False, "error": output}
+
+@route('/api/wallet/verify-message', method='POST')
+def api_wallet_verify_message():
+    data = request.json or {}
+    address = data.get("address", "").strip()
+    signature = data.get("signature", "").strip()
+    message = data.get("message", "")
+    if not address or not signature or not message:
+        return {"success": False, "error": "Address, signature, and message are required"}
+
+    running, datadir, network = get_node_context()
+    if not running:
+        return {"success": False, "error": "Node is offline"}
+
+    success, output = run_bitcoin_cli(["verifymessage", address, signature, message], datadir, network)
+    if success:
+        valid = output.lower() == "true"
+        return {"success": True, "valid": valid, "output": output}
+    return {"success": False, "error": output}
+
+@route('/api/wallet/psbt/decode', method='POST')
+def api_wallet_psbt_decode():
+    data = request.json or {}
+    name = data.get("name")
+    psbt = data.get("psbt", "").strip()
+    if not name or not psbt:
+        return {"success": False, "error": "Wallet name and PSBT data are required"}
+
+    running, datadir, network = get_node_context()
+    if not running:
+        return {"success": False, "error": "Node is offline"}
+
+    success, output = run_bitcoin_cli(
+        ["decodepsbt", psbt], datadir, network, wallet_name=name,
+    )
+    if success:
+        return {"success": True, "output": output}
+    return {"success": False, "error": output}
+
+@route('/api/wallet/psbt/sign', method='POST')
+def api_wallet_psbt_sign():
+    data = request.json or {}
+    name = data.get("name")
+    psbt = data.get("psbt", "").strip()
+    if not name or not psbt:
+        return {"success": False, "error": "Wallet name and PSBT data are required"}
+
+    running, datadir, network = get_node_context()
+    if not running:
+        return {"success": False, "error": "Node is offline"}
+
+    success, output = run_bitcoin_cli(
+        ["walletprocesspsbt", psbt], datadir, network, wallet_name=name,
+    )
+    if success:
+        try:
+            result = json.loads(output)
+            return {
+                "success": True,
+                "psbt": result.get("psbt", ""),
+                "complete": result.get("complete", False),
+                "output": output,
+            }
+        except json.JSONDecodeError:
+            return {"success": True, "output": output}
+    return {"success": False, "error": output}
+
+@route('/api/wallet/psbt/finalize', method='POST')
+def api_wallet_psbt_finalize():
+    data = request.json or {}
+    name = data.get("name")
+    psbt = data.get("psbt", "").strip()
+    broadcast = data.get("broadcast", True)
+    if not name or not psbt:
+        return {"success": False, "error": "Wallet name and PSBT data are required"}
+
+    running, datadir, network = get_node_context()
+    if not running:
+        return {"success": False, "error": "Node is offline"}
+
+    success, output = run_bitcoin_cli(
+        ["finalizepsbt", psbt], datadir, network, wallet_name=name,
+    )
+    if not success:
+        return {"success": False, "error": output}
+
+    try:
+        result = json.loads(output)
+        hex_tx = result.get("hex", "")
+        complete = result.get("complete", False)
+    except json.JSONDecodeError:
+        return {"success": False, "error": f"Unexpected finalizepsbt response: {output}"}
+
+    if not complete or not hex_tx:
+        return {"success": False, "error": "PSBT is not fully signed yet", "complete": complete}
+
+    if not broadcast:
+        return {"success": True, "hex": hex_tx, "complete": True, "broadcast": False}
+
+    ok, tx_output = run_bitcoin_cli(["sendrawtransaction", hex_tx], datadir, network)
+    if ok:
+        return {"success": True, "txid": tx_output, "hex": hex_tx, "complete": True, "broadcast": True}
+    return {"success": False, "error": tx_output, "hex": hex_tx, "complete": True}
+
+# ----------------------------------------------------
+# Wallet Security & Import/Export
+# ----------------------------------------------------
+def _wallet_backups_dir(datadir, network):
+    net_dir = get_network_dir(datadir, network)
+    path = os.path.join(net_dir, "backups")
+    os.makedirs(path, exist_ok=True)
+    return path
+
+@route('/api/wallet/backup-path')
+def api_wallet_backup_path():
+    running, datadir, network = get_node_context()
+    backups = _wallet_backups_dir(datadir, network) if running else os.path.expanduser("~/.bitcoin/backups")
+    return {"success": True, "path": backups}
+
+@route('/api/wallet/encrypt', method='POST')
+def api_wallet_encrypt():
+    data = request.json or {}
+    name = data.get("name")
+    passphrase = data.get("passphrase", "")
+    if not name or not passphrase:
+        return {"success": False, "error": "Wallet name and passphrase are required"}
+    if len(passphrase) < 8:
+        return {"success": False, "error": "Passphrase must be at least 8 characters"}
+
+    running, datadir, network = get_node_context()
+    if not running:
+        return {"success": False, "error": "Node is offline"}
+
+    success, output = run_bitcoin_cli(
+        ["encryptwallet", passphrase], datadir, network, wallet_name=name, timeout=120.0,
+    )
+    if success:
+        return {"success": True, "output": output}
+    return {"success": False, "error": output}
+
+@route('/api/wallet/unlock', method='POST')
+def api_wallet_unlock():
+    data = request.json or {}
+    name = data.get("name")
+    passphrase = data.get("passphrase", "")
+    timeout_secs = int(data.get("timeout", 600))
+    if not name or not passphrase:
+        return {"success": False, "error": "Wallet name and passphrase are required"}
+
+    running, datadir, network = get_node_context()
+    if not running:
+        return {"success": False, "error": "Node is offline"}
+
+    success, output = run_bitcoin_cli(
+        ["walletpassphrase", passphrase, str(timeout_secs)],
+        datadir, network, wallet_name=name, timeout=30.0,
+    )
+    if success:
+        return {"success": True}
+    return {"success": False, "error": output}
+
+@route('/api/wallet/lock', method='POST')
+def api_wallet_lock():
+    data = request.json or {}
+    name = data.get("name")
+    if not name:
+        return {"success": False, "error": "Wallet name is required"}
+
+    running, datadir, network = get_node_context()
+    if not running:
+        return {"success": False, "error": "Node is offline"}
+
+    success, output = run_bitcoin_cli(
+        ["walletlock"], datadir, network, wallet_name=name, timeout=15.0,
+    )
+    if success:
+        return {"success": True}
+    return {"success": False, "error": output}
+
+@route('/api/wallet/change-passphrase', method='POST')
+def api_wallet_change_passphrase():
+    data = request.json or {}
+    name = data.get("name")
+    old_pass = data.get("old_passphrase", "")
+    new_pass = data.get("new_passphrase", "")
+    if not name or not old_pass or not new_pass:
+        return {"success": False, "error": "Wallet name, old and new passphrases are required"}
+    if len(new_pass) < 8:
+        return {"success": False, "error": "New passphrase must be at least 8 characters"}
+
+    running, datadir, network = get_node_context()
+    if not running:
+        return {"success": False, "error": "Node is offline"}
+
+    success, output = run_bitcoin_cli(
+        ["walletpassphrasechange", old_pass, new_pass],
+        datadir, network, wallet_name=name, timeout=120.0,
+    )
+    if success:
+        return {"success": True}
+    return {"success": False, "error": output}
+
+@route('/api/wallet/backup', method='POST')
+def api_wallet_backup():
+    data = request.json or {}
+    name = data.get("name")
+    if not name:
+        return {"success": False, "error": "Wallet name is required"}
+
+    running, datadir, network = get_node_context()
+    if not running:
+        return {"success": False, "error": "Node is offline"}
+
+    backups_dir = _wallet_backups_dir(datadir, network)
+    filename = data.get("filename", "").strip()
+    if not filename:
+        stamp = time.strftime("%Y%m%d_%H%M%S")
+        filename = f"{name}_{stamp}.dat"
+    if not filename.endswith(".dat"):
+        filename += ".dat"
+    dest = os.path.join(backups_dir, os.path.basename(filename))
+
+    success, output = run_bitcoin_cli(
+        ["backupwallet", dest], datadir, network, wallet_name=name, timeout=120.0,
+    )
+    if success:
+        return {"success": True, "path": dest}
+    return {"success": False, "error": output}
+
+@route('/api/wallet/dump', method='POST')
+def api_wallet_dump():
+    data = request.json or {}
+    name = data.get("name")
+    if not name:
+        return {"success": False, "error": "Wallet name is required"}
+
+    running, datadir, network = get_node_context()
+    if not running:
+        return {"success": False, "error": "Node is offline"}
+
+    backups_dir = _wallet_backups_dir(datadir, network)
+    filename = data.get("filename", "").strip()
+    if not filename:
+        stamp = time.strftime("%Y%m%d_%H%M%S")
+        filename = f"{name}_dump_{stamp}.txt"
+    dest = os.path.join(backups_dir, os.path.basename(filename))
+
+    success, output = run_bitcoin_cli(
+        ["dumpwallet", dest], datadir, network, wallet_name=name, timeout=120.0,
+    )
+    if success:
+        return {"success": True, "path": dest}
+    return {"success": False, "error": output}
+
+@route('/api/wallet/import-wallet', method='POST')
+def api_wallet_import_wallet():
+    data = request.json or {}
+    filepath = data.get("filepath", "").strip()
+    if not filepath:
+        return {"success": False, "error": "Wallet dump file path is required"}
+    if not os.path.isfile(filepath):
+        return {"success": False, "error": f"File not found: {filepath}"}
+
+    running, datadir, network = get_node_context()
+    if not running:
+        return {"success": False, "error": "Node is offline"}
+
+    success, output = run_bitcoin_cli(
+        ["importwallet", filepath], datadir, network, timeout=300.0,
+    )
+    if success:
+        return {"success": True, "output": output}
+    return {"success": False, "error": output}
+
+@route('/api/wallet/create-watchonly', method='POST')
+def api_wallet_create_watchonly():
+    data = request.json or {}
+    name = data.get("name", "").strip()
+    if not name:
+        return {"success": False, "error": "Wallet name is required"}
+
+    running, datadir, network = get_node_context()
+    if not running:
+        return {"success": False, "error": "Node is offline"}
+
+    options = json.dumps({"disable_private_keys": True, "blank": True})
+    success, output = run_bitcoin_cli(
+        ["createwallet", name, "false", "true", options],
+        datadir, network, timeout=30.0,
+    )
+    if success:
+        return {"success": True, "output": output}
+    return {"success": False, "error": output}
+
+@route('/api/wallet/import-descriptors', method='POST')
+def api_wallet_import_descriptors():
+    data = request.json or {}
+    name = data.get("name")
+    descriptor = data.get("descriptor", "").strip()
+    if not name or not descriptor:
+        return {"success": False, "error": "Wallet name and descriptor are required"}
+
+    running, datadir, network = get_node_context()
+    if not running:
+        return {"success": False, "error": "Node is offline"}
+
+    req = json.dumps([{
+        "desc": descriptor,
+        "timestamp": "now",
+        "active": True,
+        "internal": False,
+    }])
+    success, output = run_bitcoin_cli(
+        ["importdescriptors", req], datadir, network, wallet_name=name, timeout=120.0,
+    )
+    if success:
+        try:
+            result = json.loads(output)
+            return {"success": True, "output": output, "result": result}
+        except json.JSONDecodeError:
+            return {"success": True, "output": output}
+    return {"success": False, "error": output}
+
+# ----------------------------------------------------
+# Oracle CLI Terminal
+# ----------------------------------------------------
+BLOCKED_CLI_COMMANDS = frozenset({
+    "stop", "shutdown", "invalidateblock", "reconsiderblock",
+    "submitblock", "submitheader", "addnode", "disconnectnode",
+    "setban", "clearbanned",
+})
+
+@route('/api/cli', method='POST')
+def api_cli():
+    data = request.json or {}
+    command = data.get("command", "").strip()
+    wallet_name = data.get("wallet_name") or None
+    if wallet_name == "":
+        wallet_name = None
+
+    if not command:
+        return {"success": False, "error": "Command is required"}
+
+    try:
+        parts = shlex.split(command)
+    except ValueError as e:
+        return {"success": False, "error": f"Invalid command syntax: {e}"}
+
+    if not parts:
+        return {"success": False, "error": "Empty command"}
+
+    method = parts[0].lower()
+    if method in BLOCKED_CLI_COMMANDS:
+        return {"success": False, "error": f"Command '{method}' is blocked. Use the dashboard for node control."}
+
+    running, datadir, network = get_node_context()
+    if not running:
+        return {"success": False, "error": "Node is offline"}
+
+    timeout = 120.0
+    if method in ("importwallet", "rescanblockchain", "createwallet"):
+        timeout = 300.0
+
+    success, output = run_bitcoin_cli(
+        parts, datadir, network, wallet_name=wallet_name, timeout=timeout,
+    )
+    return {"success": success, "output": output, "command": command}
 
 # ----------------------------------------------------
 # Log and General Endpoints
@@ -844,7 +1514,7 @@ def main():
     try:
         print(f"Opening Oracle Knots Control Center on port {dashboard_port}...")
         window = webview.create_window(
-            title="Oracle Knots Control Center",
+            title="Oracle Knots — The Oracle Watches",
             url=f"http://127.0.0.1:{dashboard_port}",
             width=1250,
             height=850,

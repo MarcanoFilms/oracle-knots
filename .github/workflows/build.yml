@@ -25,3 +25,20 @@ jobs:
 
     - name: Build project
       run: cmake --build build -j$(nproc)
+
+  gui-smoke:
+    name: GUI API Smoke Test
+    runs-on: ubuntu-24.04
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
+    - name: Install GUI dependencies
+      run: pip install -r requirements.txt
+
+    - name: Run GUI smoke tests
+      run: python test/smoke_gui.py

@@ -1,6 +1,33 @@
 // Oracle Knots Control Center JavaScript Application
 
 document.addEventListener('DOMContentLoaded', () => {
+    const STORAGE_KEY_ACTIVE_WALLET = 'oracle_active_wallet';
+
+    // ----------------------------------------------------
+    // Toast Notification System
+    // ----------------------------------------------------
+    const toastContainer = document.getElementById('toast-container');
+
+    function showToast(message, type = 'info', duration = 4500) {
+        if (!toastContainer) return;
+        const icons = { success: '✓', error: '✕', info: '◉' };
+        const toast = document.createElement('div');
+        toast.className = `toast toast-${type}`;
+        toast.innerHTML = `
+            <span class="toast-icon">${icons[type] || icons.info}</span>
+            <span class="toast-message"></span>
+            <button class="toast-close" aria-label="Dismiss">&times;</button>
+        `;
+        toast.querySelector('.toast-message').textContent = message;
+        const dismiss = () => {
+            toast.classList.add('toast-exit');
+            setTimeout(() => toast.remove(), 250);
+        };
+        toast.querySelector('.toast-close').addEventListener('click', dismiss);
+        toastContainer.appendChild(toast);
+        if (duration > 0) setTimeout(dismiss, duration);
+    }
+
     // ----------------------------------------------------
     // UI Elements
     // ----------------------------------------------------
@@ -35,6 +62,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const rejectionsEmptyView = document.getElementById('rejections-empty-view');
     const rejectionsList = document.getElementById('rejections-list');
     const dashRejectionsTotal = document.getElementById('dash-rejections-total');
+    const mempoolSparkline = document.getElementById('mempool-sparkline');
+    const heroBlockPulse = document.getElementById('hero-block-pulse');
+    const heroPeerPulse = document.getElementById('hero-peer-pulse');
+    const oracleHeroDesc = document.getElementById('oracle-hero-desc');
+    const syncOwlEye = document.getElementById('sync-owl-eye');
+    const balanceCard = document.querySelector('.balance-card');
     
     // Node Info
     const infoChain = document.getElementById('info-chain');
@@ -102,12 +135,67 @@ document.addEventListener('DOMContentLoaded', () => {
     // Wallet actions sub-navigation
     const pillWalletReceive = document.getElementById('pill-wallet-receive');
     const pillWalletSend = document.getElementById('pill-wallet-send');
+    const pillWalletUtxos = document.getElementById('pill-wallet-utxos');
     const pillWalletHistory = document.getElementById('pill-wallet-history');
-    
+    const pillWalletAddresses = document.getElementById('pill-wallet-addresses');
+    const pillWalletTools = document.getElementById('pill-wallet-tools');
+
     const walletSubReceive = document.getElementById('wallet-sub-receive');
     const walletSubSend = document.getElementById('wallet-sub-send');
+    const walletSubUtxos = document.getElementById('wallet-sub-utxos');
     const walletSubHistory = document.getElementById('wallet-sub-history');
-    
+    const walletSubAddresses = document.getElementById('wallet-sub-addresses');
+    const walletSubTools = document.getElementById('wallet-sub-tools');
+
+    const walletSelector = document.getElementById('wallet-selector');
+    const btnWalletUnload = document.getElementById('btn-wallet-unload');
+    const walletAddressesList = document.getElementById('wallet-addresses-list');
+    const btnRefreshAddresses = document.getElementById('btn-refresh-addresses');
+
+    const subpillSignMsg = document.getElementById('subpill-sign-msg');
+    const subpillPsbt = document.getElementById('subpill-psbt');
+    const subpillSecurity = document.getElementById('subpill-security');
+    const toolPaneSignMsg = document.getElementById('tool-pane-sign-msg');
+    const toolPanePsbt = document.getElementById('tool-pane-psbt');
+    const toolPaneSecurity = document.getElementById('tool-pane-security');
+
+    const encryptPassphraseInput = document.getElementById('encrypt-passphrase');
+    const btnEncryptWallet = document.getElementById('btn-encrypt-wallet');
+    const unlockPassphraseInput = document.getElementById('unlock-passphrase');
+    const unlockTimeoutInput = document.getElementById('unlock-timeout');
+    const btnUnlockWallet = document.getElementById('btn-unlock-wallet');
+    const btnLockWallet = document.getElementById('btn-lock-wallet');
+    const changeOldPassInput = document.getElementById('change-old-pass');
+    const changeNewPassInput = document.getElementById('change-new-pass');
+    const btnChangePassphrase = document.getElementById('btn-change-passphrase');
+    const backupDirHint = document.getElementById('backup-dir-hint');
+    const backupResult = document.getElementById('backup-result');
+    const btnBackupWallet = document.getElementById('btn-backup-wallet');
+    const btnDumpWallet = document.getElementById('btn-dump-wallet');
+    const importWalletPathInput = document.getElementById('import-wallet-path');
+    const btnImportWallet = document.getElementById('btn-import-wallet');
+    const watchonlyNameInput = document.getElementById('watchonly-name');
+    const btnCreateWatchonly = document.getElementById('btn-create-watchonly');
+    const importDescriptorInput = document.getElementById('import-descriptor');
+    const btnImportDescriptor = document.getElementById('btn-import-descriptor');
+
+    const cliOutput = document.getElementById('cli-output');
+    const cliInput = document.getElementById('cli-input');
+    const cliRunBtn = document.getElementById('cli-run-btn');
+    const cliClearBtn = document.getElementById('cli-clear-btn');
+    const cliWalletSelect = document.getElementById('cli-wallet-select');
+    const cliQuickChips = document.getElementById('cli-quick-chips');
+    const msgAddressInput = document.getElementById('msg-address');
+    const msgTextInput = document.getElementById('msg-text');
+    const msgSignatureInput = document.getElementById('msg-signature');
+    const btnSignMessage = document.getElementById('btn-sign-message');
+    const btnVerifyMessage = document.getElementById('btn-verify-message');
+    const psbtDataInput = document.getElementById('psbt-data');
+    const btnDecodePsbt = document.getElementById('btn-decode-psbt');
+    const btnSignPsbt = document.getElementById('btn-sign-psbt');
+    const btnBroadcastPsbt = document.getElementById('btn-broadcast-psbt');
+    const psbtResultContainer = document.getElementById('psbt-result-container');
+
     const btnWalletGotoSend = document.getElementById('btn-wallet-goto-send');
     const btnWalletGotoReceive = document.getElementById('btn-wallet-goto-receive');
     
@@ -120,10 +208,35 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnCopyAddress = document.getElementById('btn-copy-address');
     
     // Wallet Send pane
+    const sendModeSimple = document.getElementById('send-mode-simple');
+    const sendModeAdvanced = document.getElementById('send-mode-advanced');
+    const sendSimplePane = document.getElementById('send-simple-pane');
+    const sendAdvancedPane = document.getElementById('send-advanced-pane');
     const sendAddressInput = document.getElementById('send-address');
     const sendAmountInput = document.getElementById('send-amount');
+    const sendFeeRateInput = document.getElementById('send-fee-rate');
+    const sendFeeHint = document.getElementById('send-fee-hint');
     const btnSendCoins = document.getElementById('btn-send-coins');
-    
+    const sendAdvAddressInput = document.getElementById('send-adv-address');
+    const sendAdvAmountInput = document.getElementById('send-adv-amount');
+    const sendAdvFeeRateInput = document.getElementById('send-adv-fee-rate');
+    const sendUtxoList = document.getElementById('send-utxo-list');
+    const sendUtxoSelectAll = document.getElementById('send-utxo-select-all');
+    const sendSelectedCount = document.getElementById('send-selected-count');
+    const sendSelectedTotal = document.getElementById('send-selected-total');
+    const btnSendAdvanced = document.getElementById('btn-send-advanced');
+
+    // Wallet UTXOs pane
+    const walletUtxoList = document.getElementById('wallet-utxo-list');
+    const btnRefreshUtxos = document.getElementById('btn-refresh-utxos');
+    const utxoSelectAll = document.getElementById('utxo-select-all');
+    const utxoTotalCount = document.getElementById('utxo-total-count');
+    const utxoTotalBtc = document.getElementById('utxo-total-btc');
+    const utxoLockedCount = document.getElementById('utxo-locked-count');
+    const btnLockSelectedUtxos = document.getElementById('btn-lock-selected-utxos');
+    const btnUnlockSelectedUtxos = document.getElementById('btn-unlock-selected-utxos');
+    const btnUtxoGotoSend = document.getElementById('btn-utxo-goto-send');
+
     // Wallet History pane
     const walletTxList = document.getElementById('wallet-tx-list');
     
@@ -138,7 +251,80 @@ document.addEventListener('DOMContentLoaded', () => {
     let walletIntervalId = null;
     
     let activeWalletName = '';
+    let loadedWallets = [];
+    let currentPsbt = '';
+    let cachedUtxos = [];
+    let selectedUtxoKeys = new Set();
+    let cliHistory = [];
+    let cliHistoryIndex = -1;
+    let mempoolHistory = [];
+    let lastBlockHeight = 0;
+    const MEMPOOL_HISTORY_MAX = 40;
     let btcPriceUsd = 93500;
+
+    function drawMempoolSparkline() {
+        if (!mempoolSparkline || mempoolHistory.length < 2) return;
+        const canvas = mempoolSparkline;
+        const ctx = canvas.getContext('2d');
+        const w = canvas.width;
+        const h = canvas.height;
+        const data = mempoolHistory;
+        const max = Math.max(...data, 1);
+        const min = Math.min(...data, 0);
+        const range = max - min || 1;
+
+        ctx.clearRect(0, 0, w, h);
+        ctx.beginPath();
+        data.forEach((val, i) => {
+            const x = (i / (data.length - 1)) * (w - 4) + 2;
+            const y = h - 4 - ((val - min) / range) * (h - 8);
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+        });
+        const grad = ctx.createLinearGradient(0, 0, w, 0);
+        grad.addColorStop(0, 'rgba(0, 240, 255, 0.9)');
+        grad.addColorStop(1, 'rgba(189, 94, 255, 0.9)');
+        ctx.strokeStyle = grad;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        ctx.lineTo(w - 2, h - 2);
+        ctx.lineTo(2, h - 2);
+        ctx.closePath();
+        const fillGrad = ctx.createLinearGradient(0, 0, 0, h);
+        fillGrad.addColorStop(0, 'rgba(0, 240, 255, 0.15)');
+        fillGrad.addColorStop(1, 'rgba(0, 240, 255, 0)');
+        ctx.fillStyle = fillGrad;
+        ctx.fill();
+    }
+
+    function pulseHeroBlock(height) {
+        if (!heroBlockPulse) return;
+        heroBlockPulse.textContent = `Block ${height.toLocaleString()}`;
+        if (height !== lastBlockHeight && lastBlockHeight > 0) {
+            heroBlockPulse.classList.remove('pulse-block');
+            void heroBlockPulse.offsetWidth;
+            heroBlockPulse.classList.add('pulse-block');
+        }
+        lastBlockHeight = height;
+    }
+
+    function utxoKey(utxo) {
+        return `${utxo.txid}:${utxo.vout}`;
+    }
+
+    function getSelectedUtxoInputs() {
+        return cachedUtxos
+            .filter(u => selectedUtxoKeys.has(utxoKey(u)))
+            .map(u => ({ txid: u.txid, vout: u.vout }));
+    }
+
+    function updateUtxoSelectionSummary() {
+        const selected = cachedUtxos.filter(u => selectedUtxoKeys.has(utxoKey(u)));
+        const total = selected.reduce((sum, u) => sum + u.amount, 0);
+        if (sendSelectedCount) sendSelectedCount.textContent = `${selected.length} UTXO${selected.length !== 1 ? 's' : ''} selected`;
+        if (sendSelectedTotal) sendSelectedTotal.textContent = `${total.toFixed(8)} BTC`;
+    }
     
     // ----------------------------------------------------
     // Tab Navigation Logic
@@ -174,7 +360,14 @@ document.addEventListener('DOMContentLoaded', () => {
         
         // Update header title
         const niceTitle = tabId.charAt(0).toUpperCase() + tabId.slice(1);
-        currentTabTitle.textContent = tabId === 'bip110' ? 'BIP-110 Status' : (tabId === 'config' ? 'Configuration' : (tabId === 'wallet' ? 'Wallet Manager' : niceTitle));
+        const titles = {
+            bip110: 'BIP-110 Status',
+            config: 'Configuration',
+            wallet: 'Wallet Manager',
+            cli: 'Oracle CLI',
+            logs: 'Console Logs',
+        };
+        currentTabTitle.textContent = titles[tabId] || niceTitle;
         
         // Handle specific tab actions
         if (tabId === 'config') {
@@ -191,6 +384,11 @@ document.addEventListener('DOMContentLoaded', () => {
             startWalletPolling();
         } else {
             stopWalletPolling();
+        }
+
+        if (tabId === 'cli') {
+            populateCliWalletSelect();
+            if (cliInput) cliInput.focus();
         }
     }
     
@@ -282,12 +480,17 @@ document.addEventListener('DOMContentLoaded', () => {
             
             topbarHeight.textContent = `Block: ${metrics.block_height}`;
             topbarPeers.textContent = `Peers: ${metrics.peers}`;
-            
+            pulseHeroBlock(metrics.block_height);
+            if (heroPeerPulse) heroPeerPulse.textContent = `${metrics.peers} peers watching`;
+
             // Sync logic
             fetchSyncPercentage(metrics.block_height);
-            
-            // Mempool info
+
+            // Mempool info + sparkline
             dashMempoolCount.textContent = metrics.mempool_size;
+            mempoolHistory.push(metrics.mempool_size);
+            if (mempoolHistory.length > MEMPOOL_HISTORY_MAX) mempoolHistory.shift();
+            drawMempoolSparkline();
             const mBytes = (metrics.mempool_bytes / 1024).toFixed(1);
             const mUsage = (metrics.mempool_usage / (1024 * 1024)).toFixed(1);
             dashMempoolBytes.textContent = `${mBytes} KB in mempool (${mUsage} MB RAM usage)`;
@@ -331,11 +534,20 @@ document.addEventListener('DOMContentLoaded', () => {
                     syncStatusIndicator.className = 'pulse-indicator active';
                     syncStatusText.textContent = 'Synced';
                     dashSyncDesc.textContent = `Fully synced at block #${currentBlock}`;
+                    if (syncOwlEye) {
+                        syncOwlEye.classList.remove('hidden');
+                        syncOwlEye.classList.add('owl-watching');
+                    }
+                    if (oracleHeroDesc) oracleHeroDesc.textContent = 'The Oracle sees all — chain fully verified, mempool under watch.';
                 } else {
                     syncStatusIndicator.className = 'pulse-indicator syncing';
                     syncStatusText.textContent = 'Syncing...';
                     dashSyncDesc.textContent = `Syncing blockchain... (${info.blocks} / ${info.headers})`;
                     widgetStatusDot.className = 'status-dot syncing';
+                    if (syncOwlEye) {
+                        syncOwlEye.classList.remove('hidden', 'owl-watching');
+                    }
+                    if (oracleHeroDesc) oracleHeroDesc.textContent = `Opening its eyes on the chain… ${sync}% synchronized.`;
                 }
             } else {
                 dashSyncVal.textContent = '100.00%';
@@ -1157,6 +1369,115 @@ document.addEventListener('DOMContentLoaded', () => {
     // ----------------------------------------------------
     // WALLET OPERATIONS AND MANAGEMENT
     // ----------------------------------------------------
+    function resolveActiveWallet(wallets) {
+        const saved = localStorage.getItem(STORAGE_KEY_ACTIVE_WALLET);
+        if (saved && wallets.includes(saved)) return saved;
+        return wallets[0];
+    }
+
+    function populateCliWalletSelect() {
+        if (!cliWalletSelect) return;
+        const current = cliWalletSelect.value;
+        cliWalletSelect.innerHTML = '<option value="">(none — node RPC)</option>';
+        loadedWallets.forEach(w => {
+            const opt = document.createElement('option');
+            opt.value = w;
+            opt.textContent = w;
+            cliWalletSelect.appendChild(opt);
+        });
+        if (activeWalletName && loadedWallets.includes(activeWalletName)) {
+            cliWalletSelect.value = activeWalletName;
+        } else if (current && [...cliWalletSelect.options].some(o => o.value === current)) {
+            cliWalletSelect.value = current;
+        }
+    }
+
+    async function loadBackupDirHint() {
+        if (!backupDirHint) return;
+        try {
+            const res = await fetch('/api/wallet/backup-path');
+            const data = await res.json();
+            if (data.success) backupDirHint.textContent = data.path;
+        } catch { /* ignore */ }
+    }
+
+    function populateWalletSelector(wallets, onDisk = []) {
+        if (!walletSelector) return;
+        walletSelector.innerHTML = '';
+        wallets.forEach(w => {
+            const opt = document.createElement('option');
+            opt.value = w;
+            opt.textContent = w;
+            walletSelector.appendChild(opt);
+        });
+        const notLoaded = (onDisk || []).filter(w => !wallets.includes(w));
+        if (notLoaded.length > 0) {
+            const group = document.createElement('optgroup');
+            group.label = 'On disk (not loaded)';
+            notLoaded.forEach(w => {
+                const opt = document.createElement('option');
+                opt.value = w;
+                opt.textContent = `${w} — load`;
+                opt.dataset.needsLoad = 'true';
+                group.appendChild(opt);
+            });
+            walletSelector.appendChild(group);
+        }
+        if (activeWalletName) {
+            walletSelector.value = activeWalletName;
+        }
+    }
+
+    function setActiveWallet(name) {
+        activeWalletName = name;
+        selectedUtxoKeys.clear();
+        cachedUtxos = [];
+        localStorage.setItem(STORAGE_KEY_ACTIVE_WALLET, name);
+        if (activeWalletNameLabel) activeWalletNameLabel.textContent = name;
+        if (walletSelector) walletSelector.value = name;
+        fetchWalletInfo();
+        fetchWalletHistory();
+        if (walletSubAddresses && !walletSubAddresses.classList.contains('hidden')) {
+            fetchWalletAddresses();
+        }
+        if (walletSubUtxos && !walletSubUtxos.classList.contains('hidden')) {
+            fetchAndRenderUtxos('manager');
+        }
+    }
+
+    function refreshWalletData() {
+        fetchWalletInfo();
+        fetchWalletHistory();
+        if (walletSubAddresses && !walletSubAddresses.classList.contains('hidden')) {
+            fetchWalletAddresses();
+        }
+        if (walletSubUtxos && !walletSubUtxos.classList.contains('hidden')) {
+            fetchAndRenderUtxos('manager');
+        }
+        if (sendAdvancedPane && !sendAdvancedPane.classList.contains('hidden')) {
+            fetchAndRenderUtxos('send');
+        }
+    }
+
+    function renderNoWalletView() {
+        walletNoWalletView.classList.remove('hidden');
+        walletActiveView.classList.add('hidden');
+        walletNoWalletView.innerHTML = `
+            <div class="empty-icon">🪙</div>
+            <h3>No Wallet Loaded</h3>
+            <p class="text-secondary mt-2">To start sending and receiving Bitcoin, you must load an existing wallet or create a new one.</p>
+            <div class="form-group mt-4" style="max-width: 340px; margin: 16px auto;">
+                <input type="text" id="new-wallet-name" placeholder="Wallet Name (e.g. sovereign_wallet)" value="sovereign_wallet">
+            </div>
+            <div class="btn-group mt-2" style="justify-content: center;">
+                <button class="btn btn-primary" id="btn-create-wallet">Create New Wallet</button>
+                <button class="btn btn-outline" id="btn-load-wallet-quick">Load Wallet</button>
+            </div>
+        `;
+        document.getElementById('btn-create-wallet').addEventListener('click', createWallet);
+        document.getElementById('btn-load-wallet-quick').addEventListener('click', loadWallet);
+    }
+
     function startWalletPolling() {
         checkWalletStatus();
         if (walletIntervalId) clearInterval(walletIntervalId);
@@ -1187,93 +1508,90 @@ document.addEventListener('DOMContentLoaded', () => {
             const data = await res.json();
 
             if (data.loaded && data.wallets.length > 0) {
-                activeWalletName = data.wallets[0];
+                loadedWallets = data.wallets;
+                const resolved = resolveActiveWallet(loadedWallets);
+                const walletChanged = resolved !== activeWalletName;
+                activeWalletName = resolved;
+
                 walletNoWalletView.classList.add('hidden');
                 walletActiveView.classList.remove('hidden');
-                
-                activeWalletNameLabel.textContent = activeWalletName;
-                
-                fetchWalletInfo();
-                fetchWalletHistory();
+                populateWalletSelector(loadedWallets, data.on_disk || []);
+
+                populateCliWalletSelect();
+
+                if (walletChanged) {
+                    setActiveWallet(activeWalletName);
+                } else {
+                    fetchWalletInfo();
+                }
             } else {
                 activeWalletName = '';
-                walletNoWalletView.classList.remove('hidden');
-                walletActiveView.classList.add('hidden');
-                walletNoWalletView.innerHTML = `
-                    <div class="empty-icon">🪙</div>
-                    <h3>No Wallet Loaded</h3>
-                    <p class="text-secondary mt-2">To start sending and receiving Bitcoin, you must load an existing wallet or create a new one.</p>
-                    <div class="form-group mt-4" style="max-width: 340px; margin: 16px auto;">
-                        <input type="text" id="new-wallet-name" placeholder="Wallet Name (e.g. sovereign_wallet)" value="sovereign_wallet">
-                    </div>
-                    <div class="btn-group mt-2" style="justify-content: center;">
-                        <button class="btn btn-primary" id="btn-create-wallet">Create New Wallet</button>
-                        <button class="btn btn-outline" id="btn-load-wallet-quick">Load Wallet</button>
-                    </div>
-                `;
-                document.getElementById('btn-create-wallet').addEventListener('click', createWallet);
-                document.getElementById('btn-load-wallet-quick').addEventListener('click', loadWallet);
+                loadedWallets = [];
+                renderNoWalletView();
             }
         } catch (err) {
             console.error('Error checking wallet status:', err);
         }
     }
 
-    async function createWallet() {
-        const nameInput = document.getElementById('new-wallet-name');
-        const name = nameInput.value.trim() || 'sovereign_wallet';
-        
+    async function loadWalletByName(name) {
         try {
-            const btn = document.getElementById('btn-create-wallet');
-            btn.disabled = true;
-            btn.textContent = 'Creating...';
-            
-            const res = await fetch('/api/wallet/create', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name })
-            });
-            const data = await res.json();
-            
-            if (data.success) {
-                alert(`Wallet "${name}" created and loaded successfully!`);
-                checkWalletStatus();
-            } else {
-                alert(`Failed to create wallet: ${data.error}`);
-            }
-        } catch (err) {
-            alert(`API Error: ${err.message}`);
-        }
-    }
-
-    async function loadWallet() {
-        const nameInput = document.getElementById('new-wallet-name');
-        const name = nameInput ? nameInput.value.trim() : 'sovereign_wallet';
-        
-        try {
-            const btn = document.getElementById('btn-load-wallet-quick');
-            if (btn) {
-                btn.disabled = true;
-                btn.textContent = 'Loading...';
-            }
-            
             const res = await fetch('/api/wallet/load', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ name })
             });
             const data = await res.json();
-            
             if (data.success) {
-                checkWalletStatus();
+                showToast(`Wallet "${name}" loaded`, 'success');
+                localStorage.setItem(STORAGE_KEY_ACTIVE_WALLET, name);
+                await checkWalletStatus();
             } else {
-                alert(`Wallet not found or failed to load: ${data.error}. If it does not exist, click "Create New Wallet".`);
-                checkWalletStatus();
+                showToast(`Failed to load wallet: ${data.error}`, 'error', 6000);
             }
         } catch (err) {
-            alert(`API Error: ${err.message}`);
-            checkWalletStatus();
+            showToast(`API error: ${err.message}`, 'error');
         }
+    }
+
+    async function createWallet() {
+        const nameInput = document.getElementById('new-wallet-name');
+        const name = nameInput.value.trim() || 'sovereign_wallet';
+
+        try {
+            const btn = document.getElementById('btn-create-wallet');
+            btn.disabled = true;
+            btn.textContent = 'Creating...';
+
+            const res = await fetch('/api/wallet/create', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name })
+            });
+            const data = await res.json();
+
+            if (data.success) {
+                localStorage.setItem(STORAGE_KEY_ACTIVE_WALLET, name);
+                showToast(`Wallet "${name}" created and loaded`, 'success');
+                checkWalletStatus();
+            } else {
+                showToast(`Failed to create wallet: ${data.error}`, 'error', 6000);
+            }
+        } catch (err) {
+            showToast(`API error: ${err.message}`, 'error');
+        } finally {
+            const btn = document.getElementById('btn-create-wallet');
+            if (btn) {
+                btn.disabled = false;
+                btn.textContent = 'Create New Wallet';
+            }
+        }
+    }
+
+    async function loadWallet() {
+        const nameInput = document.getElementById('new-wallet-name');
+        const name = nameInput ? nameInput.value.trim() : 'sovereign_wallet';
+        await loadWalletByName(name);
     }
 
     async function fetchWalletInfo() {
@@ -1295,8 +1613,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (unconfirmed > 0) {
                     walletBalanceUnconfirmed.textContent = `Unconfirmed: ${unconfirmed.toFixed(8)} BTC`;
                     walletBalanceUnconfirmed.classList.remove('hidden');
+                    balanceCard?.classList.add('has-unconfirmed');
                 } else {
                     walletBalanceUnconfirmed.classList.add('hidden');
+                    balanceCard?.classList.remove('has-unconfirmed');
                 }
             }
         } catch (err) {
@@ -1327,19 +1647,26 @@ document.addEventListener('DOMContentLoaded', () => {
                     
                     const isReceive = tx.category === 'receive';
                     const typeClass = isReceive ? 'tx-receive' : 'tx-send';
-                    const symbol = isReceive ? '+' : '-';
+                    const symbol = isReceive ? '↓' : '↑';
                     const typeText = isReceive ? 'Received' : 'Sent';
-                    
+                    const conf = tx.confirmations || 0;
+                    const confClass = conf >= 6 ? 'tx-confirmed' : conf > 0 ? 'tx-pending' : 'tx-unconfirmed';
+                    const confLabel = conf >= 6 ? `${conf} conf` : conf > 0 ? `${conf} conf` : 'unconfirmed';
+
                     const txDate = new Date(tx.time * 1000).toLocaleString();
                     const shortAddr = tx.address ? (tx.address.substring(0, 10) + '...' + tx.address.substring(tx.address.length - 8)) : 'N/A';
-                    
+
                     div.innerHTML = `
                         <div class="tx-details">
-                            <span class="tx-type ${typeClass}">${typeText}</span>
-                            <span class="tx-address" title="${tx.address || ''}">To: ${shortAddr}</span>
+                            <span class="tx-dir-icon ${typeClass}">${symbol}</span>
+                            <div>
+                                <span class="tx-type ${typeClass}">${typeText}</span>
+                                <span class="tx-conf-badge ${confClass}">${confLabel}</span>
+                                <span class="tx-address" title="${tx.address || ''}">${isReceive ? 'From' : 'To'}: ${shortAddr}</span>
+                            </div>
                         </div>
                         <div class="tx-amount-col">
-                            <span class="tx-amount ${typeClass}">${symbol}${Math.abs(tx.amount).toFixed(8)} BTC</span>
+                            <span class="tx-amount ${typeClass}">${isReceive ? '+' : '-'}${Math.abs(tx.amount).toFixed(8)} BTC</span>
                             <div class="tx-date">${txDate}</div>
                         </div>
                     `;
@@ -1351,23 +1678,838 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    const walletSubPills = [pillWalletReceive, pillWalletSend, pillWalletHistory];
-    const walletSubPanes = [walletSubReceive, walletSubSend, walletSubHistory];
-    
+    const walletSubPills = [pillWalletReceive, pillWalletSend, pillWalletUtxos, pillWalletHistory, pillWalletAddresses, pillWalletTools];
+    const walletSubPanes = [walletSubReceive, walletSubSend, walletSubUtxos, walletSubHistory, walletSubAddresses, walletSubTools];
+
+    function switchSendMode(mode) {
+        const isAdvanced = mode === 'advanced';
+        sendModeSimple.classList.toggle('active', !isAdvanced);
+        sendModeAdvanced.classList.toggle('active', isAdvanced);
+        sendSimplePane.classList.toggle('hidden', isAdvanced);
+        sendAdvancedPane.classList.toggle('hidden', !isAdvanced);
+        if (isAdvanced) fetchAndRenderUtxos('send');
+    }
+
+    async function fetchFeeEstimate() {
+        try {
+            const res = await fetch('/api/wallet/fee-estimate?blocks=6');
+            const data = await res.json();
+            if (data.success && data.sat_vb) {
+                if (sendFeeHint) sendFeeHint.textContent = `(recommended: ~${data.sat_vb} sat/vB)`;
+                if (sendAdvFeeRateInput && !sendAdvFeeRateInput.value) {
+                    sendAdvFeeRateInput.value = data.sat_vb;
+                }
+            } else if (sendFeeHint) {
+                const err = data.errors?.[0];
+                sendFeeHint.textContent = err ? `(${err})` : '(estimate unavailable — sync node)';
+            }
+        } catch {
+            if (sendFeeHint) sendFeeHint.textContent = '';
+        }
+    }
+
+    function utxoStatusBadge(utxo) {
+        if (utxo.locked) return '<span class="utxo-badge utxo-badge-locked">Locked</span>';
+        if (utxo.spendable === false) return '<span class="utxo-badge utxo-badge-unspendable">Unspendable</span>';
+        return '<span class="utxo-badge utxo-badge-spendable">Spendable</span>';
+    }
+
+    function bindUtxoCheckbox(checkbox, key) {
+        checkbox.checked = selectedUtxoKeys.has(key);
+        checkbox.addEventListener('change', () => {
+            if (checkbox.checked) selectedUtxoKeys.add(key);
+            else selectedUtxoKeys.delete(key);
+            updateUtxoSelectionSummary();
+        });
+    }
+
+    function renderUtxoManagerTable(utxos) {
+        if (!walletUtxoList) return;
+        if (!utxos.length) {
+            walletUtxoList.innerHTML = '<tr><td colspan="7" class="text-secondary text-center py-4">No UTXOs found.</td></tr>';
+            if (utxoTotalCount) utxoTotalCount.textContent = '0';
+            if (utxoTotalBtc) utxoTotalBtc.textContent = '0.00000000';
+            if (utxoLockedCount) utxoLockedCount.textContent = '0';
+            return;
+        }
+        const totalBtc = utxos.reduce((s, u) => s + u.amount, 0);
+        const lockedN = utxos.filter(u => u.locked).length;
+        if (utxoTotalCount) utxoTotalCount.textContent = String(utxos.length);
+        if (utxoTotalBtc) utxoTotalBtc.textContent = totalBtc.toFixed(8);
+        if (utxoLockedCount) utxoLockedCount.textContent = String(lockedN);
+
+        walletUtxoList.innerHTML = '';
+        utxos.sort((a, b) => b.amount - a.amount).forEach(utxo => {
+            const key = utxoKey(utxo);
+            const tr = document.createElement('tr');
+            if (utxo.locked) tr.classList.add('utxo-locked');
+            if (selectedUtxoKeys.has(key)) tr.classList.add('utxo-selected');
+            const shortTx = utxo.txid.substring(0, 8) + '…';
+            tr.innerHTML = `
+                <td><input type="checkbox" class="utxo-cb" data-key="${key}"></td>
+                <td class="utxo-amount">${utxo.amount.toFixed(8)}</td>
+                <td>${utxo.confirmations}</td>
+                <td class="utxo-addr" title="${utxo.address || ''}">${utxo.address || '—'}</td>
+                <td>${utxo.label || '—'}</td>
+                <td>${utxoStatusBadge(utxo)}</td>
+                <td class="utxo-txid" title="${utxo.txid}">${shortTx}</td>
+            `;
+            const cb = tr.querySelector('.utxo-cb');
+            bindUtxoCheckbox(cb, key);
+            cb.addEventListener('change', () => tr.classList.toggle('utxo-selected', cb.checked));
+            walletUtxoList.appendChild(tr);
+        });
+        if (utxoSelectAll) utxoSelectAll.checked = false;
+    }
+
+    function renderSendUtxoTable(utxos) {
+        if (!sendUtxoList) return;
+        const spendable = utxos.filter(u => u.spendable !== false);
+        if (!spendable.length) {
+            sendUtxoList.innerHTML = '<tr><td colspan="5" class="text-secondary text-center py-3">No spendable UTXOs.</td></tr>';
+            updateUtxoSelectionSummary();
+            return;
+        }
+        sendUtxoList.innerHTML = '';
+        spendable.sort((a, b) => b.amount - a.amount).forEach(utxo => {
+            const key = utxoKey(utxo);
+            const tr = document.createElement('tr');
+            if (utxo.locked) tr.classList.add('utxo-locked');
+            if (selectedUtxoKeys.has(key)) tr.classList.add('utxo-selected');
+            tr.innerHTML = `
+                <td><input type="checkbox" class="send-utxo-cb" data-key="${key}"></td>
+                <td class="utxo-amount">${utxo.amount.toFixed(8)}</td>
+                <td>${utxo.confirmations}</td>
+                <td class="utxo-addr" title="${utxo.address || ''}">${utxo.address || '—'}</td>
+                <td>${utxoStatusBadge(utxo)}</td>
+            `;
+            const cb = tr.querySelector('.send-utxo-cb');
+            bindUtxoCheckbox(cb, key);
+            cb.addEventListener('change', () => tr.classList.toggle('utxo-selected', cb.checked));
+            sendUtxoList.appendChild(tr);
+        });
+        if (sendUtxoSelectAll) sendUtxoSelectAll.checked = false;
+        updateUtxoSelectionSummary();
+    }
+
+    async function fetchAndRenderUtxos(mode) {
+        if (!activeWalletName) return;
+        const tbody = mode === 'manager' ? walletUtxoList : sendUtxoList;
+        if (tbody) tbody.innerHTML = '<tr><td colspan="7" class="text-secondary text-center py-3">Loading...</td></tr>';
+        try {
+            const res = await fetch(`/api/wallet/utxos?name=${encodeURIComponent(activeWalletName)}`);
+            const data = await res.json();
+            if (!data.success) {
+                const err = data.error || 'Failed to load UTXOs';
+                if (mode === 'manager' && walletUtxoList) {
+                    walletUtxoList.innerHTML = `<tr><td colspan="7" class="text-secondary text-center py-4">${err}</td></tr>`;
+                } else if (sendUtxoList) {
+                    sendUtxoList.innerHTML = `<tr><td colspan="5" class="text-secondary text-center py-3">${err}</td></tr>`;
+                }
+                showToast(err, 'error', 5000);
+                return;
+            }
+            cachedUtxos = data.utxos || [];
+            if (mode === 'manager') renderUtxoManagerTable(cachedUtxos);
+            else renderSendUtxoTable(cachedUtxos);
+        } catch (err) {
+            showToast(`UTXO load error: ${err.message}`, 'error');
+        }
+    }
+
+    async function lockSelectedUtxos(unlock) {
+        const inputs = getSelectedUtxoInputs();
+        if (!inputs.length) {
+            showToast('Select at least one UTXO', 'error');
+            return;
+        }
+        try {
+            const res = await fetch('/api/wallet/lock-utxo', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: activeWalletName, inputs, unlock })
+            });
+            const data = await res.json();
+            if (data.success) {
+                showToast(unlock ? 'UTXOs unlocked' : 'UTXOs locked', 'success');
+                await fetchAndRenderUtxos('manager');
+                if (!sendAdvancedPane.classList.contains('hidden')) {
+                    await fetchAndRenderUtxos('send');
+                }
+            } else {
+                showToast(`Lock failed: ${data.error}`, 'error', 6000);
+            }
+        } catch (err) {
+            showToast(`API error: ${err.message}`, 'error');
+        }
+    }
+
     function switchWalletSubTab(activePill, activePane) {
         walletSubPills.forEach(pill => pill.classList.remove('active'));
         activePill.classList.add('active');
-        
         walletSubPanes.forEach(pane => pane.classList.add('hidden'));
         activePane.classList.remove('hidden');
+        if (activePane === walletSubAddresses) fetchWalletAddresses();
+        if (activePane === walletSubUtxos) fetchAndRenderUtxos('manager');
+        if (activePane === walletSubSend) {
+            fetchFeeEstimate();
+            if (!sendAdvancedPane.classList.contains('hidden')) fetchAndRenderUtxos('send');
+        }
     }
-    
+
     pillWalletReceive.addEventListener('click', () => switchWalletSubTab(pillWalletReceive, walletSubReceive));
     pillWalletSend.addEventListener('click', () => switchWalletSubTab(pillWalletSend, walletSubSend));
+    pillWalletUtxos.addEventListener('click', () => switchWalletSubTab(pillWalletUtxos, walletSubUtxos));
     pillWalletHistory.addEventListener('click', () => switchWalletSubTab(pillWalletHistory, walletSubHistory));
-    
+    pillWalletAddresses.addEventListener('click', () => switchWalletSubTab(pillWalletAddresses, walletSubAddresses));
+    pillWalletTools.addEventListener('click', () => switchWalletSubTab(pillWalletTools, walletSubTools));
+
+    if (sendModeSimple) sendModeSimple.addEventListener('click', () => switchSendMode('simple'));
+    if (sendModeAdvanced) sendModeAdvanced.addEventListener('click', () => switchSendMode('advanced'));
+
+    if (utxoSelectAll) {
+        utxoSelectAll.addEventListener('change', () => {
+            walletUtxoList.querySelectorAll('.utxo-cb').forEach(cb => {
+                cb.checked = utxoSelectAll.checked;
+                const key = cb.dataset.key;
+                if (utxoSelectAll.checked) selectedUtxoKeys.add(key);
+                else selectedUtxoKeys.delete(key);
+                cb.closest('tr')?.classList.toggle('utxo-selected', cb.checked);
+            });
+            updateUtxoSelectionSummary();
+        });
+    }
+
+    if (sendUtxoSelectAll) {
+        sendUtxoSelectAll.addEventListener('change', () => {
+            sendUtxoList.querySelectorAll('.send-utxo-cb').forEach(cb => {
+                cb.checked = sendUtxoSelectAll.checked;
+                const key = cb.dataset.key;
+                if (sendUtxoSelectAll.checked) selectedUtxoKeys.add(key);
+                else selectedUtxoKeys.delete(key);
+                cb.closest('tr')?.classList.toggle('utxo-selected', cb.checked);
+            });
+            updateUtxoSelectionSummary();
+        });
+    }
+
+    if (btnRefreshUtxos) btnRefreshUtxos.addEventListener('click', () => fetchAndRenderUtxos('manager'));
+    if (btnLockSelectedUtxos) btnLockSelectedUtxos.addEventListener('click', () => lockSelectedUtxos(false));
+    if (btnUnlockSelectedUtxos) btnUnlockSelectedUtxos.addEventListener('click', () => lockSelectedUtxos(true));
+
+    if (btnUtxoGotoSend) {
+        btnUtxoGotoSend.addEventListener('click', () => {
+            if (!selectedUtxoKeys.size) {
+                showToast('Select UTXOs first', 'error');
+                return;
+            }
+            switchWalletSubTab(pillWalletSend, walletSubSend);
+            switchSendMode('advanced');
+        });
+    }
+
     btnWalletGotoSend.addEventListener('click', () => switchWalletSubTab(pillWalletSend, walletSubSend));
     btnWalletGotoReceive.addEventListener('click', () => switchWalletSubTab(pillWalletReceive, walletSubReceive));
+
+    if (walletSelector) {
+        walletSelector.addEventListener('change', async () => {
+            const selected = walletSelector.value;
+            const opt = walletSelector.selectedOptions[0];
+            if (opt?.dataset.needsLoad === 'true') {
+                await loadWalletByName(selected);
+                return;
+            }
+            if (selected && selected !== activeWalletName) {
+                setActiveWallet(selected);
+                showToast(`Switched to wallet "${selected}"`, 'info', 2500);
+            }
+        });
+    }
+
+    if (btnWalletUnload) {
+        btnWalletUnload.addEventListener('click', async () => {
+            if (!activeWalletName) return;
+            if (!confirm(`Unload wallet "${activeWalletName}"?`)) return;
+            try {
+                btnWalletUnload.disabled = true;
+                const res = await fetch('/api/wallet/unload', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: activeWalletName })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showToast(`Wallet "${activeWalletName}" unloaded`, 'success');
+                    activeWalletName = '';
+                    localStorage.removeItem(STORAGE_KEY_ACTIVE_WALLET);
+                    checkWalletStatus();
+                } else {
+                    showToast(`Failed to unload: ${data.error}`, 'error', 6000);
+                }
+            } catch (err) {
+                showToast(`API error: ${err.message}`, 'error');
+            } finally {
+                btnWalletUnload.disabled = false;
+            }
+        });
+    }
+
+    function switchToolSubTab(activePill, activePane) {
+        [subpillSignMsg, subpillPsbt, subpillSecurity].forEach(p => p?.classList.remove('active'));
+        activePill.classList.add('active');
+        [toolPaneSignMsg, toolPanePsbt, toolPaneSecurity].forEach(p => p?.classList.add('hidden'));
+        activePane.classList.remove('hidden');
+        if (activePane === toolPaneSecurity) loadBackupDirHint();
+    }
+
+    subpillSignMsg.addEventListener('click', () => switchToolSubTab(subpillSignMsg, toolPaneSignMsg));
+    subpillPsbt.addEventListener('click', () => switchToolSubTab(subpillPsbt, toolPanePsbt));
+    if (subpillSecurity) subpillSecurity.addEventListener('click', () => switchToolSubTab(subpillSecurity, toolPaneSecurity));
+
+    // ----------------------------------------------------
+    // Wallet Security Handlers
+    // ----------------------------------------------------
+    if (btnEncryptWallet) {
+        btnEncryptWallet.addEventListener('click', async () => {
+            if (!activeWalletName) return;
+            const passphrase = encryptPassphraseInput.value;
+            if (!passphrase || passphrase.length < 8) {
+                showToast('Passphrase must be at least 8 characters', 'error');
+                return;
+            }
+            if (!confirm('Encrypt wallet? You will need the passphrase to spend. This cannot be undone easily.')) return;
+            try {
+                btnEncryptWallet.disabled = true;
+                const res = await fetch('/api/wallet/encrypt', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: activeWalletName, passphrase })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showToast('Wallet encrypted — restart may be required', 'success', 6000);
+                    encryptPassphraseInput.value = '';
+                } else {
+                    showToast(`Encrypt failed: ${data.error}`, 'error', 6000);
+                }
+            } catch (err) {
+                showToast(`API error: ${err.message}`, 'error');
+            } finally {
+                btnEncryptWallet.disabled = false;
+            }
+        });
+    }
+
+    if (btnUnlockWallet) {
+        btnUnlockWallet.addEventListener('click', async () => {
+            if (!activeWalletName) return;
+            const passphrase = unlockPassphraseInput.value;
+            const timeout = parseInt(unlockTimeoutInput?.value || '600', 10);
+            if (!passphrase) { showToast('Enter passphrase', 'error'); return; }
+            try {
+                const res = await fetch('/api/wallet/unlock', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: activeWalletName, passphrase, timeout })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showToast(`Wallet unlocked for ${timeout}s`, 'success');
+                    unlockPassphraseInput.value = '';
+                } else {
+                    showToast(`Unlock failed: ${data.error}`, 'error', 6000);
+                }
+            } catch (err) {
+                showToast(`API error: ${err.message}`, 'error');
+            }
+        });
+    }
+
+    if (btnLockWallet) {
+        btnLockWallet.addEventListener('click', async () => {
+            if (!activeWalletName) return;
+            try {
+                const res = await fetch('/api/wallet/lock', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: activeWalletName })
+                });
+                const data = await res.json();
+                if (data.success) showToast('Wallet locked', 'success');
+                else showToast(`Lock failed: ${data.error}`, 'error');
+            } catch (err) {
+                showToast(`API error: ${err.message}`, 'error');
+            }
+        });
+    }
+
+    if (btnChangePassphrase) {
+        btnChangePassphrase.addEventListener('click', async () => {
+            if (!activeWalletName) return;
+            const oldPass = changeOldPassInput.value;
+            const newPass = changeNewPassInput.value;
+            if (!oldPass || !newPass || newPass.length < 8) {
+                showToast('Enter current and new passphrase (min 8 chars)', 'error');
+                return;
+            }
+            try {
+                const res = await fetch('/api/wallet/change-passphrase', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: activeWalletName, old_passphrase: oldPass, new_passphrase: newPass })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showToast('Passphrase changed', 'success');
+                    changeOldPassInput.value = '';
+                    changeNewPassInput.value = '';
+                } else {
+                    showToast(`Change failed: ${data.error}`, 'error', 6000);
+                }
+            } catch (err) {
+                showToast(`API error: ${err.message}`, 'error');
+            }
+        });
+    }
+
+    async function doWalletBackup(dump) {
+        if (!activeWalletName) return;
+        const endpoint = dump ? '/api/wallet/dump' : '/api/wallet/backup';
+        try {
+            const btn = dump ? btnDumpWallet : btnBackupWallet;
+            if (btn) btn.disabled = true;
+            const res = await fetch(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: activeWalletName })
+            });
+            const data = await res.json();
+            if (data.success) {
+                showToast(`Saved to ${data.path}`, 'success', 6000);
+                if (backupResult) {
+                    backupResult.textContent = data.path;
+                    backupResult.classList.remove('hidden');
+                }
+            } else {
+                showToast(`Backup failed: ${data.error}`, 'error', 6000);
+            }
+        } catch (err) {
+            showToast(`API error: ${err.message}`, 'error');
+        } finally {
+            if (btnBackupWallet) btnBackupWallet.disabled = false;
+            if (btnDumpWallet) btnDumpWallet.disabled = false;
+        }
+    }
+
+    if (btnBackupWallet) btnBackupWallet.addEventListener('click', () => doWalletBackup(false));
+    if (btnDumpWallet) btnDumpWallet.addEventListener('click', () => doWalletBackup(true));
+
+    if (btnImportWallet) {
+        btnImportWallet.addEventListener('click', async () => {
+            const filepath = importWalletPathInput?.value.trim();
+            if (!filepath) { showToast('Enter dump file path', 'error'); return; }
+            if (!confirm('Import wallet dump? This may take a while on large wallets.')) return;
+            try {
+                btnImportWallet.disabled = true;
+                const res = await fetch('/api/wallet/import-wallet', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ filepath })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showToast('Wallet imported — check listwallets', 'success', 6000);
+                    checkWalletStatus();
+                } else {
+                    showToast(`Import failed: ${data.error}`, 'error', 7000);
+                }
+            } catch (err) {
+                showToast(`API error: ${err.message}`, 'error');
+            } finally {
+                btnImportWallet.disabled = false;
+            }
+        });
+    }
+
+    if (btnCreateWatchonly) {
+        btnCreateWatchonly.addEventListener('click', async () => {
+            const name = watchonlyNameInput?.value.trim();
+            if (!name) { showToast('Enter watch-only wallet name', 'error'); return; }
+            try {
+                const res = await fetch('/api/wallet/create-watchonly', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showToast(`Watch-only wallet "${name}" created`, 'success');
+                    checkWalletStatus();
+                } else {
+                    showToast(`Create failed: ${data.error}`, 'error', 6000);
+                }
+            } catch (err) {
+                showToast(`API error: ${err.message}`, 'error');
+            }
+        });
+    }
+
+    if (btnImportDescriptor) {
+        btnImportDescriptor.addEventListener('click', async () => {
+            const descriptor = importDescriptorInput?.value.trim();
+            if (!activeWalletName) { showToast('Load a wallet first', 'error'); return; }
+            if (!descriptor) { showToast('Enter descriptor', 'error'); return; }
+            try {
+                const res = await fetch('/api/wallet/import-descriptors', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: activeWalletName, descriptor })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showToast('Descriptor imported', 'success');
+                    importDescriptorInput.value = '';
+                } else {
+                    showToast(`Import failed: ${data.error}`, 'error', 6000);
+                }
+            } catch (err) {
+                showToast(`API error: ${err.message}`, 'error');
+            }
+        });
+    }
+
+    // ----------------------------------------------------
+    // Oracle CLI Terminal
+    // ----------------------------------------------------
+    function appendCliLine(type, text, command) {
+        if (!cliOutput) return;
+        const line = document.createElement('div');
+        line.className = 'cli-line';
+        if (type === 'cmd') {
+            line.innerHTML = `<div class="cli-line-cmd">${command || text}</div>`;
+        } else if (type === 'err') {
+            line.innerHTML = `<div class="cli-line-err">${escapeHtml(text)}</div>`;
+        } else {
+            let formatted = text;
+            try {
+                const parsed = JSON.parse(text);
+                formatted = JSON.stringify(parsed, null, 2);
+            } catch { /* plain text */ }
+            line.innerHTML = `<div class="cli-line-out">${escapeHtml(formatted)}</div>`;
+        }
+        cliOutput.appendChild(line);
+        cliOutput.scrollTop = cliOutput.scrollHeight;
+    }
+
+    function escapeHtml(str) {
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
+    }
+
+    async function runCliCommand(command) {
+        if (!command.trim()) return;
+        const walletName = cliWalletSelect?.value || null;
+        const displayCmd = walletName ? `-rpcwallet=${walletName} ${command}` : command;
+        appendCliLine('cmd', command, displayCmd);
+
+        cliHistory.push(command);
+        cliHistoryIndex = cliHistory.length;
+
+        try {
+            const res = await fetch('/api/cli', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ command, wallet_name: walletName })
+            });
+            const data = await res.json();
+            if (data.success) {
+                appendCliLine('out', data.output || '(empty)');
+            } else {
+                appendCliLine('err', data.error || data.output || 'Command failed');
+            }
+        } catch (err) {
+            appendCliLine('err', `API error: ${err.message}`);
+        }
+    }
+
+    if (cliRunBtn) {
+        cliRunBtn.addEventListener('click', () => {
+            const cmd = cliInput.value.trim();
+            if (cmd) {
+                runCliCommand(cmd);
+                cliInput.value = '';
+            }
+        });
+    }
+
+    if (cliInput) {
+        cliInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                const cmd = cliInput.value.trim();
+                if (cmd) {
+                    runCliCommand(cmd);
+                    cliInput.value = '';
+                }
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                if (cliHistory.length > 0) {
+                    cliHistoryIndex = Math.max(0, cliHistoryIndex - 1);
+                    cliInput.value = cliHistory[cliHistoryIndex] || '';
+                }
+            } else if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                if (cliHistoryIndex < cliHistory.length - 1) {
+                    cliHistoryIndex++;
+                    cliInput.value = cliHistory[cliHistoryIndex] || '';
+                } else {
+                    cliHistoryIndex = cliHistory.length;
+                    cliInput.value = '';
+                }
+            }
+        });
+    }
+
+    if (cliClearBtn) {
+        cliClearBtn.addEventListener('click', () => {
+            if (cliOutput) {
+                cliOutput.innerHTML = '<div class="cli-welcome">Terminal cleared.</div>';
+            }
+        });
+    }
+
+    if (cliQuickChips) {
+        cliQuickChips.querySelectorAll('.cli-chip').forEach(chip => {
+            chip.addEventListener('click', () => {
+                const cmd = chip.dataset.cmd;
+                if (cmd) runCliCommand(cmd);
+            });
+        });
+    }
+
+    async function fetchWalletAddresses() {
+        if (!activeWalletName || !walletAddressesList) return;
+        try {
+            const res = await fetch(`/api/wallet/addresses?name=${encodeURIComponent(activeWalletName)}`);
+            const data = await res.json();
+            if (!data.success) {
+                walletAddressesList.innerHTML = `<tr><td colspan="4" class="text-secondary text-center py-4">Error: ${data.error || 'Failed to load addresses'}</td></tr>`;
+                return;
+            }
+            const addresses = JSON.parse(data.output);
+            if (!addresses.length) {
+                walletAddressesList.innerHTML = `<tr><td colspan="4" class="text-secondary text-center py-4">No addresses yet. Go to Receive to generate one.</td></tr>`;
+                return;
+            }
+            addresses.sort((a, b) => b.amount - a.amount);
+            walletAddressesList.innerHTML = '';
+            addresses.forEach(entry => {
+                const tr = document.createElement('tr');
+                const label = entry.label || '—';
+                const received = entry.amount.toFixed(8);
+                tr.innerHTML = `
+                    <td class="addr-cell" title="${entry.address}">${entry.address}</td>
+                    <td>${label}</td>
+                    <td>${received} BTC</td>
+                    <td style="text-align: right; white-space: nowrap;">
+                        <button class="addr-action-btn" data-action="copy" data-addr="${entry.address}">Copy</button>
+                        <button class="addr-action-btn" data-action="receive" data-addr="${entry.address}">Receive</button>
+                    </td>
+                `;
+                walletAddressesList.appendChild(tr);
+            });
+            walletAddressesList.querySelectorAll('.addr-action-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const addr = btn.dataset.addr;
+                    if (btn.dataset.action === 'copy') {
+                        navigator.clipboard.writeText(addr).then(() => showToast('Address copied', 'success', 2000));
+                    } else {
+                        switchWalletSubTab(pillWalletReceive, walletSubReceive);
+                        receiveAddressText.value = addr;
+                        receiveAddressContainer.classList.remove('hidden');
+                        qrCodeContainer.innerHTML = '';
+                        if (typeof QRCode !== 'undefined') {
+                            new QRCode(qrCodeContainer, {
+                                text: addr, width: 180, height: 180,
+                                colorDark: '#000000', colorLight: '#ffffff',
+                                correctLevel: QRCode.CorrectLevel.M
+                            });
+                        }
+                    }
+                });
+            });
+        } catch (err) {
+            console.error(err);
+            walletAddressesList.innerHTML = `<tr><td colspan="4" class="text-secondary text-center py-4">Error loading addresses</td></tr>`;
+        }
+    }
+
+    if (btnRefreshAddresses) {
+        btnRefreshAddresses.addEventListener('click', fetchWalletAddresses);
+    }
+
+    if (btnSignMessage) {
+        btnSignMessage.addEventListener('click', async () => {
+            if (!activeWalletName) return;
+            const address = msgAddressInput.value.trim();
+            const message = msgTextInput.value;
+            if (!address || !message) {
+                showToast('Address and message are required', 'error');
+                return;
+            }
+            try {
+                btnSignMessage.disabled = true;
+                const res = await fetch('/api/wallet/sign-message', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: activeWalletName, address, message })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    msgSignatureInput.value = data.signature;
+                    showToast('Message signed successfully', 'success');
+                } else {
+                    showToast(`Sign failed: ${data.error}`, 'error', 6000);
+                }
+            } catch (err) {
+                showToast(`API error: ${err.message}`, 'error');
+            } finally {
+                btnSignMessage.disabled = false;
+            }
+        });
+    }
+
+    if (btnVerifyMessage) {
+        btnVerifyMessage.addEventListener('click', async () => {
+            const address = msgAddressInput.value.trim();
+            const message = msgTextInput.value;
+            const signature = msgSignatureInput.value.trim();
+            if (!address || !message || !signature) {
+                showToast('Address, message, and signature are required', 'error');
+                return;
+            }
+            try {
+                btnVerifyMessage.disabled = true;
+                const res = await fetch('/api/wallet/verify-message', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ address, message, signature })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showToast(data.valid ? 'Signature is VALID' : 'Signature is INVALID', data.valid ? 'success' : 'error', 5000);
+                } else {
+                    showToast(`Verify failed: ${data.error}`, 'error', 6000);
+                }
+            } catch (err) {
+                showToast(`API error: ${err.message}`, 'error');
+            } finally {
+                btnVerifyMessage.disabled = false;
+            }
+        });
+    }
+
+    function showPsbtResult(text) {
+        psbtResultContainer.textContent = text;
+        psbtResultContainer.classList.remove('hidden');
+        psbtResultContainer.classList.add('visible');
+    }
+
+    if (btnDecodePsbt) {
+        btnDecodePsbt.addEventListener('click', async () => {
+            if (!activeWalletName) return;
+            const psbt = psbtDataInput.value.trim();
+            if (!psbt) { showToast('Paste PSBT data first', 'error'); return; }
+            try {
+                btnDecodePsbt.disabled = true;
+                const res = await fetch('/api/wallet/psbt/decode', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: activeWalletName, psbt })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    currentPsbt = psbt;
+                    const decoded = JSON.parse(data.output);
+                    showPsbtResult(JSON.stringify(decoded, null, 2));
+                    showToast('PSBT decoded', 'success', 2500);
+                } else {
+                    showToast(`Decode failed: ${data.error}`, 'error', 6000);
+                }
+            } catch (err) {
+                showToast(`API error: ${err.message}`, 'error');
+            } finally {
+                btnDecodePsbt.disabled = false;
+            }
+        });
+    }
+
+    if (btnSignPsbt) {
+        btnSignPsbt.addEventListener('click', async () => {
+            if (!activeWalletName) return;
+            const psbt = psbtDataInput.value.trim();
+            if (!psbt) { showToast('Paste PSBT data first', 'error'); return; }
+            try {
+                btnSignPsbt.disabled = true;
+                const res = await fetch('/api/wallet/psbt/sign', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: activeWalletName, psbt })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    if (data.psbt) {
+                        currentPsbt = data.psbt;
+                        psbtDataInput.value = data.psbt;
+                    }
+                    const status = data.complete ? 'PSBT fully signed' : 'PSBT partially signed';
+                    showPsbtResult(data.output ? JSON.stringify(JSON.parse(data.output), null, 2) : status);
+                    showToast(status, data.complete ? 'success' : 'info');
+                } else {
+                    showToast(`Sign failed: ${data.error}`, 'error', 6000);
+                }
+            } catch (err) {
+                showToast(`API error: ${err.message}`, 'error');
+            } finally {
+                btnSignPsbt.disabled = false;
+            }
+        });
+    }
+
+    if (btnBroadcastPsbt) {
+        btnBroadcastPsbt.addEventListener('click', async () => {
+            if (!activeWalletName) return;
+            const psbt = psbtDataInput.value.trim() || currentPsbt;
+            if (!psbt) { showToast('Paste or sign a PSBT first', 'error'); return; }
+            if (!confirm('Finalize and broadcast this PSBT to the network?')) return;
+            try {
+                btnBroadcastPsbt.disabled = true;
+                const res = await fetch('/api/wallet/psbt/finalize', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: activeWalletName, psbt, broadcast: true })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showPsbtResult(`Broadcast successful!\nTxID: ${data.txid}\nHex: ${data.hex}`);
+                    showToast(`Transaction broadcast: ${data.txid}`, 'success', 6000);
+                    psbtDataInput.value = '';
+                    currentPsbt = '';
+                    refreshWalletData();
+                    switchWalletSubTab(pillWalletHistory, walletSubHistory);
+                } else {
+                    showPsbtResult(data.error || 'Finalize/broadcast failed');
+                    showToast(`Broadcast failed: ${data.error}`, 'error', 6000);
+                }
+            } catch (err) {
+                showToast(`API error: ${err.message}`, 'error');
+            } finally {
+                btnBroadcastPsbt.disabled = false;
+            }
+        });
+    }
 
     // Generate Receive Address
     btnGenerateAddress.addEventListener('click', async () => {
@@ -1404,10 +2546,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     qrCodeContainer.innerHTML = `<p class="text-muted" style="color:#000; font-size:11px; text-align:center;">QR Code library not loaded.<br>Address is fully readable below.</p>`;
                 }
             } else {
-                alert(`Failed to generate address: ${data.error}`);
+                showToast(`Failed to generate address: ${data.error}`, 'error', 6000);
             }
         } catch (err) {
-            alert(`API Error generating address: ${err.message}`);
+            showToast(`API error: ${err.message}`, 'error');
         } finally {
             btnGenerateAddress.disabled = false;
             btnGenerateAddress.textContent = 'Generate Receive Address';
@@ -1416,13 +2558,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Copy Address Button
     btnCopyAddress.addEventListener('click', () => {
-        receiveAddressText.select();
-        document.execCommand('copy');
-        
+        const addr = receiveAddressText.value;
+        if (addr) {
+            navigator.clipboard.writeText(addr).then(() => showToast('Address copied', 'success', 2000));
+        }
         btnCopyAddress.textContent = 'Copied!';
-        setTimeout(() => {
-            btnCopyAddress.textContent = 'Copy';
-        }, 1500);
+        setTimeout(() => { btnCopyAddress.textContent = 'Copy'; }, 1500);
     });
 
     // Send Coins Button
@@ -1432,11 +2573,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const amount = parseFloat(sendAmountInput.value);
         
         if (!address) {
-            alert('Please enter a valid Bitcoin recipient address.');
+            showToast('Enter a valid recipient address', 'error');
             return;
         }
         if (isNaN(amount) || amount <= 0) {
-            alert('Please enter a valid amount greater than 0.');
+            showToast('Enter a valid amount greater than 0', 'error');
             return;
         }
         
@@ -1444,36 +2585,90 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
         
+        const feeRate = sendFeeRateInput?.value ? parseInt(sendFeeRateInput.value, 10) : null;
+        const payload = { name: activeWalletName, address, amount };
+        if (feeRate && feeRate > 0) payload.fee_rate = feeRate;
+
         try {
             btnSendCoins.disabled = true;
             btnSendCoins.textContent = 'Sending...';
-            
+
             const res = await fetch('/api/wallet/send', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name: activeWalletName, address, amount })
+                body: JSON.stringify(payload)
             });
             const data = await res.json();
-            
+
             if (data.success) {
-                alert(`Successfully sent ${amount} BTC! TxID: ${data.txid}`);
+                showToast(`Sent ${amount} BTC — TxID: ${data.txid}`, 'success', 6000);
                 sendAddressInput.value = '';
                 sendAmountInput.value = '';
-                
                 switchWalletSubTab(pillWalletHistory, walletSubHistory);
-                
-                fetchWalletInfo();
-                fetchWalletHistory();
+                refreshWalletData();
             } else {
-                alert(`Failed to send: ${data.error}`);
+                showToast(`Send failed: ${data.error}`, 'error', 6000);
             }
         } catch (err) {
-            alert(`API Error sending transaction: ${err.message}`);
+            showToast(`API error: ${err.message}`, 'error');
         } finally {
             btnSendCoins.disabled = false;
             btnSendCoins.textContent = 'Send Transaction';
         }
     });
+
+    if (btnSendAdvanced) {
+        btnSendAdvanced.addEventListener('click', async () => {
+            if (!activeWalletName) return;
+            const address = sendAdvAddressInput.value.trim();
+            const amount = parseFloat(sendAdvAmountInput.value);
+            const feeRate = sendAdvFeeRateInput?.value ? parseInt(sendAdvFeeRateInput.value, 10) : null;
+            const inputs = getSelectedUtxoInputs();
+
+            if (!address) { showToast('Enter recipient address', 'error'); return; }
+            if (isNaN(amount) || amount <= 0) { showToast('Enter a valid amount', 'error'); return; }
+            if (!inputs.length) { showToast('Select at least one UTXO', 'error'); return; }
+
+            const selectedTotal = cachedUtxos
+                .filter(u => selectedUtxoKeys.has(utxoKey(u)))
+                .reduce((s, u) => s + u.amount, 0);
+            if (selectedTotal < amount) {
+                showToast(`Selected UTXOs (${selectedTotal.toFixed(8)} BTC) may not cover amount + fees`, 'error', 6000);
+            }
+
+            if (!confirm(`Send ${amount.toFixed(8)} BTC using ${inputs.length} selected UTXO(s)?`)) return;
+
+            const payload = { name: activeWalletName, address, amount, inputs };
+            if (feeRate && feeRate > 0) payload.fee_rate = feeRate;
+
+            try {
+                btnSendAdvanced.disabled = true;
+                btnSendAdvanced.textContent = 'Building PSBT...';
+                const res = await fetch('/api/wallet/send-advanced', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+                if (data.success) {
+                    const feeMsg = data.fee != null ? ` (fee: ${Number(data.fee).toFixed(8)} BTC)` : '';
+                    showToast(`Sent via coin control — TxID: ${data.txid}${feeMsg}`, 'success', 7000);
+                    sendAdvAddressInput.value = '';
+                    sendAdvAmountInput.value = '';
+                    selectedUtxoKeys.clear();
+                    switchWalletSubTab(pillWalletHistory, walletSubHistory);
+                    refreshWalletData();
+                } else {
+                    showToast(`Advanced send failed: ${data.error}`, 'error', 7000);
+                }
+            } catch (err) {
+                showToast(`API error: ${err.message}`, 'error');
+            } finally {
+                btnSendAdvanced.disabled = false;
+                btnSendAdvanced.textContent = 'Send with Selected Coins';
+            }
+        });
+    }
 
     // ----------------------------------------------------
     // Console Logs Tab

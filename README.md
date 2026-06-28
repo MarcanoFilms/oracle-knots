@@ -40,11 +40,12 @@ Our philosophy centers on **"Don't Trust, Verify"**, reclaiming Bitcoin as **sou
    - **Branded User Agent:** Shows up as `OracleKnots` on the P2P network.
 
 6. **Sovereign Oracle Desktop Dashboard GUI**
-   - **Modern GUI App**: A beautiful, premium, mobile-first responsive dashboard powered by `pywebview` and a Python Bottle backend.
-   - **Wallet & Offline QR**: Complete wallet receiver module that generates addresses and displays secure, offline QR codes for transactions.
-   - **Interactive Config Editor**: Granular tabs for *Storage & Sync* (with network chain select and manual pruning target in GB), *P2P Network* (incoming/outgoing Tor/I2P and bandwidth limits), *Spam Filters* (OP_RETURN carrier cost, Bare Multisig, reject runes), *Optimization* (RAM cache, mempool sizes, and Datum mining blocknotify protocol), and *RPC & API* configuration.
-   - **Console CLI & Logs**: Embeds a live log streamer and an interactive, real-time Bitcoin CLI terminal shell.
-   - **Double-Click Desktop Launcher**: Packaged with a custom futuristic cybernetic app icon, allowing you to launch the app directly from your desktop.
+   - **Modern GUI App**: Mobile-first responsive dashboard powered by `pywebview` + Bottle, branded with the Oracle Owl identity.
+   - **Wallet (Sparrow-style)**: Multi-wallet, receive+QR, send with fee rate, UTXO manager, coin control, PSBT tools, sign/verify messages, encrypt/backup/import, watch-only & descriptors.
+   - **Oracle CLI Terminal**: Interactive `bitcoin-cli` shell with history and quick commands.
+   - **Interactive Config Editor**: Visual tabs for storage, P2P, spam filters, optimization, and RPC settings.
+   - **Live Dashboard**: Mempool sparkline, policy rejection panel, Prometheus metrics, debug.log streamer.
+   - **Desktop Launcher**: `./install-desktop.sh` installs a `.desktop` entry with the Oracle Owl icon.
 
 
 ---
@@ -66,7 +67,30 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release
 # Build the binaries (bitcoind, bitcoin-cli, bitcoin-util)
 cmake --build build -j$(nproc)
 ```
-The compiled binaries will be available in the `build/src/` folder.
+Binaries are in `build/bin/` (or `build/src/` on some CMake configs).
+
+Alternatively use the project build script:
+
+```bash
+./build.sh
+```
+
+### Control Center GUI
+
+```bash
+# One-time setup
+./setup-gui.sh
+
+# Launch dashboard
+./launch.sh
+
+# Optional: install desktop launcher
+./install-desktop.sh
+```
+
+**GUI dependencies** (Arch Linux): `python`, `qt6-webengine` (for pywebview). Python packages are in `requirements.txt`.
+
+**Wallet note:** `server=1` in `bitcoin.conf` is required for wallet and CLI features.
 
 ---
 
