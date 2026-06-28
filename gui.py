@@ -241,7 +241,11 @@ def update_bitcoin_conf(file_path, new_settings):
                             if val is None or val == "":
                                 lines.append(f"# {k} is disabled/unset\n")
                             else:
-                                lines.append(f"{k}={val}\n")
+                                if isinstance(val, float):
+                                    val_str = f"{val:.8f}".rstrip('0').rstrip('.')
+                                else:
+                                    val_str = str(val)
+                                lines.append(f"{k}={val_str}\n")
                             keys_written.add(k)
                             continue
                     lines.append(line)
@@ -252,7 +256,11 @@ def update_bitcoin_conf(file_path, new_settings):
     for k, val in new_settings.items():
         if k not in repeating_keys and k not in keys_written:
             if val is not None and val != "":
-                lines.append(f"{k}={val}\n")
+                if isinstance(val, float):
+                    val_str = f"{val:.8f}".rstrip('0').rstrip('.')
+                else:
+                    val_str = str(val)
+                lines.append(f"{k}={val_str}\n")
                 
     # Write repeating keys (onlynet, addnode, connect) if they exist in new_settings
     for k in repeating_keys:
