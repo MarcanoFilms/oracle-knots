@@ -1,0 +1,1211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Oracle Knots Control Center</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+    <!-- Local QRCode Generator Library -->
+    <script src="/static/qrcode.min.js"></script>
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar Navigation -->
+        <aside class="sidebar">
+            <div class="brand">
+                <div class="logo-icon"></div>
+                <div class="brand-text">
+                    <h1>ORACLE KNOTS</h1>
+                    <span>CONTROL CENTER</span>
+                </div>
+            </div>
+            
+            <div class="node-status-widget">
+                <div class="status-indicator-group">
+                    <span class="status-dot offline" id="widget-status-dot"></span>
+                    <span class="status-text" id="widget-status-text">Node Offline</span>
+                </div>
+                <span class="network-badge" id="widget-network-badge">MAINNET</span>
+            </div>
+
+            <nav class="nav-menu">
+                <button class="nav-item active" data-tab="dashboard">
+                    <svg class="nav-icon" viewBox="0 0 24 24"><path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/></svg>
+                    Dashboard
+                </button>
+                <button class="nav-item" data-tab="wallet">
+                    <svg class="nav-icon" viewBox="0 0 24 24"><path d="M21 18v1c0 1.1-.9 2-2 2H5c-1.11 0-2-.9-2-2V5c0-1.1.89-2 2-2h14c1.1 0 2 .9 2 2v1h-9c-1.11 0-2-.9-2 2v8c0 1.1.89 2 2 2h9zm-9-2h10V8H12v8zm4-2.5c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/></svg>
+                    Wallet Manager
+                </button>
+                <button class="nav-item" data-tab="policy">
+                    <svg class="nav-icon" viewBox="0 0 24 24"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z"/></svg>
+                    Policy Engine
+                </button>
+                <button class="nav-item" data-tab="bip110">
+                    <svg class="nav-icon" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>
+                    BIP-110 Status
+                </button>
+                <button class="nav-item" data-tab="peers">
+                    <svg class="nav-icon" viewBox="0 0 24 24"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 8 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
+                    Node Peers
+                </button>
+                <button class="nav-item" data-tab="config">
+                    <svg class="nav-icon" viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
+                    Configuration
+                </button>
+                <button class="nav-item" data-tab="logs">
+                    <svg class="nav-icon" viewBox="0 0 24 24"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/></svg>
+                    Console Logs
+                </button>
+            </nav>
+            
+            <div class="sidebar-footer">
+                <p>Oracle Knots v29.3.0</p>
+                <span class="security-lock">🔒 Local Connection Only</span>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="content-area">
+            <!-- Topbar (Control/Context) -->
+            <header class="topbar">
+                <div class="page-title">
+                    <h2 id="current-tab-title">Dashboard</h2>
+                    <span class="pulse-indicator" id="sync-status-indicator"></span>
+                    <span class="sync-status-text" id="sync-status-text">Disconnected</span>
+                </div>
+                
+                <div class="topbar-controls">
+                    <div class="quick-info">
+                        <span id="topbar-height">Block: 0</span>
+                        <span class="divider">|</span>
+                        <span id="topbar-peers">Peers: 0</span>
+                    </div>
+                    <button class="btn btn-primary" id="node-toggle-btn">Start Node</button>
+                </div>
+            </header>
+
+            <!-- Tab Panes -->
+            <div class="tab-content">
+                
+                <!-- Tab: Dashboard -->
+                <div class="tab-pane active" id="tab-dashboard">
+                    <!-- Top stats cards -->
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-header">
+                                <span class="stat-label">Blockchain Sync</span>
+                                <div class="stat-icon sync"></div>
+                            </div>
+                            <div class="stat-value" id="dash-sync-val">0.00%</div>
+                            <div class="progress-bar-container">
+                                <div class="progress-bar" id="dash-sync-progress" style="width: 0%"></div>
+                            </div>
+                            <span class="stat-desc" id="dash-sync-desc">Checking status...</span>
+                        </div>
+                        
+                        <div class="stat-card">
+                            <div class="stat-header">
+                                <span class="stat-label">Active Policy Profile</span>
+                                <div class="stat-icon policy"></div>
+                            </div>
+                            <div class="stat-value text-accent" id="dash-policy-val">None</div>
+                            <div class="badge-row mt-2" id="dash-policy-badges">
+                                <span class="badge" id="dash-bip110-badge">BIP-110: Unknown</span>
+                            </div>
+                            <span class="stat-desc" id="dash-policy-desc">Spam filtering settings</span>
+                        </div>
+
+                        <div class="stat-card">
+                            <div class="stat-header">
+                                <span class="stat-label">Mempool Transactions</span>
+                                <div class="stat-icon mempool"></div>
+                            </div>
+                            <div class="stat-value" id="dash-mempool-count">0</div>
+                            <div class="stat-meta" id="dash-mempool-bytes">0 KB / 0 MB limit</div>
+                            <span class="stat-desc" id="dash-mempool-desc">Active memory pool size</span>
+                        </div>
+
+                        <div class="stat-card">
+                            <div class="stat-header">
+                                <span class="stat-label">Prometheus Uptime</span>
+                                <div class="stat-icon uptime"></div>
+                            </div>
+                            <div class="stat-value" id="dash-uptime-val">0h 0m</div>
+                            <div class="stat-meta" id="dash-uptime-desc">Metrics active</div>
+                            <span class="stat-desc" id="dash-exporter-port">Exporter Port: 9332</span>
+                        </div>
+                    </div>
+
+                    <!-- Bottom panel layout -->
+                    <div class="dashboard-details">
+                        <!-- Left pane: Rejections list -->
+                        <div class="panel panel-rejections">
+                            <div class="panel-header">
+                                <h3>Data Spam Rejection Summary</h3>
+                                <span class="badge badge-danger" id="dash-rejections-total">0 Rejected</span>
+                            </div>
+                            <div class="panel-body">
+                                <div class="rejections-chart-placeholder" id="rejections-empty-view">
+                                    <div class="empty-icon">🛡️</div>
+                                    <p>No rejections recorded yet.</p>
+                                    <span>Rejections will appear here when transactions violate your policy.toml rules.</span>
+                                </div>
+                                <div class="rejections-list hidden" id="rejections-list">
+                                    <!-- Dynamic rejections list goes here -->
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Right pane: Node Settings Quickview -->
+                        <div class="panel panel-node-info">
+                            <div class="panel-header">
+                                <h3>Node Control Center Details</h3>
+                            </div>
+                            <div class="panel-body">
+                                <table class="info-table">
+                                    <tbody>
+                                        <tr>
+                                            <td>Chain Type</td>
+                                            <td id="info-chain">Unknown</td>
+                                        </tr>
+                                        <tr>
+                                            <td>User Agent</td>
+                                            <td id="info-agent">Unknown</td>
+                                        </tr>
+                                        <tr>
+                                            <td>RPC Endpoint</td>
+                                            <td id="info-rpc">127.0.0.1:8332</td>
+                                        </tr>
+                                        <tr>
+                                            <td>Data Directory</td>
+                                            <td class="text-truncate" id="info-datadir">~/.bitcoin</td>
+                                        </tr>
+                                        <tr>
+                                            <td>RAM Preserving Mode</td>
+                                            <td id="info-ram-mode">Enabled (100MB mempool)</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                                
+                                <div class="quick-actions-panel mt-4">
+                                    <h4>Quick Actions</h4>
+                                    <div class="btn-group">
+                                        <button class="btn btn-outline" id="btn-quick-mempool-clear">Inspect Mempool</button>
+                                        <button class="btn btn-outline" id="btn-quick-reload-policy">Reload Policy</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tab: Wallet Manager -->
+                <div class="tab-pane" id="tab-wallet">
+                    <!-- Unloaded Wallet View -->
+                    <div class="wallet-offline-view" id="wallet-no-wallet-view">
+                        <div class="empty-icon">🪙</div>
+                        <h3>No Wallet Loaded</h3>
+                        <p class="text-secondary mt-2">To start sending and receiving Bitcoin, you must load an existing wallet or create a new one.</p>
+                        <div class="form-group mt-4" style="max-width: 340px; margin: 16px auto;">
+                            <input type="text" id="new-wallet-name" placeholder="Wallet Name (e.g. sovereign_wallet)" value="sovereign_wallet">
+                        </div>
+                        <div class="btn-group mt-2" style="justify-content: center;">
+                            <button class="btn btn-primary" id="btn-create-wallet">Create New Wallet</button>
+                            <button class="btn btn-outline" id="btn-load-wallet-quick">Load Wallet</button>
+                        </div>
+                    </div>
+
+                    <!-- Active Wallet View -->
+                    <div class="wallet-active-view hidden" id="wallet-active-view">
+                        <div class="wallet-layout">
+                            <!-- Balance Card -->
+                            <div class="wallet-card balance-card">
+                                <div class="wallet-card-header">
+                                    <span class="wallet-title" id="active-wallet-name">sovereign_wallet</span>
+                                    <span class="badge badge-success">Active</span>
+                                </div>
+                                <div class="wallet-balance-btc" id="wallet-balance-btc">0.00000000 BTC</div>
+                                <div class="wallet-balance-usd" id="wallet-balance-usd">$0.00 USD</div>
+                                <div class="wallet-balance-unconfirmed" id="wallet-balance-unconfirmed">Unconfirmed: 0.00000000 BTC</div>
+                                
+                                <div class="wallet-quick-actions mt-4">
+                                    <button class="btn btn-primary btn-circle-action" id="btn-wallet-goto-send">
+                                        <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg> Send
+                                    </button>
+                                    <button class="btn btn-primary btn-circle-action" id="btn-wallet-goto-receive">
+                                        <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M20 5H4c-1.1 0-1.99.9-1.99 2L2 17c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm-5 12H7v-2h8v2zm3-4H7v-2h11v2zm0-4H7V7h11v2z"/></svg> Receive
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Action Box -->
+                            <div class="panel wallet-action-panel">
+                                <div class="panel-header">
+                                    <div class="tab-pill-group">
+                                        <button class="tab-pill active" id="pill-wallet-receive">Receive</button>
+                                        <button class="tab-pill" id="pill-wallet-send">Send</button>
+                                        <button class="tab-pill" id="pill-wallet-history">History</button>
+                                    </div>
+                                </div>
+                                <div class="panel-body">
+                                    
+                                    <!-- Sub-tab: Receive -->
+                                    <div class="wallet-sub-pane" id="wallet-sub-receive">
+                                        <h4>Generate Address</h4>
+                                        <div class="form-group mt-3">
+                                            <label for="receive-address-type">Address Type</label>
+                                            <select id="receive-address-type">
+                                                <option value="bech32m">Taproot (P2TR - Recommended)</option>
+                                                <option value="bech32">Native SegWit (P2WPKH)</option>
+                                            </select>
+                                        </div>
+                                        <button class="btn btn-primary mt-2" id="btn-generate-address">Generate Receive Address</button>
+                                        
+                                        <div class="receive-address-container mt-4 hidden" id="receive-address-container">
+                                            <div class="qr-code-box" id="qr-code-container">
+                                                <!-- QR code will be generated here -->
+                                            </div>
+                                            <div class="address-copy-row mt-3">
+                                                <input type="text" class="address-text-input" id="receive-address-text" readonly>
+                                                <button class="btn btn-outline btn-sm" id="btn-copy-address">Copy</button>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Sub-tab: Send -->
+                                    <div class="wallet-sub-pane hidden" id="wallet-sub-send">
+                                        <h4>Send Bitcoin</h4>
+                                        <div class="form-group mt-3">
+                                            <label for="send-address">Recipient Address</label>
+                                            <input type="text" id="send-address" placeholder="bc1... or tb1...">
+                                        </div>
+                                        <div class="form-group mt-3">
+                                            <label for="send-amount">Amount (BTC)</label>
+                                            <input type="number" id="send-amount" placeholder="0.001" step="0.00000001" min="0.00000001">
+                                        </div>
+                                        <button class="btn btn-primary mt-3" id="btn-send-coins">Send Transaction</button>
+                                    </div>
+
+                                    <!-- Sub-tab: History -->
+                                    <div class="wallet-sub-pane hidden" id="wallet-sub-history">
+                                        <h4>Recent Transactions</h4>
+                                        <div class="tx-list-container mt-3" id="wallet-tx-list">
+                                            <p class="text-secondary text-center py-4">No recent transactions found.</p>
+                                        </div>
+                                    </div>
+
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tab: Policy Engine -->
+                <div class="tab-pane" id="tab-policy">
+                    <div class="policy-layout">
+                        <!-- Left Panel: Policy Switcher -->
+                        <div class="panel">
+                            <div class="panel-header">
+                                <h3>Declarative Policy Profile</h3>
+                            </div>
+                            <div class="panel-body">
+                                <p class="text-secondary mb-4">Select a predefined profile or reload the rules file. These profiles define how strictly your node filters transaction spam (e.g. runes, ordinals, OP_RETURN outputs).</p>
+                                
+                                <div class="profile-cards">
+                                    <div class="profile-card" data-profile="maximalist" id="prof-card-maximalist">
+                                        <div class="profile-card-header">
+                                            <h4>Maximalist</h4>
+                                            <span class="badge badge-accent">Ultra strict</span>
+                                        </div>
+                                        <p>Zero tolerance for data carrier spam. OP_RETURN is blocked entirely, and all inscriptions/token protocols are actively filtered from the mempool.</p>
+                                    </div>
+
+                                    <div class="profile-card" data-profile="bip110-strict" id="prof-card-bip110-strict">
+                                        <div class="profile-card-header">
+                                            <h4>BIP-110 Strict</h4>
+                                            <span class="badge badge-primary">Consensus cap</span>
+                                        </div>
+                                        <p>Enforces standard BIP-110 consensus bounds locally, capping pushdata elements and transaction output script sizes.</p>
+                                    </div>
+
+                                    <div class="profile-card" data-profile="monetary-only" id="prof-card-monetary-only">
+                                        <div class="profile-card-header">
+                                            <h4>Monetary Only</h4>
+                                            <span class="badge badge-primary">Financial focus</span>
+                                        </div>
+                                        <p>Relays and blocks only financial Bitcoin transactions. Blocks OP_RETURN outputs and inscription/token structures aggressively.</p>
+                                    </div>
+
+                                    <div class="profile-card" data-profile="default-knots" id="prof-card-default-knots">
+                                        <div class="profile-card-header">
+                                            <h4>Default Knots</h4>
+                                            <span class="badge badge-outline">Standard</span>
+                                        </div>
+                                        <p>Uses standard Bitcoin Knots relay and policy configuration rules. No additional filtering.</p>
+                                    </div>
+                                </div>
+
+                                <div class="mt-4 flex-between">
+                                    <button class="btn btn-primary" id="btn-apply-profile">Activate Selected Profile</button>
+                                    <span class="text-secondary text-sm" id="policy-active-indicator">Current profile: <strong>None</strong></span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Right Panel: Rules Details -->
+                        <div class="panel">
+                            <div class="panel-header">
+                                <h3>Active Policy Rules Check</h3>
+                            </div>
+                            <div class="panel-body">
+                                <div class="rules-check-list" id="rules-check-list">
+                                    <!-- Dynamic list of rules based on policy.toml -->
+                                    <div class="rule-status-item">
+                                        <span class="rule-name">reject_tokens</span>
+                                        <span class="rule-status-val status-yes" id="rule-val-reject_tokens">Checking...</span>
+                                    </div>
+                                    <div class="rule-status-item">
+                                        <span class="rule-name">reject_inscriptions</span>
+                                        <span class="rule-status-val status-yes" id="rule-val-reject_inscriptions">Checking...</span>
+                                    </div>
+                                    <div class="rule-status-item">
+                                        <span class="rule-name">datacarrier_size</span>
+                                        <span class="rule-status-val" id="rule-val-datacarrier_size">Checking...</span>
+                                    </div>
+                                    <div class="rule-status-item">
+                                        <span class="rule-name">max_op_return_outputs</span>
+                                        <span class="rule-status-val" id="rule-val-max_op_return_outputs">Checking...</span>
+                                    </div>
+                                    <div class="rule-status-item">
+                                        <span class="rule-name">dust_relay_fee</span>
+                                        <span class="rule-status-val" id="rule-val-dust_relay_fee">Checking...</span>
+                                    </div>
+                                    <div class="rule-status-item">
+                                        <span class="rule-name">permit_bare_multisig</span>
+                                        <span class="rule-status-val status-no" id="rule-val-permit_bare_multisig">Checking...</span>
+                                    </div>
+                                    <div class="rule-status-item">
+                                        <span class="rule-name">reject_parasites</span>
+                                        <span class="rule-status-val status-yes" id="rule-val-reject_parasites">Checking...</span>
+                                    </div>
+                                </div>
+                                
+                                <div class="policy-note-box mt-4">
+                                    <h5>📝 Dynamic modification active</h5>
+                                    <p class="text-xs text-secondary mt-1">Changing the active policy profile executes <code>setsovereignpolicy</code> dynamically via RPC. To edit rule thresholds permanently, use the <strong>Configuration</strong> tab to modify <code>policy.toml</code>.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tab: BIP-110 Status -->
+                <div class="tab-pane" id="tab-bip110">
+                    <div class="panel">
+                        <div class="panel-header">
+                            <h3>BIP-110 temporary soft fork compliance</h3>
+                            <span class="badge badge-accent" id="bip110-compliance-status">Status: Unknown</span>
+                        </div>
+                        <div class="panel-body">
+                            <div class="bip110-hero">
+                                <div class="bip110-hero-details">
+                                    <h4 id="bip110-mode-title">Mode: Auto</h4>
+                                    <p class="text-secondary mt-2">BIP-110 restricts arbitrary data storage on the blockchain by imposing bounds on transaction outputs and witnesses. This keeps verification lightweight for sovereign operators.</p>
+                                </div>
+                            </div>
+
+                            <div class="compliance-info-grid mt-4">
+                                <div class="compliance-card">
+                                    <h5>witness pushdata limits</h5>
+                                    <span class="limit-val">256 bytes</span>
+                                    <p class="text-xs text-secondary mt-1">Witness data element pushes capped to prevent multi-megabyte inscription payloads in blocks.</p>
+                                </div>
+                                <div class="compliance-card">
+                                    <h5>scriptPubKey size limits</h5>
+                                    <span class="limit-val">34 bytes</span>
+                                    <p class="text-xs text-secondary mt-1">Restricts custom outputs to 34 bytes (except OP_RETURN, capped at 83 bytes).</p>
+                                </div>
+                                <div class="compliance-card">
+                                    <h5>Taproot control block limits</h5>
+                                    <span class="limit-val">257 bytes</span>
+                                    <p class="text-xs text-secondary mt-1">Taproot script path control block elements capped to standard verification structures.</p>
+                                </div>
+                            </div>
+
+                            <div class="panel-section mt-4">
+                                <h4>RPC Compliance Audit Log</h4>
+                                <div class="audit-log-box" id="bip110-audit-log">
+                                    <!-- Dynamic compliance info from RPC -->
+                                    <p class="text-secondary text-center py-4">Start the node and check sync status to perform a BIP-110 compliance audit.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tab: Peers -->
+                <div class="tab-pane" id="tab-peers">
+                    <div class="panel">
+                        <div class="panel-header">
+                            <h3>Connected Peer Nodes</h3>
+                            <span class="badge badge-primary" id="peers-count-badge">0 Peers</span>
+                        </div>
+                        <div class="panel-body">
+                            <div class="peers-table-container">
+                                <table class="peers-table">
+                                    <thead>
+                                        <tr>
+                                            <th>ID</th>
+                                            <th>Address</th>
+                                            <th>User Agent</th>
+                                            <th>Direction</th>
+                                            <th>Block Height</th>
+                                            <th>Ping</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="peers-table-body">
+                                        <tr>
+                                            <td colspan="6" class="text-center text-secondary py-4">No peers connected. Start the node to connect.</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tab: Config Editor (Umbrel-style Settings) -->
+                <div class="tab-pane" id="tab-config">
+                    <div class="settings-container">
+                        
+                        <!-- Settings Sub-tab menu bar -->
+                        <div class="settings-mode-bar">
+                            <div class="settings-sub-tabs">
+                                <button class="settings-sub-tab active" data-settings-tab="storage">💾 Storage & Sync</button>
+                                <button class="settings-sub-tab" data-settings-tab="network">🌐 P2P Network</button>
+                                <button class="settings-sub-tab" data-settings-tab="policy">🛡️ Spam Filters</button>
+                                <button class="settings-sub-tab" data-settings-tab="optimization">🚀 Optimization</button>
+                                <button class="settings-sub-tab" data-settings-tab="system">⚡ RPC & API</button>
+                                <button class="settings-sub-tab" data-settings-tab="raw">📝 Raw Files</button>
+                            </div>
+                            <button class="btn btn-primary" id="btn-save-visual-settings">Save All Settings</button>
+                        </div>
+
+                        <!-- Settings Content Wrapper -->
+                        <div class="settings-content-wrapper">
+                            <form id="settings-form" class="settings-form">
+                                
+                                <!-- Sub-pane: Storage & Sync -->
+                                <div class="settings-sub-pane" id="settings-pane-storage">
+                                    <div class="settings-group-card">
+                                        <div class="group-header">
+                                            <h4>💾 Storage & Blockchain Sync Options</h4>
+                                            <p>Manage disk footprint and ledger verification indexing</p>
+                                        </div>
+                                        <div class="group-body">
+                                            <!-- Section: Network Selection -->
+                                            <div class="settings-section-divider">
+                                                <h5>Network Selection</h5>
+                                                <div class="form-group mt-2">
+                                                    <label for="set-chain">Bitcoin Network (chain)</label>
+                                                    <select id="set-chain" name="chain">
+                                                        <option value="main">Mainnet (Production - main)</option>
+                                                        <option value="test">Testnet (Testing - test)</option>
+                                                        <option value="regtest">Regtest (Local regression testnet - regtest)</option>
+                                                        <option value="signet">Signet (Signature testnet - signet)</option>
+                                                    </select>
+                                                    <span class="input-desc">Choose which blockchain your node will connect to. If you change the chain, you may need to restart any connected apps to ensure they work correctly. <em>default: main</em></span>
+                                                </div>
+                                            </div>
+
+                                            <div class="form-row mt-4 border-top-divider pt-3">
+                                                <div class="form-group flex-1">
+                                                    <label class="toggle-container">
+                                                        <input type="checkbox" id="set-blocksonly" name="blocksonly" value="1">
+                                                        <span class="toggle-slider"></span>
+                                                        <span class="toggle-label">Blocks-Only Mode (blocksonly)</span>
+                                                    </label>
+                                                    <span class="input-desc ml-toggle">Do not accept or relay unconfirmed transactions. Saves massive bandwidth.</span>
+                                                </div>
+                                            </div>
+
+                                            <!-- Section: Disk Footprint & Indexing -->
+                                            <div class="settings-section-divider mt-4 border-top-divider pt-3">
+                                                <h5>Disk Footprint & Indexing</h5>
+                                                <div class="form-row mt-3">
+                                                    <div class="form-group flex-1">
+                                                        <label for="set-prune-mode">Pruning Mode (prune)</label>
+                                                        <select id="set-prune-mode" name="prune_mode">
+                                                            <option value="0">Disabled (Full Node - Keep all history, ~600GB+)</option>
+                                                            <option value="1">Automatic Pruning (Cuts size down to ~550MB)</option>
+                                                            <option value="custom">Custom Pruning (Define target storage size in GB)</option>
+                                                        </select>
+                                                        <span class="input-desc">Saves storage by deleting old block files. <strong>Warning:</strong> Pruning is incompatible with txindex.</span>
+                                                    </div>
+                                                    <div class="form-group flex-1">
+                                                        <label class="toggle-container" style="margin-top: 24px;">
+                                                            <input type="checkbox" id="set-txindex" checked>
+                                                            <span class="toggle-slider"></span>
+                                                            <span class="toggle-label">Enable Transaction Indexing (txindex)</span>
+                                                        </label>
+                                                        <span class="input-desc ml-toggle">Allows faster lookups of historic transactions. Automatically disabled if pruning is enabled. <em>default: enabled</em></span>
+                                                    </div>
+                                                </div>
+
+                                                <div class="form-group mt-3 hidden" id="custom-prune-size-row">
+                                                    <label for="set-pruning-target-gb">Custom Pruning Storage Target (GB)</label>
+                                                    <input type="number" id="set-pruning-target-gb" value="2" min="1" max="1000">
+                                                    <span class="input-desc">Minimum value: 1 GB. (e.g. 5 GB, 10 GB)</span>
+                                                </div>
+                                            </div>
+
+
+
+
+                                            <div class="form-row mt-4 border-top-divider pt-3">
+                                                <div class="form-group flex-1">
+                                                    <label class="toggle-container">
+                                                        <input type="checkbox" id="set-peerblockfilters" name="peerblockfilters" value="1">
+                                                        <span class="toggle-slider"></span>
+                                                        <span class="toggle-label">Peer Block Filters (peerblockfilters)</span>
+                                                    </label>
+                                                    <span class="input-desc ml-toggle">Share compact block filter data with connected light clients (like wallets) connected to your node, allowing them to get only the transaction information they are interested in from your node without having to download the entire blockchain. Enabling this will automatically enable Block Filter Index below. <em>default: enabled</em></span>
+                                                </div>
+                                                <div class="form-group flex-1">
+                                                    <label class="toggle-container">
+                                                        <input type="checkbox" id="set-blockfilterindex" name="blockfilterindex" value="1">
+                                                        <span class="toggle-slider"></span>
+                                                        <span class="toggle-label">Block Filter Index (blockfilterindex)</span>
+                                                    </label>
+                                                    <span class="input-desc ml-toggle">Store an index of compact block filters which allows faster wallet re-scanning. In order to serve compact block filters to peers, you must also enable Peer Block Filters. <strong>Note:</strong> To use with a pruned node, you must enable this when starting the prune old blocks process. <em>default: enabled</em></span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+
+                                <!-- Sub-pane: P2P Network -->
+                                <div class="settings-sub-pane hidden" id="settings-pane-network">
+                                    <div class="settings-group-card">
+                                        <div class="group-header">
+                                            <h4>🌐 P2P Connections & Privacy</h4>
+                                            <p>Configure P2P networks, connection limits, routing proxies, and timeouts</p>
+                                        </div>
+                                        <div class="group-body">
+                                            
+                                            <!-- Section: Outgoing Connections -->
+                                            <div class="settings-section-divider">
+                                                <h5>Outgoing Peer Connections</h5>
+                                                <p class="text-xs text-muted mb-2">Select which networks you will use for outgoing peer connections.</p>
+                                                <div class="checkbox-group-row">
+                                                    <label class="checkbox-label">
+                                                        <input type="checkbox" id="set-onlynet-clearnet" checked> Clearnet (IPv4/IPv6)
+                                                    </label>
+                                                    <label class="checkbox-label">
+                                                        <input type="checkbox" id="set-onlynet-tor" checked> Tor
+                                                    </label>
+                                                    <label class="checkbox-label">
+                                                        <input type="checkbox" id="set-onlynet-i2p" checked> I2P
+                                                    </label>
+                                                </div>
+                                            </div>
+
+                                            <!-- Section: Proxy All Over Tor -->
+                                            <div class="settings-section-divider mt-4">
+                                                <label class="toggle-container">
+                                                    <input type="checkbox" id="set-proxy-all-tor">
+                                                    <span class="toggle-slider"></span>
+                                                    <span class="toggle-label">Make All Outgoing Connections to Clearnet Peers Over Tor</span>
+                                                </label>
+                                                <span class="input-desc ml-toggle">Connect to peers available on the clearnet via Tor to preserve your anonymity at the cost of slightly less security. <em>default: disabled</em></span>
+                                            </div>
+
+                                            <!-- Section: Incoming Connections -->
+                                            <div class="settings-section-divider mt-4">
+                                                <h5>Incoming Peer Connections</h5>
+                                                <p class="text-xs text-muted mb-2">Select which networks you will allow incoming peer connections from. This will broadcast your node to the Bitcoin network to help other nodes access the blockchain.</p>
+                                                <div class="checkbox-group-row">
+                                                    <label class="checkbox-label">
+                                                        <input type="checkbox" id="set-incoming-clearnet"> Clearnet (listen)
+                                                    </label>
+                                                    <label class="checkbox-label">
+                                                        <input type="checkbox" id="set-incoming-tor"> Tor (listenonion)
+                                                    </label>
+                                                    <label class="checkbox-label">
+                                                        <input type="checkbox" id="set-incoming-i2p"> I2P (i2pacceptincoming)
+                                                    </label>
+                                                </div>
+                                                <span class="input-desc mt-2">You may need to set up port forwarding on your router to allow incoming connections from clearnet-only peers. <em>default: none</em></span>
+                                            </div>
+
+                                            <!-- Section: Advanced Network Parameters -->
+                                            <div class="settings-section-divider mt-4">
+                                                <h5>Advanced Network Limits</h5>
+                                                
+                                                <div class="form-row mt-3">
+                                                    <div class="form-group flex-1">
+                                                        <label for="set-maxconnections">Max Peer Connections (maxconnections)</label>
+                                                        <input type="number" id="set-maxconnections" name="maxconnections" value="125" min="5" max="1000">
+                                                        <span class="input-desc">Set the maximum number of peers your node can connect to simultaneously. <em>default: 125 peers</em></span>
+                                                    </div>
+                                                    <div class="form-group flex-1">
+                                                        <label for="set-maxuploadtarget">Max Upload Target (maxuploadtarget - MB/24h)</label>
+                                                        <input type="number" id="set-maxuploadtarget" name="maxuploadtarget" value="0" min="0">
+                                                        <span class="input-desc">Limit data uploaded to peers in 24 hours. Set to 0 for unlimited. <em>default: 0 MB/24h</em></span>
+                                                    </div>
+                                                </div>
+
+                                                <div class="form-row mt-3">
+                                                    <div class="form-group flex-1">
+                                                        <label for="set-maxreceivebuffer">Max Receive Buffer (maxreceivebuffer - KB)</label>
+                                                        <input type="number" id="set-maxreceivebuffer" name="maxreceivebuffer" value="5000" min="100" max="100000">
+                                                        <span class="input-desc">Max memory allocated for incoming data. <em>default: 5000 KB</em></span>
+                                                    </div>
+                                                    <div class="form-group flex-1">
+                                                        <label for="set-maxsendbuffer">Max Send Buffer (maxsendbuffer - KB)</label>
+                                                        <input type="number" id="set-maxsendbuffer" name="maxsendbuffer" value="5000" min="100" max="100000">
+                                                        <span class="input-desc">Max memory allocated for outgoing data. <em>default: 5000 KB</em></span>
+                                                    </div>
+                                                </div>
+
+                                                <div class="form-row mt-3">
+                                                    <div class="form-group flex-1">
+                                                        <label for="set-peertimeout">Peer Timeout (peertimeout - sec)</label>
+                                                        <input type="number" id="set-peertimeout" name="peertimeout" value="60" min="5" max="3600">
+                                                        <span class="input-desc">Timeout before disconnecting unresponsive peers. <em>default: 60 sec</em></span>
+                                                    </div>
+                                                    <div class="form-group flex-1">
+                                                        <label for="set-timeout">Connection Handshake Timeout (timeout - ms)</label>
+                                                        <input type="number" id="set-timeout" name="timeout" value="5000" min="100" max="60000">
+                                                        <span class="input-desc">Timeout before disconnecting peers during handshake. <em>default: 5000 ms</em></span>
+                                                    </div>
+                                                </div>
+
+                                                <div class="form-row mt-3">
+                                                    <div class="form-group flex-1">
+                                                        <label for="set-bantime">Peer Ban Duration (bantime - sec)</label>
+                                                        <input type="number" id="set-bantime" name="bantime" value="86400" min="60" max="31536000">
+                                                        <span class="input-desc">Duration a misbehaving peer is banned. <em>default: 86400 sec (24h)</em></span>
+                                                    </div>
+                                                    <div class="form-group flex-1">
+                                                        <label class="toggle-container" style="margin-top: 28px;">
+                                                            <input type="checkbox" id="set-peerbloomfilters" name="peerbloomfilters" value="1">
+                                                            <span class="toggle-slider"></span>
+                                                            <span class="toggle-label">Enable Peer Bloom Filters (BIP37)</span>
+                                                        </label>
+                                                        <span class="input-desc ml-toggle">Enable support for older light clients. Bloom filters can have privacy/DoS risks; use is discouraged. <em>default: disabled</em></span>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <!-- Section: Connections Seeds -->
+                                            <div class="settings-section-divider mt-4 border-top-divider pt-3">
+                                                <h5>Connection Seeds & Proxies</h5>
+                                                <div class="form-row mt-3">
+                                                    <div class="form-group flex-1">
+                                                        <label for="set-connect">Connect ONLY to Specific Nodes (connect)</label>
+                                                        <input type="text" id="set-connect" name="connect" placeholder="e.g. 192.168.1.100:8333">
+                                                    </div>
+                                                    <div class="form-group flex-1">
+                                                        <label for="set-addnode">Add Custom Seed Nodes (addnode)</label>
+                                                        <input type="text" id="set-addnode" name="addnode" placeholder="e.g. seed.host.com">
+                                                    </div>
+                                                </div>
+                                                <div class="form-row mt-3">
+                                                    <div class="form-group flex-1">
+                                                        <label for="set-proxy">Socks Proxy Address (proxy)</label>
+                                                        <input type="text" id="set-proxy" name="proxy" placeholder="127.0.0.1:9050">
+                                                    </div>
+                                                    <div class="form-group flex-1">
+                                                        <label for="set-onion">Onion Proxy Address (onion)</label>
+                                                        <input type="text" id="set-onion" name="onion" placeholder="127.0.0.1:9050">
+                                                    </div>
+                                                </div>
+                                                <div class="form-group mt-3">
+                                                    <label class="toggle-container">
+                                                        <input type="checkbox" id="set-discover" name="discover" value="1" checked>
+                                                        <span class="toggle-slider"></span>
+                                                        <span class="toggle-label">Discover Local IPv4/IPv6 Address</span>
+                                                    </label>
+                                                </div>
+                                            </div>
+
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Sub-pane: Spam Filters (Declarative Policy) -->
+                                <div class="settings-sub-pane hidden" id="settings-pane-policy">
+                                    <div class="settings-group-card">
+                                        <div class="group-header">
+                                            <h4>🛡️ Spam Filters & Declarative Policy Rules</h4>
+                                            <p>Custom Knots rules for filtering non-monetary transactions, block space bloat, and fee parameters</p>
+                                        </div>
+                                        <div class="group-body">
+                                            
+                                            <!-- Section: Profiles -->
+                                            <div class="form-row">
+                                                <div class="form-group flex-1">
+                                                    <label for="set-policyprofile">Default Policy Profile</label>
+                                                    <select id="set-policyprofile" name="profile">
+                                                        <option value="maximalist">Maximalist (Zero carrier spam)</option>
+                                                        <option value="bip110-strict">BIP-110 Strict (Consensus bounds)</option>
+                                                        <option value="monetary-only">Monetary Only (Financial relay focus)</option>
+                                                        <option value="default-knots">Default Knots (Standard Bitcoin Knots rules)</option>
+                                                    </select>
+                                                </div>
+                                                <div class="form-group flex-1">
+                                                    <label for="set-bip110">BIP-110 Soft Fork Mode</label>
+                                                    <select id="set-bip110" name="bip110_mode">
+                                                        <option value="auto">Auto (Enables soft fork restrictions automatically)</option>
+                                                        <option value="always">Always Enforce (Activate consensus restrictions)</option>
+                                                        <option value="never">Disabled (Ignore BIP-110 bounds locally)</option>
+                                                    </select>
+                                                </div>
+                                            </div>
+
+                                            <!-- Section: Data Carrier (OP_RETURN) -->
+                                            <div class="settings-section-divider mt-4 border-top-divider pt-3">
+                                                <h5>Arbitrary Data & OP_RETURN Filtering</h5>
+                                                
+                                                <div class="form-row mt-3">
+                                                    <div class="form-group flex-1">
+                                                        <label class="toggle-container">
+                                                            <input type="checkbox" id="set-datacarrier" name="datacarrier" checked>
+                                                            <span class="toggle-slider"></span>
+                                                            <span class="toggle-label">Relay Transactions Containing Arbitrary Data (datacarrier)</span>
+                                                        </label>
+                                                        <span class="input-desc ml-toggle">Relay transactions with OP_RETURN outputs. <em>default: enabled</em></span>
+                                                    </div>
+                                                </div>
+
+                                                <div class="form-row mt-3">
+                                                    <div class="form-group flex-1" id="group-datacarriersize">
+                                                        <label for="set-datacarriersize">Max Allowed Size of Arbitrary Data (datacarriersize - bytes)</label>
+                                                        <input type="number" id="set-datacarriersize" name="datacarriersize" value="83" min="0" max="10000">
+                                                        <span class="input-desc">Set the maximum size of the data in OP_RETURN outputs (in bytes) that your node will relay. <em>default: 83 bytes</em></span>
+                                                    </div>
+                                                    <div class="form-group flex-1" id="group-datacarriercost">
+                                                        <label for="set-datacarriercost">Datacarrier Cost Multiplier (datacarriercost)</label>
+                                                        <input type="number" id="set-datacarriercost" name="datacarriercost" value="1" min="1" max="100">
+                                                        <span class="input-desc">Treat extra data in transactions as at least N vbytes per actual byte. <em>default: 1</em></span>
+                                                    </div>
+                                                </div>
+
+                                                <div class="form-row mt-3">
+                                                    <div class="form-group flex-1">
+                                                        <label class="toggle-container">
+                                                            <input type="checkbox" id="set-permitbaredatacarrier" name="permitbaredatacarrier">
+                                                            <span class="toggle-slider"></span>
+                                                            <span class="toggle-label">Permit Bare Datacarrier (permitbaredatacarrier)</span>
+                                                        </label>
+                                                        <span class="input-desc ml-toggle">Relay transactions that only have data carrier outputs. <em>default: disabled</em></span>
+                                                    </div>
+                                                    <div class="form-group flex-1">
+                                                        <label class="toggle-container">
+                                                            <input type="checkbox" id="set-acceptnonstddatacarrier" name="acceptnonstddatacarrier">
+                                                            <span class="toggle-slider"></span>
+                                                            <span class="toggle-label">Accept Non-Standard Datacarrier (acceptnonstddatacarrier)</span>
+                                                        </label>
+                                                        <span class="input-desc ml-toggle">Relay and mine non-OP_RETURN datacarrier injection. <em>default: disabled</em></span>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <!-- Section: Relay Rules -->
+                                            <div class="settings-section-divider mt-4 border-top-divider pt-3">
+                                                <h5>Standard Transaction Relay Rules</h5>
+                                                
+                                                <div class="form-row mt-3">
+                                                    <div class="form-group flex-1">
+                                                        <label class="toggle-container">
+                                                            <input type="checkbox" id="set-rejectparasites" name="rejectparasites" checked>
+                                                            <span class="toggle-slider"></span>
+                                                            <span class="toggle-label">Reject Parasitic Transactions (rejectparasites)</span>
+                                                        </label>
+                                                        <span class="input-desc ml-toggle">Reject parasitic transactions that are non-monetary. <em>default: enabled</em></span>
+                                                    </div>
+                                                    <div class="form-group flex-1">
+                                                        <label class="toggle-container">
+                                                            <input type="checkbox" id="set-rejecttokens" name="rejecttokens">
+                                                            <span class="toggle-slider"></span>
+                                                            <span class="toggle-label">Reject Tokens Transactions (rejecttokens)</span>
+                                                        </label>
+                                                        <span class="input-desc ml-toggle">Reject token transactions (runes). <em>default: disabled</em></span>
+                                                    </div>
+                                                </div>
+
+                                                <div class="form-row mt-3">
+                                                    <div class="form-group flex-1">
+                                                        <label class="toggle-container">
+                                                            <input type="checkbox" id="set-permitbaremultisig" name="permitbaremultisig">
+                                                            <span class="toggle-slider"></span>
+                                                            <span class="toggle-label">Relay Bare Multisig Transactions (permitbaremultisig)</span>
+                                                        </label>
+                                                        <span class="input-desc ml-toggle">Relay non-P2SH multisig transactions. <em>default: disabled</em></span>
+                                                    </div>
+                                                    <div class="form-group flex-1">
+                                                        <label class="toggle-container">
+                                                            <input type="checkbox" id="set-permitbarepubkey" name="permitbarepubkey">
+                                                            <span class="toggle-slider"></span>
+                                                            <span class="toggle-label">Permit Bare Pubkey Relay (permitbarepubkey)</span>
+                                                        </label>
+                                                        <span class="input-desc ml-toggle">Relay legacy pubkey outputs. <em>default: disabled</em></span>
+                                                    </div>
+                                                </div>
+
+                                                <div class="form-group mt-3">
+                                                    <label for="set-maxscriptsize">Max Script Relay Size (maxscriptsize - bytes)</label>
+                                                    <input type="number" id="set-maxscriptsize" name="maxscriptsize" value="1650" min="100" max="50000">
+                                                    <span class="input-desc">Maximum size of scripts (including the entire witness stack) we relay and mine in bytes. <em>default: 1650</em></span>
+                                                </div>
+                                            </div>
+
+                                            <!-- Section: Block Construction & Fees -->
+                                            <div class="settings-section-divider mt-4 border-top-divider pt-3">
+                                                <h5>Block Construction & Mempool Fees</h5>
+                                                
+                                                <div class="form-row mt-3">
+                                                    <div class="form-group flex-1">
+                                                        <label for="set-blockmaxsize">Max Block Size (blockmaxsize - bytes)</label>
+                                                        <input type="number" id="set-blockmaxsize" name="blockmaxsize" value="3985000" min="100000" max="4000000">
+                                                        <span class="input-desc">Set maximum block size in bytes. <em>default: 3985000</em></span>
+                                                    </div>
+                                                    <div class="form-group flex-1">
+                                                        <label for="set-blockmaxweight">Max Block Weight (blockmaxweight)</label>
+                                                        <input type="number" id="set-blockmaxweight" name="blockmaxweight" value="3985000" min="100000" max="4000000">
+                                                        <span class="input-desc">Set maximum BIP141 block weight. <em>default: 3985000</em></span>
+                                                    </div>
+                                                </div>
+
+                                                <div class="form-row mt-3">
+                                                    <div class="form-group flex-1">
+                                                        <label for="set-blockmintxfee">Min Block Template Fee Rate (blockmintxfee - sat/vB)</label>
+                                                        <input type="number" id="set-blockmintxfee" name="blockmintxfee" value="1" min="0" step="0.1">
+                                                        <span class="input-desc">Lowest fee rate for transactions included in block template construction. <em>default: 1 sat/vB</em></span>
+                                                    </div>
+                                                    <div class="form-group flex-1">
+                                                        <label for="set-minrelaytxfee">Min Mempool Relay Fee Rate (minrelaytxfee - sat/vB)</label>
+                                                        <input type="number" id="set-minrelaytxfee" name="minrelaytxfee" value="1" min="0" step="0.1">
+                                                        <span class="input-desc">Minimum fee rate accepted for mempool admission and relaying. <em>default: 1 sat/vB</em></span>
+                                                    </div>
+                                                </div>
+
+                                                <div class="form-group mt-3">
+                                                    <label for="set-incrementalrelayfee">Mempool Replacement Incremental Fee Rate (incrementalrelayfee - sat/vB)</label>
+                                                    <input type="number" id="set-incrementalrelayfee" name="incrementalrelayfee" value="1" min="0" step="0.1">
+                                                    <span class="input-desc">Minimum fee rate increase required to replace existing transaction in mempool. <em>default: 1 sat/vB</em></span>
+                                                </div>
+                                            </div>
+
+                                        </div>
+                                    </div>
+                                </div>
+
+
+                                <!-- Sub-pane: Optimization -->
+                                <div class="settings-sub-pane hidden" id="settings-pane-optimization">
+                                    <div class="settings-group-card">
+                                        <div class="group-header">
+                                            <h4>🚀 Node Performance & Memory Optimization</h4>
+                                            <p>Configure RAM cache, pruning limits, indexes, and mempool settings</p>
+                                        </div>
+                                        <div class="group-body">
+                                            
+                                            <!-- Section: Memory Cache & Coin Stats Index -->
+                                            <div class="form-row">
+                                                <div class="form-group flex-1">
+                                                    <label for="set-dbcache">Database Cache Size (dbcache - MiB)</label>
+                                                    <input type="number" id="set-dbcache" name="dbcache" value="450" min="50" max="32768">
+                                                    <span class="input-desc">Choose the size of the UTXO set to store in RAM. A larger cache speeds up initial sync. <em>default: 450 MiB</em></span>
+                                                </div>
+                                                <div class="form-group flex-1">
+                                                    <label class="toggle-container" style="margin-top: 24px;">
+                                                        <input type="checkbox" id="set-coinstatsindex">
+                                                        <span class="toggle-slider"></span>
+                                                        <span class="toggle-label">Enable Coin Stats Index (coinstatsindex)</span>
+                                                    </label>
+                                                    <span class="input-desc ml-toggle">Speeds up gettxoutsetinfo RPC at the cost of additional disk space. <em>default: disabled</em></span>
+                                                </div>
+                                            </div>
+
+
+                                            <!-- Section: Compact Block Reconstruction -->
+                                            <div class="settings-section-divider mt-4 border-top-divider pt-3">
+                                                <h5>Compact Block Reconstruction Cache</h5>
+                                                <div class="form-row mt-3">
+                                                    <div class="form-group flex-1">
+                                                        <label for="set-blockreconstructionextratxn">Extra Txns for Reconstruction (blockreconstructionextratxn)</label>
+                                                        <input type="number" id="set-blockreconstructionextratxn" value="32768" min="0">
+                                                        <span class="input-desc">Number of transactions to keep in memory for compact block reconstructions. <em>default: 32768</em></span>
+                                                    </div>
+                                                    <div class="form-group flex-1">
+                                                        <label for="set-blockreconstructionextratxnsize">Max Memory for Reconstruction (blockreconstructionextratxnsize - MB)</label>
+                                                        <input type="number" id="set-blockreconstructionextratxnsize" value="10" min="1">
+                                                        <span class="input-desc">Upper limit of memory usage for extra transactions. <em>default: 10 MB</em></span>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <!-- Section: Mempool Tuning -->
+                                            <div class="settings-section-divider mt-4 border-top-divider pt-3">
+                                                <h5>Mempool Performance Tuning</h5>
+                                                <div class="form-row mt-3">
+                                                    <div class="form-group flex-1">
+                                                        <label for="set-maxmempool">Maximum Mempool Size (maxmempool - MB)</label>
+                                                        <input type="number" id="set-maxmempool" value="300" min="20">
+                                                        <span class="input-desc">Maximum RAM allocated for unconfirmed transactions. <em>default: 300 MB</em></span>
+                                                    </div>
+                                                    <div class="form-group flex-1">
+                                                        <label for="set-mempoolexpiry">Mempool Expiration Time (mempoolexpiry - hours)</label>
+                                                        <input type="number" id="set-mempoolexpiry" value="336" min="1">
+                                                        <span class="input-desc">Time threshold for unconfirmed transactions to remain in mempool. <em>default: 336 hours</em></span>
+                                                    </div>
+                                                </div>
+
+                                                <div class="form-row mt-3">
+                                                    <div class="form-group flex-1">
+                                                        <label for="set-maxorphantx">Max Orphan Transactions (maxorphantx - txs)</label>
+                                                        <input type="number" id="set-maxorphantx" value="100" min="0">
+                                                        <span class="input-desc">Maximum number of orphan transactions kept in memory. <em>default: 100 txs</em></span>
+                                                    </div>
+                                                    <div class="form-group flex-1">
+                                                        <label class="toggle-container" style="margin-top: 24px;">
+                                                            <input type="checkbox" id="set-persistmempool" checked>
+                                                            <span class="toggle-slider"></span>
+                                                            <span class="toggle-label">Persist Mempool across restarts (persistmempool)</span>
+                                                        </label>
+                                                        <span class="input-desc ml-toggle">Saves unconfirmed transactions on shutdown and reloads them on startup. <em>default: enabled</em></span>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <!-- Section: Mining / Blocknotify -->
+                                            <div class="settings-section-divider mt-4 border-top-divider pt-3">
+                                                <h5>Mining Protocols</h5>
+                                                <div class="form-group mt-3">
+                                                    <label class="toggle-container">
+                                                        <input type="checkbox" id="set-datum" checked>
+                                                        <span class="toggle-slider"></span>
+                                                        <span class="toggle-label">Enable blocknotify for datum (datum)</span>
+                                                    </label>
+                                                    <span class="input-desc ml-toggle">Enable blocknotify for Datum protocol to avoid mining stale work. <em>default: enabled</em></span>
+                                                </div>
+                                            </div>
+
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Sub-pane: RPC & API -->
+                                <div class="settings-sub-pane hidden" id="settings-pane-system">
+                                    <div class="settings-group-card">
+                                        <div class="group-header">
+                                            <h4>⚡ RPC & System API Parameters</h4>
+                                            <p>Allocate thread priorities, local JSON-RPC endpoints, and metrics servers</p>
+                                        </div>
+                                        <div class="group-body">
+                                            <div class="form-row">
+                                                <div class="form-group flex-1">
+                                                    <label for="set-par">Script Verification Threads (par)</label>
+                                                    <select id="set-par" name="par">
+                                                        <option value="0">Auto (Use all CPU cores)</option>
+                                                        <option value="-1">Auto-1 (Leave 1 core free for operating system)</option>
+                                                        <option value="1">Minimum (1 thread - Best for low power/heat)</option>
+                                                        <option value="2">2 threads</option>
+                                                        <option value="4">4 threads</option>
+                                                    </select>
+                                                    <span class="input-desc">Controls parallel ECDSA signature checking.</span>
+                                                </div>
+                                                <div class="form-group flex-1">
+                                                    <label for="set-prometheusport">Native Prometheus Metrics Port</label>
+                                                    <input type="number" id="set-prometheusport" name="prometheusport" value="9332" min="1024" max="65535">
+                                                    <span class="input-desc">Default port is 9332. Served locally for statistics.</span>
+                                                </div>
+                                            </div>
+
+                                            <div class="form-row mt-4">
+                                                <div class="form-group flex-1">
+                                                    <label class="toggle-container">
+                                                        <input type="checkbox" id="set-server" name="server" value="1" checked>
+                                                        <span class="toggle-slider"></span>
+                                                        <span class="toggle-label">Enable JSON-RPC Server (server)</span>
+                                                    </label>
+                                                    <span class="input-desc ml-toggle">Required. Without this, the Wallet tab, CLI, and dashboard cannot fetch node data.</span>
+                                                </div>
+                                                <div class="form-group flex-1">
+                                                    <label for="set-rpcport">RPC Server Port</label>
+                                                    <input type="number" id="set-rpcport" name="rpcport" value="8332" min="1024" max="65535">
+                                                </div>
+                                            </div>
+                                            <div class="form-row mt-4 border-top-divider pt-3">
+                                                 <div class="form-group flex-1">
+                                                     <label class="toggle-container">
+                                                         <input type="checkbox" id="set-rest" name="rest" value="1">
+                                                         <span class="toggle-slider"></span>
+                                                         <span class="toggle-label">Public REST API (rest)</span>
+                                                     </label>
+                                                     <span class="input-desc ml-toggle">Enabling the public REST API can help you connect certain wallets and apps to your node. REST API access is unauthenticated; it can lead to unauthorized access, privacy degradation, and DoS attacks. <em>default: disabled</em></span>
+                                                 </div>
+                                                 <div class="form-group flex-1">
+                                                     <label for="set-rpcworkqueue">RPC Work Queue Size (rpcworkqueue)</label>
+                                                     <input type="number" id="set-rpcworkqueue" name="rpcworkqueue" value="128" min="8" max="1024">
+                                                     <span class="input-desc">Set the maximum number of queued RPC requests your node can handle. Higher values improve processing speed but use more resources. <em>default: 128 requests</em></span>
+                                                 </div>
+                                             </div>
+
+                                             <div class="form-group mt-4 border-top-divider pt-3">
+                                                 <label for="set-rpcallowip">Allow RPC Connections From IPs (rpcallowip)</label>
+                                                 <input type="text" id="set-rpcallowip" name="rpcallowip" value="127.0.0.1">
+                                                 <span class="input-desc">Allowed IPs for node control. Commas separated. Default: 127.0.0.1 (local loopback)</span>
+                                             </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+
+                            </form>
+
+                            <!-- Sub-pane: Raw Config Editors -->
+                            <div class="config-layout hidden" id="settings-pane-raw">
+                                <div class="panel">
+                                    <div class="panel-header">
+                                        <h3>Raw policy.toml</h3>
+                                        <button class="btn btn-outline btn-sm" id="btn-save-policy">Save policy.toml</button>
+                                    </div>
+                                    <div class="panel-body flex-grow-1 flex-col">
+                                        <textarea class="config-editor" id="editor-policy" placeholder="# policy.toml content will load here..."></textarea>
+                                    </div>
+                                </div>
+
+                                <div class="panel">
+                                    <div class="panel-header">
+                                        <h3>Raw bitcoin.conf</h3>
+                                        <button class="btn btn-outline btn-sm" id="btn-save-bitcoinconf">Save bitcoin.conf</button>
+                                    </div>
+                                    <div class="panel-body flex-grow-1 flex-col">
+                                        <textarea class="config-editor" id="editor-bitcoinconf" placeholder="# bitcoin.conf content will load here..."></textarea>
+                                    </div>
+                                </div>
+                            </div>
+
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tab: Logs -->
+                <div class="tab-pane" id="tab-logs">
+                    <div class="panel flex-grow-1 flex-col">
+                        <div class="panel-header">
+                            <h3>Live debug.log Output</h3>
+                            <div class="log-controls">
+                                <label class="checkbox-label">
+                                    <input type="checkbox" id="log-autoscroll" checked> Autoscroll
+                                </label>
+                                <button class="btn btn-outline btn-sm" id="btn-refresh-logs">Refresh</button>
+                            </div>
+                        </div>
+                        <div class="panel-body flex-grow-1 flex-col">
+                            <pre class="log-viewer" id="log-text">Node is offline. Start the node to view live logging output.</pre>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </main>
+        
+        <!-- Mobile Bottom Navigation Bar -->
+        <nav class="mobile-nav-bar">
+            <button class="mobile-nav-item active" data-tab="dashboard">
+                <svg viewBox="0 0 24 24"><path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/></svg>
+                <span>Stats</span>
+            </button>
+            <button class="mobile-nav-item" data-tab="wallet">
+                <svg viewBox="0 0 24 24"><path d="M21 18v1c0 1.1-.9 2-2 2H5c-1.11 0-2-.9-2-2V5c0-1.1.89-2 2-2h14c1.1 0 2 .9 2 2v1h-9c-1.11 0-2-.9-2 2v8c0 1.1.89 2 2 2h9zm-9-2h10V8H12v8zm4-2.5c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/></svg>
+                <span>Wallet</span>
+            </button>
+            <button class="mobile-nav-item" data-tab="policy">
+                <svg viewBox="0 0 24 24"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z"/></svg>
+                <span>Policy</span>
+            </button>
+            <button class="mobile-nav-item" data-tab="config">
+                <svg viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
+                <span>Config</span>
+            </button>
+            <button class="mobile-nav-item" id="mobile-more-btn">
+                <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M6 10c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm12 0c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm-6 0c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg>
+                <span>More</span>
+            </button>
+        </nav>
+    </div>
+
+    <!-- Mobile More Drawer overlay -->
+    <div class="modal-overlay hidden" id="mobile-more-drawer" style="align-items: flex-end;">
+        <div class="mobile-drawer">
+            <div class="drawer-header">
+                <h3>More Features</h3>
+                <button class="drawer-close" id="btn-close-drawer">&times;</button>
+            </div>
+            <div class="drawer-body">
+                <button class="drawer-item-btn" data-tab="bip110">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>
+                    BIP-110 Soft Fork Status
+                </button>
+                <button class="drawer-item-btn" data-tab="peers">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 8 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
+                    Connected P2P Peers
+                </button>
+                <button class="drawer-item-btn" data-tab="logs">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/></svg>
+                    Live Node Logs
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Node Start Modal Settings -->
+    <div class="modal-overlay hidden" id="node-start-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>Configure & Start Node</h3>
+                <button class="modal-close-btn" id="modal-close-btn">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="start-network">Blockchain Network</label>
+                    <select id="start-network">
+                        <option value="mainnet">Mainnet (Production)</option>
+                        <option value="testnet">Testnet (Testing)</option>
+                        <option value="regtest" selected>Regtest (Local regression testnet)</option>
+                    </select>
+                </div>
+                
+                <div class="form-group">
+                    <label for="start-datadir">Custom Data Directory (Optional)</label>
+                    <input type="text" id="start-datadir" placeholder="Default (~/.bitcoin)">
+                </div>
+
+                <div class="form-group">
+                    <label for="start-extra">Extra CommandLine Arguments</label>
+                    <input type="text" id="start-extra" placeholder="e.g. -dbcache=200 -maxconnections=20">
+                </div>
+
+                <div class="info-note-box">
+                    <p>💡 Starting the node spawns <code>bitcoind</code> in the background using the selected network and configurations.</p>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" id="modal-cancel-btn">Cancel</button>
+                <button class="btn btn-primary" id="modal-start-btn">Launch Node Process</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

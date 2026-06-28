@@ -18,6 +18,7 @@
 #include <consensus/amount.h>
 #include <consensus/params.h>
 #include <consensus/validation.h>
+#include <consensus/tx_verify.h>
 #include <core_io.h>
 #include <deploymentinfo.h>
 #include <deploymentstatus.h>
@@ -234,6 +235,8 @@ UniValue blockToJSON(BlockManager& blockman, const CBlock& block, const CBlockIn
                 txs.push_back(std::move(objTx));
             }
             break;
+    }
+
     result.pushKV("tx", std::move(txs));
 
     // Check BIP-110 compliance of all transactions in this block

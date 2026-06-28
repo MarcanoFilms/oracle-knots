@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Terminal=false
+Name=Sovereign Oracle Dashboard
+Comment=Launch Sovereign Oracle Knot Dashboard GUI
+Exec=/home/marcano/oracle-knots/launch.sh
+Icon=/home/marcano/oracle-knots/gui/app_icon.jpg
+Path=/home/marcano/oracle-knots
+Categories=Utility;Network;
