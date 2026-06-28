@@ -37,7 +37,15 @@ Our philosophy centers on **"Don't Trust, Verify"**, reclaiming Bitcoin as **sou
 5. **Sovereign UX & Resource-Aware Defaults**
    - **RAM Preservation:** Lowers the default `-maxmempool` from 300MB to 100MB, preventing memory exhaustion on modest hardware (like BitAxe mining hosts, Raspberry Pis, or older Mac Minis).
    - **Tor / I2P Friendly Startup:** Automatically warns the operator at startup if running a public mainnet node without Tor/Onion/I2P proxy configured to discourage exposing physical IPs.
-   - Branded user agent: Shows up as `OracleKnots` on the P2P network.
+   - **Branded User Agent:** Shows up as `OracleKnots` on the P2P network.
+
+6. **Sovereign Oracle Desktop Dashboard GUI**
+   - **Modern GUI App**: A beautiful, premium, mobile-first responsive dashboard powered by `pywebview` and a Python Bottle backend.
+   - **Wallet & Offline QR**: Complete wallet receiver module that generates addresses and displays secure, offline QR codes for transactions.
+   - **Interactive Config Editor**: Granular tabs for *Storage & Sync* (with network chain select and manual pruning target in GB), *P2P Network* (incoming/outgoing Tor/I2P and bandwidth limits), *Spam Filters* (OP_RETURN carrier cost, Bare Multisig, reject runes), *Optimization* (RAM cache, mempool sizes, and Datum mining blocknotify protocol), and *RPC & API* configuration.
+   - **Console CLI & Logs**: Embeds a live log streamer and an interactive, real-time Bitcoin CLI terminal shell.
+   - **Double-Click Desktop Launcher**: Packaged with a custom futuristic cybernetic app icon, allowing you to launch the app directly from your desktop.
+
 
 ---
 
