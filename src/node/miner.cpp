@@ -18,6 +18,7 @@
 #include <logging.h>
 #include <node/context.h>
 #include <policy/feerate.h>
+#include <policy/oracle_policy.h>
 #include <policy/policy.h>
 #include <pow.h>
 #include <primitives/transaction.h>
@@ -94,7 +95,8 @@ BlockAssembler::BlockAssembler(Chainstate& chainstate, const CTxMemPool* mempool
       m_mempool{options.use_mempool ? mempool : nullptr},
       m_chainstate{chainstate},
       m_node{node},
-      m_options{options.Clamped()}
+      m_options{options.Clamped()},
+      m_policy_filtered_count{0}
 {
     // Whether we need to account for byte usage (in addition to weight usage)
     fNeedSizeAccounting = (options.nBlockMaxSize < MAX_BLOCK_SERIALIZED_SIZE);
@@ -140,6 +142,7 @@ void BlockAssembler::resetBlock()
 
     lastFewTxs = 0;
     blockFinished = false;
+    m_policy_filtered_count = 0;
 }
 
 std::shared_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock()
@@ -205,7 +208,6 @@ std::shared_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock()
     pblocktemplate->vTxFees[0] = -nFees;
 
     uint64_t nSerializeSize = GetSerializeSize(TX_WITH_WITNESS(*pblock));
-    LogPrintf("CreateNewBlock(): total size: %u block weight: %u txs: %u fees: %ld sigops %d\n", nSerializeSize, GetBlockWeight(*pblock), nBlockTx, nFees, nBlockSigOpsCost);
 
     // Fill in header
     pblock->hashPrevBlock  = pindexPrev->GetBlockHash();
@@ -220,6 +222,27 @@ std::shared_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock()
         throw std::runtime_error(strprintf("%s: TestBlockValidity failed: %s", __func__, state.ToString()));
     }
     const auto time_2{SteadyClock::now()};
+
+    m_last_block_fees = nFees;
+    m_last_policy_filtered = m_policy_filtered_count;
+    m_last_mempool_at_template = m_mempool ? m_mempool->size() : 0;
+    m_last_assembly_ms = static_cast<int64_t>(Ticks<MillisecondsDouble>(time_2 - time_start));
+
+    OraclePolicy::SovereignTemplateStats tpl_stats;
+    tpl_stats.txs_included = static_cast<int64_t>(nBlockTx);
+    tpl_stats.mempool_size = static_cast<int64_t>(m_last_mempool_at_template.value_or(0));
+    tpl_stats.policy_filtered = static_cast<int64_t>(m_policy_filtered_count);
+    tpl_stats.fees = nFees;
+    tpl_stats.weight = static_cast<int64_t>(nBlockWeight);
+    tpl_stats.assembly_ms = m_last_assembly_ms.value_or(0);
+    tpl_stats.profile = OraclePolicy::g_active_profile;
+    tpl_stats.timestamp = GetTime();
+    OraclePolicy::UpdateTemplateStats(tpl_stats);
+
+    LogPrintf("CreateNewBlock(): total size: %u block weight: %u txs: %u fees: %ld sigops %d\n", nSerializeSize, GetBlockWeight(*pblock), nBlockTx, nFees, nBlockSigOpsCost);
+    LogPrintf("Oracle Sovereign Mining: template assembled — %u txs included, %u policy-filtered, mempool had %u, fees %ld sats, profile '%s', assembly %dms\n",
+              nBlockTx, m_policy_filtered_count, m_last_mempool_at_template.value_or(0), nFees,
+              OraclePolicy::g_active_profile, m_last_assembly_ms.value_or(0));
 
     LogDebug(BCLog::BENCH, "CreateNewBlock() packages: %.2fms (%d packages, %d updated descendants), validity: %.2fms (total %.2fms)\n",
              Ticks<MillisecondsDouble>(time_1 - time_start), nPackagesSelected, nDescendantsUpdated,
@@ -258,7 +281,7 @@ bool BlockAssembler::TestPackage(uint64_t packageSize, int64_t packageSigOpsCost
 // Perform transaction-level checks before adding to block:
 // - transaction finality (locktime)
 // - serialized size (in case -blockmaxsize is in use)
-bool BlockAssembler::TestPackageTransactions(const CTxMemPool::setEntries& package) const
+bool BlockAssembler::TestPackageTransactions(const CTxMemPool::setEntries& package)
 {
     uint64_t nPotentialBlockSize = nBlockSize; // only used with fNeedSizeAccounting
     for (CTxMemPool::txiter it : package) {
@@ -266,8 +289,11 @@ bool BlockAssembler::TestPackageTransactions(const CTxMemPool::setEntries& packa
             return false;
         }
         // Oracle Policy: filter out transactions not passing active policy rules
-        std::string dummy_reason;
-        if (m_mempool && !IsStandardTx(it->GetTx(), m_mempool->m_opts, dummy_reason)) {
+        std::string reject_reason;
+        if (m_mempool && !IsStandardTx(it->GetTx(), m_mempool->m_opts, reject_reason, empty_ignore_rejects, /*record_rejections=*/false)) {
+            m_policy_filtered_count++;
+            const std::string bare_reason = reject_reason.empty() ? "template-policy" : reject_reason;
+            OraclePolicy::RecordPolicyRejection(bare_reason, it->GetTx().GetWitnessHash(), "template");
             return false;
         }
         if (fNeedSizeAccounting) {

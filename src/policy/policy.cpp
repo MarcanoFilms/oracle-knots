@@ -122,12 +122,14 @@ static inline bool MaybeReject_(std::string& out_reason, const std::string& reas
 
 #define MaybeReject(reason)  do {  \
     if (MaybeReject_(out_reason, reason, reason_prefix, ignore_rejects)) {  \
-        OraclePolicy::IncrementRejectionCount(reason);  \
+        if (record_rejections) {  \
+            OraclePolicy::RecordPolicyRejection(reason, tx.GetWitnessHash(), "relay");  \
+        }  \
         return false;  \
     }  \
 } while(0)
 
-bool IsStandardTx(const CTransaction& tx, const kernel::MemPoolOptions& opts, std::string& out_reason, const ignore_rejects_type& ignore_rejects)
+bool IsStandardTx(const CTransaction& tx, const kernel::MemPoolOptions& opts, std::string& out_reason, const ignore_rejects_type& ignore_rejects, bool record_rejections)
 {
     const std::string reason_prefix;
 
@@ -302,6 +304,7 @@ static bool CheckSigopsBIP54(const CTransaction& tx, const CCoinsViewCache& inpu
  */
 bool AreInputsStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs, const kernel::MemPoolOptions& opts, const std::string& reason_prefix, std::string& out_reason, const ignore_rejects_type& ignore_rejects)
 {
+    const bool record_rejections{true};
     if (tx.IsCoinBase()) {
         return true; // Coinbases don't use vin normally
     }
@@ -363,6 +366,7 @@ bool AreInputsStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs,
 
 bool IsWitnessStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs, const std::string& reason_prefix, std::string& out_reason, const ignore_rejects_type& ignore_rejects)
 {
+    const bool record_rejections{true};
     if (tx.IsCoinBase())
         return true; // Coinbases are skipped
 

@@ -361,6 +361,8 @@ static const CRPCConvertParam vRPCConvertParams[] =
     { "addconnection", 2, "v2transport" },
     { "listmempooltransactions", 0, "start_sequence"},
     { "listmempooltransactions", 1, "verbose"},
+    { "getmempoolpolicyaudit", 0, "limit"},
+    { "getrecentpolicyrejections", 0, "limit"},
 };
 // clang-format on
 

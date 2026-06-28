@@ -9,6 +9,7 @@ import threading
 import json
 import urllib.request
 import shlex
+from datetime import datetime, timezone
 from bottle import route, run, static_file, request, response
 
 # Define paths (portable — relative to this script)
@@ -209,6 +210,401 @@ def parse_prometheus_metrics(raw_data):
                     reason = name_part.split('reason="')[1].split('"')[0]
                     metrics["rejections"][reason] = val
     return metrics
+
+REJECTION_LABELS = {
+    "inscription": "Ordinals inscriptions",
+    "tokens-runes": "Runes / BRC-20 tokens",
+    "tokens-olga": "OLGA tokens",
+    "dust-nonanchor": "Dust (non-anchor)",
+    "dust-nonzero": "Dust (non-zero)",
+    "bare-pubkey": "Bare pubkey outputs",
+    "bare-multisig": "Bare multisig outputs",
+    "parasite-cat21": "Parasite CAT-21 overlays",
+    "max-op-returns": "Excess OP_RETURN outputs",
+}
+
+POLICY_PRESETS = {
+    "maximalist": {
+        "custom_rules.datacarrier_size": 0,
+        "custom_rules.reject_tokens": True,
+        "custom_rules.reject_inscriptions": True,
+        "custom_rules.dust_relay_fee": 3000,
+        "custom_rules.permit_bare_multisig": False,
+        "custom_rules.permit_bare_pubkey": False,
+        "custom_rules.reject_parasites": True,
+        "custom_rules.max_op_return_outputs": 0,
+    },
+    "bip110-strict": {
+        "custom_rules.datacarrier_size": 83,
+        "custom_rules.reject_tokens": True,
+        "custom_rules.reject_inscriptions": True,
+        "custom_rules.dust_relay_fee": 3000,
+        "custom_rules.permit_bare_multisig": False,
+        "custom_rules.permit_bare_pubkey": False,
+        "custom_rules.reject_parasites": True,
+        "custom_rules.max_op_return_outputs": 1,
+    },
+    "monetary-only": {
+        "custom_rules.datacarrier_size": 0,
+        "custom_rules.reject_tokens": True,
+        "custom_rules.reject_inscriptions": True,
+        "custom_rules.dust_relay_fee": 3000,
+        "custom_rules.permit_bare_multisig": False,
+        "custom_rules.permit_bare_pubkey": False,
+        "custom_rules.reject_parasites": True,
+        "custom_rules.max_op_return_outputs": 0,
+    },
+    "default-knots": {
+        "custom_rules.datacarrier_size": 83,
+        "custom_rules.reject_tokens": False,
+        "custom_rules.reject_inscriptions": False,
+        "custom_rules.dust_relay_fee": 3000,
+        "custom_rules.permit_bare_multisig": False,
+        "custom_rules.permit_bare_pubkey": False,
+        "custom_rules.reject_parasites": True,
+        "custom_rules.max_op_return_outputs": 1,
+    },
+}
+
+GUI_STATE_DIR = os.path.expanduser("~/.oracle-knots-gui")
+_dashboard_cache = {"ts": 0.0, "data": None}
+DASHBOARD_CACHE_TTL = 2.0
+
+def _bool_cli(val):
+    return "true" if val else "false"
+
+def _summarize_peers(peerinfo):
+    summary = {
+        "total": len(peerinfo),
+        "inbound": 0,
+        "outbound": 0,
+        "tor": 0,
+        "i2p": 0,
+        "clearnet": 0,
+    }
+    for peer in peerinfo:
+        inbound = peer.get("inbound", False)
+        if inbound:
+            summary["inbound"] += 1
+        else:
+            summary["outbound"] += 1
+        addr = (peer.get("addr") or "").lower()
+        network = (peer.get("network") or "").lower()
+        if ".onion" in addr or network == "onion":
+            summary["tor"] += 1
+        elif ".i2p" in addr or network == "i2p":
+            summary["i2p"] += 1
+        else:
+            summary["clearnet"] += 1
+    return summary
+
+def _parse_rdts_deployment(deployment_info):
+    result = {
+        "status": "unknown",
+        "signaling_pct": 0.0,
+        "blocks_signaling": 0,
+        "period": 0,
+        "threshold": 0,
+        "active": False,
+    }
+    if not deployment_info:
+        return result
+    softforks = deployment_info.get("softforks", {})
+    rdts = softforks.get("reduced_data", {})
+    if not rdts:
+        return result
+    bip9 = rdts.get("bip9", {})
+    result["status"] = bip9.get("status", "unknown")
+    result["active"] = rdts.get("active", False)
+    stats = bip9.get("statistics", {})
+    if stats:
+        period = stats.get("period") or 0
+        count = stats.get("count") or 0
+        threshold = stats.get("threshold") or 0
+        result["blocks_signaling"] = count
+        result["period"] = period
+        result["threshold"] = threshold
+        if period > 0:
+            result["signaling_pct"] = round((count / period) * 100, 1)
+        if threshold > 0:
+            result["threshold_pct"] = round((threshold / period) * 100, 1) if period else 0
+            result["progress_to_lockin_pct"] = round(min(100.0, (count / threshold) * 100), 1)
+            result["blocks_to_threshold"] = max(0, threshold - count)
+    return result
+
+def _top_rejections(rejections, limit=5):
+    items = []
+    for reason, count in rejections.items():
+        if reason == "total":
+            continue
+        try:
+            count = int(count)
+        except (TypeError, ValueError):
+            continue
+        if count <= 0:
+            continue
+        items.append({
+            "reason": reason,
+            "label": REJECTION_LABELS.get(reason, reason),
+            "count": count,
+        })
+    items.sort(key=lambda x: x["count"], reverse=True)
+    total = sum(x["count"] for x in items)
+    for item in items:
+        item["pct"] = round((item["count"] / total) * 100, 1) if total else 0.0
+    return items[:limit], total
+
+def _rejection_stats(rejections, mempool_size):
+    total = int(rejections.get("total", 0) or 0)
+    if total == 0:
+        for reason, count in rejections.items():
+            if reason != "total":
+                total += int(count or 0)
+    evaluated = total + int(mempool_size or 0)
+    rate = round((total / evaluated) * 100, 2) if evaluated > 0 else 0.0
+    pass_rate = round(100.0 - rate, 2) if evaluated > 0 else 100.0
+    return {
+        "total": total,
+        "rate_pct": rate,
+        "pass_rate_pct": pass_rate,
+        "evaluated": evaluated,
+    }
+
+def _load_rejection_baseline():
+    path = os.path.join(GUI_STATE_DIR, "rejection-baseline.json")
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+def _write_rejection_baseline(data):
+    os.makedirs(GUI_STATE_DIR, exist_ok=True)
+    path = os.path.join(GUI_STATE_DIR, "rejection-baseline.json")
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f)
+
+def _rejection_deltas(total):
+    now = datetime.now(timezone.utc)
+    day_key = now.strftime("%Y-%m-%d")
+    baseline = _load_rejection_baseline() or {}
+    if baseline.get("day") != day_key:
+        baseline = {"day": day_key, "midnight_total": total, "session_total": total}
+        _write_rejection_baseline(baseline)
+    elif "session_total" not in baseline:
+        baseline["session_total"] = total
+        _write_rejection_baseline(baseline)
+    return {
+        "today": max(0, total - int(baseline.get("midnight_total", total))),
+        "session": max(0, total - int(baseline.get("session_total", total))),
+    }
+
+def _policy_settings_from_parsed(parsed):
+    settings = dict(parsed)
+    profile = settings.get("profile", "maximalist")
+    if profile != "custom" and profile in POLICY_PRESETS:
+        preset = POLICY_PRESETS[profile]
+        for key, val in preset.items():
+            if key in settings and settings.get(key) != val:
+                settings["profile"] = "custom"
+                break
+    return settings
+
+def _build_setsovereignpolicy_args(settings):
+    settings = _policy_settings_from_parsed(settings)
+    profile = settings.get("profile", "maximalist")
+    if profile != "custom":
+        return ["setsovereignpolicy", str(profile)]
+    return [
+        "setsovereignpolicy", "custom",
+        _bool_cli(settings.get("custom_rules.reject_inscriptions", True)),
+        str(settings.get("custom_rules.max_op_return_outputs", 0)),
+        _bool_cli(settings.get("custom_rules.reject_tokens", True)),
+        str(settings.get("custom_rules.datacarrier_size", 0)),
+        str(settings.get("custom_rules.dust_relay_fee", 3000)),
+        _bool_cli(settings.get("custom_rules.permit_bare_multisig", False)),
+        _bool_cli(settings.get("custom_rules.permit_bare_pubkey", False)),
+        _bool_cli(settings.get("custom_rules.reject_parasites", True)),
+    ]
+
+def _backup_policy_file(path):
+    if not os.path.exists(path):
+        return
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    backup = f"{path}.bak.{stamp}"
+    try:
+        with open(path, "r", encoding="utf-8") as src, open(backup, "w", encoding="utf-8") as dst:
+            dst.write(src.read())
+    except Exception:
+        pass
+
+def _rpc_json(method, datadir, network, extra_args=None):
+    cmd = [method]
+    if extra_args:
+        cmd.extend(str(a) for a in extra_args)
+    success, output = run_bitcoin_cli(cmd, datadir, network)
+    if not success:
+        return None
+    try:
+        return json.loads(output)
+    except json.JSONDecodeError:
+        return None
+
+
+def _build_preflight(running, datadir, network):
+    checks = []
+    bitcoin_conf_path, policy_path = get_config_paths(datadir, network)
+    bitcoin_conf = parse_bitcoin_conf(bitcoin_conf_path)
+    parsed_policy = parse_policy_toml(policy_path)
+
+    if not os.path.isfile(BITCOIND_PATH):
+        checks.append({
+            "id": "binary", "severity": "critical",
+            "message": f"bitcoind not found at {BITCOIND_PATH}",
+            "recommendation": "Run ./build.sh to compile Oracle Knots.",
+        })
+    else:
+        checks.append({"id": "binary", "severity": "info", "message": "bitcoind binary found."})
+
+    if running:
+        diag = _rpc_json("getsovereigndiagnostics", datadir, network)
+        if diag and diag.get("checks"):
+            checks.extend(diag["checks"])
+    else:
+        checks.append({
+            "id": "node_offline", "severity": "warning",
+            "message": "Node is not running.",
+            "recommendation": "Start the node to enable mempool audit and template stats.",
+        })
+        if not bitcoin_conf.get("proxy") and network == "mainnet":
+            checks.append({
+                "id": "privacy_tor", "severity": "warning",
+                "message": "No Tor proxy in bitcoin.conf (offline check).",
+                "recommendation": "Set proxy=127.0.0.1:9050 for mainnet privacy.",
+            })
+
+    conf_profile = bitcoin_conf.get("policyprofile")
+    if conf_profile and conf_profile != parsed_policy.get("profile"):
+        checks.append({
+            "id": "policy_conflict", "severity": "warning",
+            "message": f"policy.toml profile '{parsed_policy.get('profile')}' differs from bitcoin.conf policyprofile={conf_profile}",
+            "recommendation": "Align both files before restart.",
+        })
+
+    severity_rank = {"critical": 0, "warning": 1, "info": 2}
+    checks.sort(key=lambda c: severity_rank.get(c.get("severity", "info"), 9))
+    return {"checks": checks, "online": running}
+
+def _build_dashboard(running, pid):
+    if not running:
+        return {
+            "online": False,
+            "policy": {},
+            "mempool": {},
+            "rejections": {"top": [], "stats": {}, "deltas": {"today": 0, "session": 0}},
+            "peers": {},
+            "rdts": {},
+            "sync": {},
+            "network": {},
+            "conflict": None,
+            "mining": {},
+            "mempool_audit": {},
+            "recent_rejections": [],
+            "preflight": _build_preflight(False, os.path.expanduser("~/.bitcoin"), "mainnet"),
+        }
+
+    datadir = get_node_datadir(pid)
+    network = get_node_network(pid)
+    prom_port = get_prometheus_port(pid)
+    metrics = fetch_prometheus_metrics(prom_port) or {}
+    prom_rejections = metrics.get("rejections", {})
+
+    policy = _rpc_json("checkbip110status", datadir, network) or {}
+    mempool = _rpc_json("getmempoolinfo", datadir, network) or {}
+    peers_raw = _rpc_json("getpeerinfo", datadir, network) or []
+    deployment = _rpc_json("getdeploymentinfo", datadir, network) or {}
+    chain = _rpc_json("getblockchaininfo", datadir, network) or {}
+    netinfo = _rpc_json("getnetworkinfo", datadir, network) or {}
+
+    rejections_by_reason = policy.get("rejections_by_reason") or prom_rejections
+    mempool_size = mempool.get("size", metrics.get("mempool_size", 0))
+    rej_stats = _rejection_stats(rejections_by_reason, mempool_size)
+    top, _ = _top_rejections(rejections_by_reason, 5)
+    deltas = _rejection_deltas(rej_stats["total"])
+
+    _, policy_path = get_config_paths(datadir, network)
+    parsed_policy = parse_policy_toml(policy_path)
+    bitcoin_conf_path, _ = get_config_paths(datadir, network)
+    bitcoin_conf = parse_bitcoin_conf(bitcoin_conf_path)
+    conflict = None
+    conf_profile = bitcoin_conf.get("policyprofile")
+    if conf_profile and conf_profile != parsed_policy.get("profile"):
+        conflict = {
+            "toml_profile": parsed_policy.get("profile"),
+            "conf_profile": conf_profile,
+        }
+
+    max_mempool = mempool.get("maxmempool", bitcoin_conf.get("maxmempool", 100))
+    usage = mempool.get("usage", metrics.get("mempool_usage", 0))
+    usage_pct = round((usage / max_mempool) * 100, 1) if max_mempool else 0.0
+
+    active_profile = policy.get("active_policy_profile", metrics.get("policy_profile", "unknown"))
+    return {
+        "online": True,
+        "policy": {
+            "profile": active_profile,
+            "active_policy_profile": active_profile,
+            "bip110_mode": policy.get("bip110_mode", metrics.get("bip110_mode", "unknown")),
+            "bip110_enforced": policy.get("bip110_enforced", False),
+            "reject_inscriptions": policy.get("reject_inscriptions"),
+            "max_op_return_outputs": policy.get("max_op_return_outputs"),
+            "reject_tokens": parsed_policy.get("custom_rules.reject_tokens"),
+            "datacarrier_size": parsed_policy.get("custom_rules.datacarrier_size"),
+            "dust_relay_fee": parsed_policy.get("custom_rules.dust_relay_fee"),
+            "permit_bare_multisig": parsed_policy.get("custom_rules.permit_bare_multisig"),
+            "reject_parasites": parsed_policy.get("custom_rules.reject_parasites"),
+            "rejections_by_reason": rejections_by_reason,
+        },
+        "mempool": {
+            "size": mempool_size,
+            "bytes": mempool.get("bytes", metrics.get("mempool_bytes", 0)),
+            "usage": usage,
+            "maxmempool": max_mempool,
+            "usage_pct": usage_pct,
+            "loaded": mempool.get("loaded", False),
+            "mempoolminfee": mempool.get("mempoolminfee"),
+            "minrelaytxfee": mempool.get("minrelaytxfee"),
+        },
+        "rejections": {
+            "top": top,
+            "stats": rej_stats,
+            "deltas": deltas,
+        },
+        "peers": _summarize_peers(peers_raw if isinstance(peers_raw, list) else []),
+        "rdts": _parse_rdts_deployment(deployment),
+        "sync": {
+            "progress_pct": round((chain.get("verificationprogress", 0) or 0) * 100, 2),
+            "blocks": chain.get("blocks", metrics.get("block_height", 0)),
+            "headers": chain.get("headers", 0),
+            "chain": chain.get("chain", network),
+        },
+        "network": {
+            "subversion": netinfo.get("subversion", "Unknown"),
+            "connections": netinfo.get("connections", metrics.get("peers", 0)),
+        },
+        "metrics": {
+            "block_height": metrics.get("block_height", chain.get("blocks", 0)),
+            "uptime": metrics.get("uptime", 0),
+            "prometheus_port": prom_port,
+        },
+        "conflict": conflict,
+        "mining": _rpc_json("getsovereigntemplatestats", datadir, network) or {},
+        "mempool_audit": _rpc_json("getmempoolpolicyaudit", datadir, network, ["200"]) or {},
+        "recent_rejections": _rpc_json("getrecentpolicyrejections", datadir, network, ["25"]) or [],
+        "preflight": _build_preflight(True, datadir, network),
+    }
 
 # ----------------------------------------------------
 # Configuration Parsing / Updating Utilities
@@ -504,6 +900,37 @@ def api_metrics():
             "prometheus_port": prom_port
         }
 
+@route('/api/preflight')
+def api_preflight():
+    running, pid = check_node_running()
+    datadir = get_node_datadir(pid) if running else os.path.expanduser("~/.bitcoin")
+    network = get_node_network(pid) if running else "mainnet"
+    return _build_preflight(running, datadir, network)
+
+@route('/api/mempool-audit')
+def api_mempool_audit():
+    running, pid = check_node_running()
+    if not running:
+        return {"success": False, "error": "Node is offline"}
+    datadir = get_node_datadir(pid)
+    network = get_node_network(pid)
+    limit = request.query.get("limit", "500")
+    audit = _rpc_json("getmempoolpolicyaudit", datadir, network, [limit])
+    if audit is None:
+        return {"success": False, "error": "getmempoolpolicyaudit unavailable — rebuild bitcoind"}
+    return {"success": True, "audit": audit}
+
+@route('/api/dashboard')
+def api_dashboard():
+    global _dashboard_cache
+    now = time.time()
+    if _dashboard_cache["data"] and (now - _dashboard_cache["ts"]) < DASHBOARD_CACHE_TTL:
+        return _dashboard_cache["data"]
+    running, pid = check_node_running()
+    data = _build_dashboard(running, pid)
+    _dashboard_cache = {"ts": now, "data": data}
+    return data
+
 @route('/api/rpc/<method>')
 def api_rpc(method):
     running, pid = check_node_running()
@@ -513,7 +940,10 @@ def api_rpc(method):
     datadir = get_node_datadir(pid)
     network = get_node_network(pid)
     
-    safe_methods = ["getblockchaininfo", "getpeerinfo", "checkbip110status", "getnetworkinfo", "getmempoolinfo"]
+    safe_methods = [
+        "getblockchaininfo", "getpeerinfo", "checkbip110status",
+        "getnetworkinfo", "getmempoolinfo", "getdeploymentinfo",
+    ]
     if method not in safe_methods:
         return {"success": False, "output": f"RPC method {method} not allowed"}
         
@@ -533,25 +963,43 @@ def api_rpc_set_policy():
         
     datadir = get_node_datadir(pid)
     network = get_node_network(pid)
-    
-    success, output = run_bitcoin_cli(["setsovereignpolicy", profile], datadir, network)
+    settings = {"profile": profile}
+    for key in ("reject_inscriptions", "reject_tokens", "datacarrier_size",
+                "max_op_return_outputs", "dust_relay_fee", "permit_bare_multisig",
+                "permit_bare_pubkey", "reject_parasites"):
+        if key in data:
+            settings[f"custom_rules.{key}"] = data[key]
+    args = _build_setsovereignpolicy_args(settings)
+    success, output = run_bitcoin_cli(args, datadir, network)
     return {"success": success, "output": output}
+
+@route('/api/policy/apply', method='POST')
+def api_policy_apply():
+    running, pid = check_node_running()
+    datadir = get_node_datadir(pid) if running else os.path.expanduser("~/.bitcoin")
+    network = get_node_network(pid) if running else "mainnet"
+    _, policy_path = get_config_paths(datadir, network)
+
+    if not os.path.exists(policy_path):
+        return {"success": False, "error": "policy.toml not found"}
+
+    settings = parse_policy_toml(policy_path)
+    if not running:
+        return {"success": True, "applied": False, "message": "Saved on disk; start node to apply"}
+
+    args = _build_setsovereignpolicy_args(settings)
+    success, output = run_bitcoin_cli(args, datadir, network)
+    status = _rpc_json("checkbip110status", datadir, network) if success else None
+    return {
+        "success": success,
+        "output": output,
+        "policy": status,
+        "applied": success,
+    }
 
 @route('/api/rpc/reload-policy', method='POST')
 def api_rpc_reload_policy():
-    running, pid = check_node_running()
-    if not running:
-        return {"success": False, "output": "Node is offline"}
-        
-    prom_port = get_prometheus_port(pid)
-    metrics = fetch_prometheus_metrics(prom_port)
-    profile = metrics.get("policy_profile", "maximalist") if metrics else "maximalist"
-    
-    datadir = get_node_datadir(pid)
-    network = get_node_network(pid)
-    
-    success, output = run_bitcoin_cli(["setsovereignpolicy", profile], datadir, network)
-    return {"success": success, "output": output}
+    return api_policy_apply()
 
 # ----------------------------------------------------
 # Configuration Endpoints (Visual Settings Form Support)
@@ -602,10 +1050,17 @@ def api_save_config():
     target_path = bitcoin_conf_path if filename == "bitcoin.conf" else policy_toml_path
     
     try:
+        if filename == "policy.toml":
+            _backup_policy_file(target_path)
         os.makedirs(os.path.dirname(target_path), exist_ok=True)
         with open(target_path, "w", encoding="utf-8") as f:
             f.write(content)
-        return {"success": True}
+        if filename == "policy.toml" and data.get("apply_now") and running:
+            settings = parse_policy_toml(target_path)
+            args = _build_setsovereignpolicy_args(settings)
+            ok, out = run_bitcoin_cli(args, datadir, network)
+            return {"success": True, "applied": ok, "apply_output": out}
+        return {"success": True, "applied": False}
     except Exception as e:
         return {"success": False, "error": str(e)}
 
@@ -652,7 +1107,8 @@ def api_save_parsed_config():
         "blockmintxfee", "minrelaytxfee", "incrementalrelayfee",
         "blockreconstructionextratxn", "blockreconstructionextratxnsize",
         "coinstatsindex", "mempoolexpiry", "persistmempool", "maxorphantx", "datum",
-        "chain", "rest", "rpcworkqueue"
+        "chain", "rest", "rpcworkqueue",
+        "policyprofile", "bip110", "rejectinscriptions",
     ]
 
 
@@ -669,9 +1125,20 @@ def api_save_parsed_config():
             policy_settings[k] = val
             
     try:
+        _backup_policy_file(policy_toml_path)
         update_bitcoin_conf(bitcoin_conf_path, bitcoin_settings)
         update_policy_toml(policy_toml_path, policy_settings)
-        return {"success": True}
+        apply_now = data.get("apply_now", False)
+        if apply_now:
+            running, pid = check_node_running()
+            if running:
+                merged = {**policy_settings}
+                for k, v in bitcoin_settings.items():
+                    merged[k] = v
+                args = _build_setsovereignpolicy_args(merged)
+                ok, out = run_bitcoin_cli(args, get_node_datadir(pid), get_node_network(pid))
+                return {"success": True, "applied": ok, "apply_output": out}
+        return {"success": True, "applied": False}
     except Exception as e:
         return {"success": False, "error": str(e)}
 
@@ -1458,25 +1925,26 @@ def api_get_logs():
     running, pid = check_node_running()
     datadir = get_node_datadir(pid) if running else os.path.expanduser("~/.bitcoin")
     network = get_node_network(pid) if running else "mainnet"
-    
+    log_filter = request.query.get("filter", "all")
+
     _, policy_toml_path = get_config_paths(datadir, network)
     net_dir = os.path.dirname(policy_toml_path)
     log_path = os.path.join(net_dir, "debug.log")
-    
+
     if not os.path.exists(log_path):
         return {"success": False, "error": f"debug.log not found at {log_path}"}
-        
+
     try:
-        num_lines = 200
+        num_lines = 400 if log_filter == "policy" else 200
         lines = []
         with open(log_path, "rb") as f:
             f.seek(0, os.SEEK_END)
             file_size = f.tell()
-            
-            block_size = 4096
+
+            block_size = 8192 if log_filter == "policy" else 4096
             data = b""
             offset = file_size
-            
+
             while len(lines) <= num_lines and offset > 0:
                 read_size = min(block_size, offset)
                 offset -= read_size
@@ -1484,9 +1952,22 @@ def api_get_logs():
                 block_data = f.read(read_size)
                 data = block_data + data
                 lines = data.split(b"\n")
-                
+
         last_lines = [line.decode("utf-8", errors="replace") for line in lines[-num_lines:]]
-        return {"success": True, "logs": "\n".join(last_lines)}
+        if log_filter == "policy":
+            keywords = ("Oracle Policy", "Oracle Sovereign Mining", "Sovereign Mining")
+            last_lines = [ln for ln in last_lines if any(k in ln for k in keywords)]
+
+        if log_filter == "policy" and running:
+            recent = _rpc_json("getrecentpolicyrejections", datadir, network, ["30"]) or []
+            if recent:
+                rpc_lines = [
+                    f"[rpc] {e.get('context','?')}: {e.get('message','')} (wtxid={e.get('wtxid','')})"
+                    for e in recent
+                ]
+                last_lines = rpc_lines + last_lines
+
+        return {"success": True, "logs": "\n".join(last_lines[-200:]), "filter": log_filter}
     except Exception as e:
         return {"success": False, "error": str(e)}
 

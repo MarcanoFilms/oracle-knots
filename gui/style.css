@@ -361,6 +361,172 @@ body {
     animation: heroPulse 1.5s ease-out;
 }
 
+.hero-stat-muted {
+    color: var(--text-secondary);
+    font-size: 10px;
+}
+
+.hero-policy-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.hero-policy-row h3 {
+    margin: 0;
+}
+
+.hero-mode-badge {
+    display: inline-block;
+    margin-top: 6px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--accent-purple);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.dashboard-conflict-banner {
+    margin-bottom: 12px;
+    padding: 10px 14px;
+    border-radius: 8px;
+    background: rgba(255, 176, 0, 0.08);
+    border: 1px solid rgba(255, 176, 0, 0.25);
+    color: var(--status-orange);
+    font-size: 12px;
+}
+
+.mempool-detail-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+}
+
+.mempool-detail-item {
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 10px 12px;
+}
+
+.mempool-detail-item .detail-label {
+    display: block;
+    font-size: 10px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 4px;
+}
+
+.mempool-detail-item .detail-value {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    color: var(--accent-cyan);
+}
+
+.rejections-bars {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.rejection-bar-row {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.rejection-bar-header {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+}
+
+.rejection-bar-track {
+    height: 6px;
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.rejection-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--status-red), var(--accent-purple));
+    border-radius: 3px;
+    transition: width 0.4s ease;
+}
+
+.dashboard-preflight-strip {
+    margin-bottom: 12px;
+    padding: 10px 14px;
+    border-radius: 8px;
+    background: rgba(0, 240, 255, 0.06);
+    border: 1px solid var(--border-color-glow);
+    font-size: 12px;
+}
+
+.panel-sovereign-mining {
+    border: 1px solid var(--border-color-glow);
+}
+
+.mining-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+}
+
+.mining-stat {
+    background: rgba(0, 0, 0, 0.2);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 12px;
+}
+
+.rdts-progress-section h4 {
+    margin: 0;
+    color: var(--text-secondary);
+}
+
+.rdts-progress-track {
+    position: relative;
+    height: 10px;
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 5px;
+    overflow: visible;
+}
+
+.rdts-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent-cyan), var(--accent-purple));
+    border-radius: 5px;
+    transition: width 0.5s ease;
+}
+
+.rdts-threshold-marker {
+    position: absolute;
+    top: -3px;
+    width: 2px;
+    height: 16px;
+    background: var(--status-orange);
+    transform: translateX(-50%);
+}
+
+.modal-wide {
+    max-width: 640px;
+    width: 92vw;
+}
+
+.text-danger {
+    color: var(--status-red);
+}
+
+@media (max-width: 768px) {
+    .mining-stats-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+}
+
 @keyframes heroPulse {
     0% { box-shadow: 0 0 0 rgba(0, 240, 255, 0.6); }
     50% { box-shadow: 0 0 16px rgba(0, 240, 255, 0.4); }

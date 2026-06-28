@@ -4229,6 +4229,10 @@ static RPCHelpMan setsovereignpolicy()
                     {"max_op_return_outputs", RPCArg::Type::NUM, RPCArg::Optional::OMITTED, "Maximum allowed OP_RETURN outputs per transaction"},
                     {"reject_tokens", RPCArg::Type::BOOL, RPCArg::Optional::OMITTED, "Whether to reject non-bitcoin tokens (Runes, BRC-20)"},
                     {"datacarrier_size", RPCArg::Type::NUM, RPCArg::Optional::OMITTED, "OP_RETURN payload limit in bytes (0 to block entirely)"},
+                    {"dust_relay_fee", RPCArg::Type::NUM, RPCArg::Optional::OMITTED, "Dust relay fee in sat/kvb"},
+                    {"permit_bare_multisig", RPCArg::Type::BOOL, RPCArg::Optional::OMITTED, "Whether to permit bare multisig outputs"},
+                    {"permit_bare_pubkey", RPCArg::Type::BOOL, RPCArg::Optional::OMITTED, "Whether to permit bare pubkey outputs"},
+                    {"reject_parasites", RPCArg::Type::BOOL, RPCArg::Optional::OMITTED, "Whether to reject parasite locktime protocols"},
                 },
                 RPCResult{
                     RPCResult::Type::OBJ, "", "Status output",
@@ -4263,10 +4267,29 @@ static RPCHelpMan setsovereignpolicy()
     if (request.params[4].isNum()) {
         OraclePolicy::g_max_datacarrier_bytes = request.params[4].getInt<int>();
     }
+    if (request.params[5].isNum()) {
+        OraclePolicy::g_dust_relay_fee = request.params[5].getInt<int>();
+    }
+    if (request.params[6].isBool()) {
+        OraclePolicy::g_permit_bare_multisig = request.params[6].get_bool();
+    }
+    if (request.params[7].isBool()) {
+        OraclePolicy::g_permit_bare_pubkey = request.params[7].get_bool();
+    }
+    if (request.params[8].isBool()) {
+        OraclePolicy::g_reject_parasites = request.params[8].get_bool();
+    }
 
-    // Reload the config using active options
-    OraclePolicy::LoadPolicyConfig(node.mempool->m_opts);
-    OraclePolicy::SavePolicyConfig();
+    if (OraclePolicy::g_active_profile != "custom" && request.params.size() > 1) {
+        for (size_t i = 1; i < request.params.size(); ++i) {
+            if (!request.params[i].isNull()) {
+                OraclePolicy::g_active_profile = "custom";
+                break;
+            }
+        }
+    }
+
+    OraclePolicy::ApplyPolicyFromRuntime(node.mempool->m_opts);
 
     UniValue result(UniValue::VOBJ);
     result.pushKV("status", "success");

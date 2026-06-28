@@ -154,6 +154,30 @@ prometheusport=9332
 
 ---
 
+## Operator Tools & Sovereign Mining
+
+Oracle Knots includes operator-focused tooling for sovereign miners and node runners. See **[OPERATOR_TOOLS.md](OPERATOR_TOOLS.md)** for full documentation.
+
+**Highlights:**
+
+- **Clear rejection logs** — `Oracle Policy [relay|template]: …` lines in `debug.log` with human-readable reasons
+- **Sovereign block templates** — `BlockAssembler` filters mempool txs by your `policy.toml`; stats via `getsovereigntemplatestats`
+- **Mempool policy audit** — `getmempoolpolicyaudit` scans in-memory mempool (works in **pruned mode**)
+- **BIP-110 / RDTS** — deployment signaling in dashboard + `getdeploymentinfo`
+- **Preflight** — `getsovereigndiagnostics` and GUI `/api/preflight` for Tor, policy, sync checks
+- **Prometheus** — `bitcoin_oracle_template_*`, `bitcoin_oracle_bip110_enforced` metrics
+
+```bash
+bitcoin-cli getsovereigntemplatestats
+bitcoin-cli getmempoolpolicyaudit 200
+bitcoin-cli getsovereigndiagnostics
+bitcoin-cli getrecentpolicyrejections 20
+```
+
+The Control Center dashboard shows **Sovereign Mining — Block Template** stats, RDTS progress, and a **Mempool Policy Audit** modal.
+
+---
+
 ## Publicar en GitHub
 
 Para subir el repo **sin compilar ni ejecutar el nodo** (útil si esa máquina ya tiene otro nodo activo), ver **[GITHUB_PUSH.md](GITHUB_PUSH.md)**.

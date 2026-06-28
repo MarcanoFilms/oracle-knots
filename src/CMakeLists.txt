@@ -300,6 +300,7 @@ add_library(bitcoin_node STATIC EXCLUDE_FROM_ALL
   rpc/fees.cpp
   rpc/mempool.cpp
   rpc/mining.cpp
+  rpc/oracle_operator.cpp
   rpc/net.cpp
   rpc/node.cpp
   rpc/output_script.cpp

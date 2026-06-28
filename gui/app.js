@@ -55,8 +55,17 @@ document.addEventListener('DOMContentLoaded', () => {
     const dashBip110Badge = document.getElementById('dash-bip110-badge');
     const dashMempoolCount = document.getElementById('dash-mempool-count');
     const dashMempoolBytes = document.getElementById('dash-mempool-bytes');
-    const dashUptimeVal = document.getElementById('dash-uptime-val');
-    const dashExporterPort = document.getElementById('dash-exporter-port');
+    const dashRejectionCount = document.getElementById('dash-rejection-count');
+    const dashRejectionRate = document.getElementById('dash-rejection-rate');
+    const dashRejectionDelta = document.getElementById('dash-rejection-delta');
+    const dashRdtsPct = document.getElementById('dash-rdts-pct');
+    const dashRdtsStatus = document.getElementById('dash-rdts-status');
+    const dashRdtsBlocks = document.getElementById('dash-rdts-blocks');
+    const dashPassRate = document.getElementById('dash-pass-rate');
+    const dashMempoolRam = document.getElementById('dash-mempool-ram');
+    const dashMinFee = document.getElementById('dash-min-fee');
+    const dashMempoolLoaded = document.getElementById('dash-mempool-loaded');
+    const dashboardConflictBanner = document.getElementById('dashboard-conflict-banner');
     
     // Rejections panel
     const rejectionsEmptyView = document.getElementById('rejections-empty-view');
@@ -65,7 +74,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const mempoolSparkline = document.getElementById('mempool-sparkline');
     const heroBlockPulse = document.getElementById('hero-block-pulse');
     const heroPeerPulse = document.getElementById('hero-peer-pulse');
+    const heroPeerPrivacy = document.getElementById('hero-peer-privacy');
+    const heroPolicyTitle = document.getElementById('hero-policy-title');
+    const heroBip110Enforced = document.getElementById('hero-bip110-enforced');
+    const heroBip110Mode = document.getElementById('hero-bip110-mode');
     const oracleHeroDesc = document.getElementById('oracle-hero-desc');
+    const infoUptime = document.getElementById('info-uptime');
     const syncOwlEye = document.getElementById('sync-owl-eye');
     const balanceCard = document.querySelector('.balance-card');
     
@@ -111,7 +125,7 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Quick Actions
     const btnQuickReloadPolicy = document.getElementById('btn-quick-reload-policy');
-    const btnQuickMempoolClear = document.getElementById('btn-quick-mempool-clear');
+    const btnQuickMempoolInspect = document.getElementById('btn-quick-mempool-inspect');
 
     // Mobile More Drawer
     const mobileMoreBtn = document.getElementById('mobile-more-btn');
@@ -261,6 +275,27 @@ document.addEventListener('DOMContentLoaded', () => {
     let lastBlockHeight = 0;
     const MEMPOOL_HISTORY_MAX = 40;
     let btcPriceUsd = 93500;
+    let lastPolicyStatus = null;
+    let logFilterMode = 'all';
+
+    const REJECTION_LABELS = {
+        'inscription': 'Ordinals inscriptions',
+        'tokens-runes': 'Runes / BRC-20 tokens',
+        'tokens-olga': 'OLGA tokens',
+        'dust-nonanchor': 'Dust (non-anchor)',
+        'dust-nonzero': 'Dust (non-zero)',
+        'bare-pubkey': 'Bare pubkey outputs',
+        'bare-multisig': 'Bare multisig outputs',
+        'parasite-cat21': 'Parasite CAT-21 overlays',
+        'max-op-returns': 'Excess OP_RETURN outputs',
+    };
+
+    const POLICY_PRESETS = {
+        'maximalist': { reject_tokens: true, reject_inscriptions: true, datacarrier_size: 0, max_op_return_outputs: 0, dust_relay_fee: 3000, permit_bare_multisig: false, reject_parasites: true },
+        'bip110-strict': { reject_tokens: true, reject_inscriptions: true, datacarrier_size: 83, max_op_return_outputs: 1, dust_relay_fee: 3000, permit_bare_multisig: false, reject_parasites: true },
+        'monetary-only': { reject_tokens: true, reject_inscriptions: true, datacarrier_size: 0, max_op_return_outputs: 0, dust_relay_fee: 3000, permit_bare_multisig: false, reject_parasites: true },
+        'default-knots': { reject_tokens: false, reject_inscriptions: false, datacarrier_size: 83, max_op_return_outputs: 1, dust_relay_fee: 3000, permit_bare_multisig: false, reject_parasites: true },
+    };
 
     function drawMempoolSparkline() {
         if (!mempoolSparkline || mempoolHistory.length < 2) return;
@@ -390,6 +425,14 @@ document.addEventListener('DOMContentLoaded', () => {
             populateCliWalletSelect();
             if (cliInput) cliInput.focus();
         }
+
+        if (tabId === 'dashboard' && isNodeRunning) {
+            fetchDashboard();
+        } else if (tabId === 'peers' && isNodeRunning) {
+            fetchPeers();
+        } else if (tabId === 'bip110' && isNodeRunning) {
+            fetchBip110Status();
+        }
     }
     
     // Mobile More Drawer Toggle
@@ -437,15 +480,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 infoDatadir.textContent = status.datadir;
                 infoRpc.textContent = `127.0.0.1:${status.network === 'mainnet' ? '8332' : (status.network === 'testnet' ? '18332' : '18443')}`;
                 
-                // Fetch metrics
-                fetchMetrics();
+                fetchDashboard();
                 
-                // If in Peers tab, update peers
                 if (currentActiveTab === 'peers') {
                     fetchPeers();
                 }
-                
-                // If in BIP-110 tab, update compliance
                 if (currentActiveTab === 'bip110') {
                     fetchBip110Status();
                 }
@@ -472,90 +511,207 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
     
-    async function fetchMetrics() {
+    async function fetchDashboard() {
         try {
-            const res = await fetch('/api/metrics');
+            const res = await fetch('/api/dashboard');
             if (!res.ok) return;
-            const metrics = await res.json();
-            
-            topbarHeight.textContent = `Block: ${metrics.block_height}`;
-            topbarPeers.textContent = `Peers: ${metrics.peers}`;
-            pulseHeroBlock(metrics.block_height);
-            if (heroPeerPulse) heroPeerPulse.textContent = `${metrics.peers} peers watching`;
-
-            // Sync logic
-            fetchSyncPercentage(metrics.block_height);
-
-            // Mempool info + sparkline
-            dashMempoolCount.textContent = metrics.mempool_size;
-            mempoolHistory.push(metrics.mempool_size);
-            if (mempoolHistory.length > MEMPOOL_HISTORY_MAX) mempoolHistory.shift();
-            drawMempoolSparkline();
-            const mBytes = (metrics.mempool_bytes / 1024).toFixed(1);
-            const mUsage = (metrics.mempool_usage / (1024 * 1024)).toFixed(1);
-            dashMempoolBytes.textContent = `${mBytes} KB in mempool (${mUsage} MB RAM usage)`;
-            
-            // Policy
-            dashPolicyVal.textContent = metrics.policy_profile;
-            dashBip110Badge.textContent = `BIP-110: ${metrics.bip110_mode.toUpperCase()}`;
-            policyActiveIndicator.innerHTML = `Current profile: <strong style="color: var(--accent-cyan)">${metrics.policy_profile}</strong>`;
-            
-            // Apply selected policy check highlights
-            highlightActiveProfileCard(metrics.policy_profile);
-            
-            // Uptime
-            dashUptimeVal.textContent = formatUptime(metrics.uptime);
-            dashExporterPort.textContent = `Exporter Port: ${metrics.prometheus_port || '9332'}`;
-            
-            // Rejections
-            updateRejectionsPanel(metrics.rejections);
-            
-            // Update active policy rules
-            updateRulesList(metrics);
+            renderDashboard(await res.json());
         } catch (err) {
-            console.error('Error fetching metrics:', err);
+            console.error('Error fetching dashboard:', err);
         }
     }
-    
-    async function fetchSyncPercentage(currentBlock) {
-        try {
-            const res = await fetch('/api/rpc/getblockchaininfo');
-            const data = await res.json();
-            if (data.success) {
-                const info = JSON.parse(data.output);
-                const sync = (info.verificationprogress * 100).toFixed(2);
-                
-                dashSyncVal.textContent = `${sync}%`;
-                dashSyncProgress.style.width = `${sync}%`;
-                
-                infoAgent.textContent = info.chain;
-                
-                if (sync >= 99.9) {
-                    syncStatusIndicator.className = 'pulse-indicator active';
-                    syncStatusText.textContent = 'Synced';
-                    dashSyncDesc.textContent = `Fully synced at block #${currentBlock}`;
-                    if (syncOwlEye) {
-                        syncOwlEye.classList.remove('hidden');
-                        syncOwlEye.classList.add('owl-watching');
-                    }
-                    if (oracleHeroDesc) oracleHeroDesc.textContent = 'The Oracle sees all — chain fully verified, mempool under watch.';
-                } else {
-                    syncStatusIndicator.className = 'pulse-indicator syncing';
-                    syncStatusText.textContent = 'Syncing...';
-                    dashSyncDesc.textContent = `Syncing blockchain... (${info.blocks} / ${info.headers})`;
-                    widgetStatusDot.className = 'status-dot syncing';
-                    if (syncOwlEye) {
-                        syncOwlEye.classList.remove('hidden', 'owl-watching');
-                    }
-                    if (oracleHeroDesc) oracleHeroDesc.textContent = `Opening its eyes on the chain… ${sync}% synchronized.`;
-                }
-            } else {
-                dashSyncVal.textContent = '100.00%';
-                dashSyncProgress.style.width = '100%';
-                dashSyncDesc.textContent = `Sync details unavailable (RPC connecting)`;
+
+    function renderDashboard(data) {
+        if (!data.online) return;
+
+        const blockHeight = data.metrics?.block_height || data.sync?.blocks || 0;
+        const peers = data.peers?.total ?? data.network?.connections ?? 0;
+
+        topbarHeight.textContent = `Block: ${blockHeight}`;
+        topbarPeers.textContent = `Peers: ${peers}`;
+        pulseHeroBlock(blockHeight);
+
+        const policy = data.policy || {};
+        const profile = policy.profile || 'unknown';
+        const bip110Mode = (policy.bip110_mode || 'unknown').toUpperCase();
+        const enforced = policy.bip110_enforced;
+
+        if (heroPolicyTitle) heroPolicyTitle.textContent = `Policy: ${profile}`;
+        if (heroBip110Mode) heroBip110Mode.textContent = `Mode: ${bip110Mode}`;
+        if (heroBip110Enforced) {
+            heroBip110Enforced.textContent = enforced ? 'ENFORCED' : 'NOT ENFORCED';
+            heroBip110Enforced.className = enforced ? 'badge badge-success' : 'badge badge-outline';
+        }
+        if (heroPeerPulse) heroPeerPulse.textContent = `${peers} peers watching`;
+        if (heroPeerPrivacy) {
+            heroPeerPrivacy.textContent = `Tor ${data.peers?.tor || 0} · I2P ${data.peers?.i2p || 0} · Clear ${data.peers?.clearnet || 0}`;
+        }
+
+        const syncPct = data.sync?.progress_pct ?? 0;
+        dashSyncVal.textContent = `${syncPct.toFixed(2)}%`;
+        dashSyncProgress.style.width = `${syncPct}%`;
+        if (syncPct >= 99.9) {
+            syncStatusIndicator.className = 'pulse-indicator active';
+            syncStatusText.textContent = 'Synced';
+            dashSyncDesc.textContent = `Fully synced at block #${blockHeight}`;
+            if (syncOwlEye) {
+                syncOwlEye.classList.remove('hidden');
+                syncOwlEye.classList.add('owl-watching');
             }
-        } catch (e) {
-            console.error(e);
+            if (oracleHeroDesc) oracleHeroDesc.textContent = 'The Oracle sees all — chain fully verified, mempool under watch.';
+        } else {
+            syncStatusIndicator.className = 'pulse-indicator syncing';
+            syncStatusText.textContent = 'Syncing...';
+            dashSyncDesc.textContent = `Syncing blockchain... (${data.sync?.blocks || 0} / ${data.sync?.headers || 0})`;
+            widgetStatusDot.className = 'status-dot syncing';
+            if (syncOwlEye) syncOwlEye.classList.remove('hidden', 'owl-watching');
+            if (oracleHeroDesc) oracleHeroDesc.textContent = `Opening its eyes on the chain… ${syncPct.toFixed(1)}% synchronized.`;
+        }
+
+        dashPolicyVal.textContent = profile;
+        dashBip110Badge.textContent = `BIP-110: ${bip110Mode}`;
+        policyActiveIndicator.innerHTML = `Current profile: <strong style="color: var(--accent-cyan)">${profile}</strong>`;
+        highlightActiveProfileCard(profile);
+
+        const mempool = data.mempool || {};
+        dashMempoolCount.textContent = mempool.size ?? 0;
+        mempoolHistory.push(mempool.size ?? 0);
+        if (mempoolHistory.length > MEMPOOL_HISTORY_MAX) mempoolHistory.shift();
+        drawMempoolSparkline();
+        const mBytes = ((mempool.bytes || 0) / 1024).toFixed(1);
+        const mUsage = ((mempool.usage || 0) / (1024 * 1024)).toFixed(1);
+        const maxMb = ((mempool.maxmempool || 0) / (1024 * 1024)).toFixed(0);
+        dashMempoolBytes.textContent = `${mBytes} KB · ${mUsage}/${maxMb} MB RAM (${mempool.usage_pct || 0}%)`;
+
+        const rej = data.rejections || {};
+        const stats = rej.stats || {};
+        if (dashRejectionCount) dashRejectionCount.textContent = stats.total ?? 0;
+        if (dashRejectionRate) dashRejectionRate.textContent = `${stats.rate_pct ?? 0}% rejection rate (since startup)`;
+        if (dashRejectionDelta) {
+            const d = rej.deltas || {};
+            dashRejectionDelta.textContent = `+${d.today ?? 0} today · +${d.session ?? 0} session`;
+        }
+        if (dashPassRate) dashPassRate.textContent = `${stats.pass_rate_pct ?? 100}% pass rate`;
+        if (dashMempoolRam) dashMempoolRam.textContent = `${mUsage} / ${maxMb} MB`;
+        if (dashMinFee) dashMinFee.textContent = mempool.mempoolminfee != null ? String(mempool.mempoolminfee) : '—';
+        if (dashMempoolLoaded) dashMempoolLoaded.textContent = mempool.loaded ? 'Yes' : 'No';
+
+        const rdts = data.rdts || {};
+        if (dashRdtsPct) dashRdtsPct.textContent = `${rdts.signaling_pct ?? 0}%`;
+        if (dashRdtsStatus) dashRdtsStatus.textContent = `Status: ${rdts.status || 'unknown'}`;
+        if (dashRdtsBlocks) dashRdtsBlocks.textContent = `${rdts.blocks_signaling || 0} / ${rdts.period || 0} blocks signaling`;
+
+        updateRejectionsPanel(rej.top || [], stats.total || 0);
+
+        lastPolicyStatus = policy;
+        updateRulesListFromStatus(policy);
+
+        if (data.network?.subversion) infoAgent.textContent = data.network.subversion;
+        if (data.sync?.chain) infoChain.textContent = data.sync.chain;
+        if (infoUptime && data.metrics?.uptime) infoUptime.textContent = formatUptime(data.metrics.uptime);
+        const ramModeEl = document.getElementById('info-ram-mode');
+        if (ramModeEl) ramModeEl.textContent = `${maxMb} MB max mempool`;
+
+        if (dashboardConflictBanner) {
+            if (data.conflict) {
+                dashboardConflictBanner.textContent = `Policy conflict: policy.toml uses "${data.conflict.toml_profile}" but bitcoin.conf has policyprofile=${data.conflict.conf_profile} (CLI overrides TOML on restart).`;
+                dashboardConflictBanner.classList.remove('hidden');
+            } else {
+                dashboardConflictBanner.classList.add('hidden');
+            }
+        }
+
+        renderSovereignMining(data.mining || {}, data.rdts || {});
+        renderPreflightStrip(data.preflight || {});
+        renderMempoolAuditSummary(data.mempool_audit || {});
+    }
+
+    function renderSovereignMining(mining, rdts) {
+        const profile = mining.profile || mining.active_policy_profile || '—';
+        const badge = document.getElementById('mining-profile-badge');
+        if (badge) badge.textContent = `Profile: ${profile}`;
+
+        const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+        set('mining-txs-included', mining.txs_included ?? mining.currentblocktx ?? '—');
+        set('mining-policy-filtered', mining.policy_filtered ?? '0');
+        const rate = mining.template_filter_rate_pct;
+        set('mining-filter-rate', rate != null ? `${Number(rate).toFixed(1)}%` : '—');
+        const fees = mining.fees ?? mining.currentblockfees;
+        set('mining-fees', fees != null ? `${fees} sats` : '—');
+
+        const fill = document.getElementById('rdts-progress-fill');
+        const marker = document.getElementById('rdts-threshold-marker');
+        const desc = document.getElementById('rdts-progress-desc');
+        const activeBadge = document.getElementById('rdts-active-badge');
+        const sigPct = rdts.signaling_pct ?? 0;
+        const threshPct = rdts.threshold_pct ?? 55;
+        if (fill) fill.style.width = `${Math.min(100, sigPct)}%`;
+        if (marker) marker.style.left = `${Math.min(100, threshPct)}%`;
+        if (activeBadge) {
+            activeBadge.textContent = rdts.active ? 'ACTIVE' : (rdts.status || 'unknown').toUpperCase();
+            activeBadge.className = rdts.active ? 'badge badge-success' : 'badge badge-outline';
+        }
+        if (desc) {
+            const blocks = rdts.blocks_signaling ?? 0;
+            const period = rdts.period ?? 0;
+            const threshold = rdts.threshold ?? 0;
+            const toGo = rdts.blocks_to_threshold ?? Math.max(0, threshold - blocks);
+            desc.textContent = `${blocks}/${period} blocks signaling (${sigPct}%) · need ${threshold} for lock-in · ${toGo} blocks to threshold · status: ${rdts.status || 'unknown'}`;
+        }
+    }
+
+    function renderPreflightStrip(preflight) {
+        const strip = document.getElementById('dashboard-preflight-strip');
+        if (!strip || !preflight.checks) return;
+        const warnings = preflight.checks.filter(c => c.severity === 'warning' || c.severity === 'critical');
+        if (warnings.length === 0) {
+            strip.classList.add('hidden');
+            return;
+        }
+        strip.classList.remove('hidden');
+        strip.innerHTML = warnings.slice(0, 3).map(c =>
+            `<strong>${c.severity}:</strong> ${c.message}${c.recommendation ? ` — ${c.recommendation}` : ''}`
+        ).join('<br>');
+    }
+
+    function renderMempoolAuditSummary(audit) {
+        if (!audit || !audit.scanned) return;
+        window._lastMempoolAudit = audit;
+    }
+
+    function openMempoolPolicyModal() {
+        const modal = document.getElementById('mempool-policy-modal');
+        const audit = window._lastMempoolAudit;
+        if (!modal) return;
+        modal.classList.remove('hidden');
+
+        const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+        if (!audit || audit.scanned === undefined) {
+            set('audit-pass', '—');
+            set('audit-fail', '—');
+            set('audit-pass-rate', 'Start node / rebuild');
+            set('audit-scanned', '—');
+            return;
+        }
+        set('audit-pass', audit.would_pass ?? 0);
+        set('audit-fail', audit.would_fail ?? 0);
+        set('audit-pass-rate', `${(audit.pass_rate_pct ?? 0).toFixed(1)}%`);
+        set('audit-scanned', `${audit.scanned} / ${audit.mempool_total ?? audit.scanned}`);
+
+        const failBox = document.getElementById('mempool-audit-failures');
+        if (failBox && audit.failures_by_reason) {
+            failBox.innerHTML = '<h4 class="text-sm mb-2">Failures by reason</h4>';
+            Object.entries(audit.failures_by_reason).sort((a, b) => b[1] - a[1]).forEach(([reason, count]) => {
+                const label = REJECTION_LABELS[reason] || reason;
+                failBox.innerHTML += `<div class="rejection-bar-row"><div class="rejection-bar-header"><span>${label}</span><span>${count}</span></div></div>`;
+            });
+        }
+        const sampleBox = document.getElementById('mempool-audit-samples');
+        if (sampleBox && audit.sample_failures) {
+            sampleBox.innerHTML = '<h4 class="text-sm mb-2 mt-3">Sample failures</h4>';
+            audit.sample_failures.forEach(s => {
+                sampleBox.innerHTML += `<p class="text-xs font-mono text-secondary">${s.message} · ${s.txid?.slice(0, 16)}…</p>`;
+            });
         }
     }
 
@@ -606,31 +762,85 @@ document.addEventListener('DOMContentLoaded', () => {
             const logBox = document.getElementById('bip110-audit-log');
             const complianceStatus = document.getElementById('bip110-compliance-status');
             const modeTitle = document.getElementById('bip110-mode-title');
-            
-            if (data.success) {
-                const audit = JSON.parse(data.output);
-                complianceStatus.textContent = `Status: ${audit.status.toUpperCase()}`;
-                complianceStatus.className = `badge ${audit.status === 'compliant' ? 'badge-success' : 'badge-danger'}`;
-                
-                modeTitle.textContent = `Mode: ${audit.bip110_mode.toUpperCase()}`;
-                
-                logBox.innerHTML = '';
-                if (audit.audit_logs && audit.audit_logs.length > 0) {
-                    audit.audit_logs.forEach(log => {
-                        const p = document.createElement('p');
-                        p.className = log.type === 'compliant' ? 'log-success' : 'log-warning';
-                        p.textContent = `[${log.timestamp}] ${log.message}`;
-                        logBox.appendChild(p);
-                    });
-                } else {
-                    logBox.innerHTML = `<p class="text-secondary">Audit check: Node is compliant. No anomalies detected.</p>`;
-                }
+            const profileLine = document.getElementById('bip110-profile-line');
+
+            if (!data.success) {
+                logBox.innerHTML = `<p class="text-danger">Failed to retrieve BIP-110 status: ${data.output}</p>`;
+                return;
+            }
+
+            const status = JSON.parse(data.output);
+            const enforced = status.bip110_enforced;
+            complianceStatus.textContent = enforced ? 'Enforced: YES' : 'Enforced: NO';
+            complianceStatus.className = enforced ? 'badge badge-success' : 'badge badge-outline';
+            modeTitle.textContent = `Mode: ${(status.bip110_mode || 'unknown').toUpperCase()}`;
+            if (profileLine) profileLine.textContent = `Profile: ${status.active_policy_profile || 'unknown'}`;
+
+            lastPolicyStatus = status;
+            updateRulesListFromStatus(status);
+
+            const reasons = status.rejections_by_reason || {};
+            logBox.innerHTML = '';
+            const entries = Object.entries(reasons).filter(([k]) => k !== 'total').sort((a, b) => b[1] - a[1]);
+            if (entries.length === 0) {
+                logBox.innerHTML = '<p class="text-secondary">No policy rejections recorded since startup.</p>';
             } else {
-                logBox.innerHTML = `<p class="text-danger">Failed to retrieve compliance audit. Details: ${data.output}</p>`;
+                entries.forEach(([reason, count]) => {
+                    const p = document.createElement('p');
+                    p.className = 'log-warning';
+                    const label = REJECTION_LABELS[reason] || reason;
+                    p.textContent = `${label}: ${count}`;
+                    logBox.appendChild(p);
+                });
+                const total = reasons.total ?? entries.reduce((s, [, c]) => s + c, 0);
+                const totalP = document.createElement('p');
+                totalP.className = 'log-success';
+                totalP.textContent = `Total rejected: ${total}`;
+                logBox.appendChild(totalP);
             }
         } catch (err) {
             console.error(err);
         }
+    }
+
+    function setRuleVal(el, text, blocking) {
+        if (!el) return;
+        el.textContent = text;
+        el.className = 'rule-status-val';
+        if (blocking === true) el.classList.add('status-yes');
+        else if (blocking === false) el.classList.add('status-no');
+    }
+
+    function updateRulesListFromStatus(status) {
+        if (!status) return;
+        const profile = status.active_policy_profile || status.profile;
+        const preset = POLICY_PRESETS[profile];
+        const rules = preset || {
+            reject_tokens: status.reject_tokens,
+            reject_inscriptions: status.reject_inscriptions,
+            datacarrier_size: status.datacarrier_size,
+            max_op_return_outputs: status.max_op_return_outputs,
+            dust_relay_fee: status.dust_relay_fee,
+            permit_bare_multisig: status.permit_bare_multisig,
+            reject_parasites: status.reject_parasites,
+        };
+
+        const ri = status.reject_inscriptions ?? rules.reject_inscriptions;
+        const mopr = status.max_op_return_outputs ?? rules.max_op_return_outputs;
+
+        setRuleVal(document.getElementById('rule-val-reject_tokens'),
+            rules.reject_tokens ? 'TRUE (BLOCK)' : 'FALSE (RELAY)', rules.reject_tokens);
+        setRuleVal(document.getElementById('rule-val-reject_inscriptions'),
+            ri ? 'TRUE (BLOCK)' : 'FALSE (RELAY)', ri);
+        setRuleVal(document.getElementById('rule-val-datacarrier_size'),
+            `${rules.datacarrier_size ?? 0} bytes`, rules.datacarrier_size === 0);
+        setRuleVal(document.getElementById('rule-val-max_op_return_outputs'), String(mopr ?? '—'), null);
+        setRuleVal(document.getElementById('rule-val-dust_relay_fee'),
+            `${rules.dust_relay_fee ?? 3000} sat/kvb`, null);
+        setRuleVal(document.getElementById('rule-val-permit_bare_multisig'),
+            rules.permit_bare_multisig ? 'TRUE' : 'FALSE', !rules.permit_bare_multisig);
+        setRuleVal(document.getElementById('rule-val-reject_parasites'),
+            rules.reject_parasites ? 'TRUE' : 'FALSE', rules.reject_parasites);
     }
     
     function resetStatsToOffline() {
@@ -644,8 +854,13 @@ document.addEventListener('DOMContentLoaded', () => {
         
         dashMempoolCount.textContent = '0';
         dashMempoolBytes.textContent = '0 KB / 0 MB limit';
+        if (dashRejectionCount) dashRejectionCount.textContent = '0';
+        if (dashRejectionRate) dashRejectionRate.textContent = '0% rejection rate';
+        if (dashRdtsPct) dashRdtsPct.textContent = '0%';
+        if (heroPolicyTitle) heroPolicyTitle.textContent = 'Policy: —';
+        if (heroBip110Enforced) heroBip110Enforced.textContent = 'BIP-110: —';
+        if (infoUptime) infoUptime.textContent = '—';
         
-        dashUptimeVal.textContent = '0h 0m';
         dashRejectionsTotal.textContent = '0 Rejected';
         dashRejectionsTotal.className = 'badge badge-outline';
         
@@ -656,131 +871,50 @@ document.addEventListener('DOMContentLoaded', () => {
         infoAgent.textContent = 'Unknown';
         
         const tbody = document.getElementById('peers-table-body');
-        tbody.innerHTML = `<tr><td colspan="6" class="text-center text-secondary py-4">No peers connected. Start the node to connect.</td></tr>`;
+        if (tbody) tbody.innerHTML = `<tr><td colspan="6" class="text-center text-secondary py-4">No peers connected. Start the node to connect.</td></tr>`;
         
-        document.getElementById('bip110-audit-log').innerHTML = `<p class="text-secondary text-center py-4">Start the node and check sync status to perform a BIP-110 compliance audit.</p>`;
+        const auditLog = document.getElementById('bip110-audit-log');
+        if (auditLog) auditLog.innerHTML = `<p class="text-secondary text-center py-4">Start the node to view live BIP-110 and policy rejection stats.</p>`;
         
         document.querySelectorAll('.rule-status-val').forEach(el => {
-            el.textContent = 'Checking...';
+            el.textContent = 'Offline';
             el.className = 'rule-status-val';
         });
+        if (dashboardConflictBanner) dashboardConflictBanner.classList.add('hidden');
     }
     
-    function updateRejectionsPanel(rejections) {
-        if (!rejections || Object.keys(rejections).length === 0) {
+    function updateRejectionsPanel(topItems, total) {
+        if (!topItems || topItems.length === 0) {
             rejectionsEmptyView.classList.remove('hidden');
             rejectionsList.classList.add('hidden');
             dashRejectionsTotal.textContent = '0 Rejected';
             dashRejectionsTotal.className = 'badge badge-outline';
             return;
         }
-        
+
         rejectionsEmptyView.classList.add('hidden');
         rejectionsList.classList.remove('hidden');
-        
         rejectionsList.innerHTML = '';
-        let total = 0;
-        
-        for (const [reason, count] of Object.entries(rejections)) {
-            total += count;
-            const div = document.createElement('div');
-            div.className = 'rejection-item';
-            
-            let desc = 'Filtered by custom mempool policy rules.';
-            if (reason === 'inscriptions') desc = 'Filtered Taproot witness-based ordinals inscriptions.';
-            else if (reason === 'runes') desc = 'Filtered BRC-20 and Runes token outputs.';
-            else if (reason === 'dust') desc = 'Filtered outputs below dust relay threshold.';
-            else if (reason === 'op_return') desc = 'Filtered OP_RETURN data carrier payloads.';
-            
-            div.innerHTML = `
-                <div class="rejection-info">
-                    <span class="rejection-reason">${reason}</span>
-                    <span class="rejection-desc">${desc}</span>
+
+        const maxCount = topItems[0]?.count || 1;
+        topItems.forEach(item => {
+            const row = document.createElement('div');
+            row.className = 'rejection-bar-row';
+            const pctBar = Math.round((item.count / maxCount) * 100);
+            row.innerHTML = `
+                <div class="rejection-bar-header">
+                    <span>${item.label}</span>
+                    <span class="font-mono">${item.count} (${item.pct}%)</span>
                 </div>
-                <span class="rejection-count">${count}</span>
+                <div class="rejection-bar-track">
+                    <div class="rejection-bar-fill" style="width: ${pctBar}%"></div>
+                </div>
             `;
-            rejectionsList.appendChild(div);
-        }
-        
+            rejectionsList.appendChild(row);
+        });
+
         dashRejectionsTotal.textContent = `${total} Rejected`;
         dashRejectionsTotal.className = total > 0 ? 'badge badge-danger' : 'badge badge-outline';
-    }
-    
-    function updateRulesList(metrics) {
-        const profile = metrics.policy_profile;
-        
-        const rejectTokensVal = document.getElementById('rule-val-reject_tokens');
-        const rejectInscriptionsVal = document.getElementById('rule-val-reject_inscriptions');
-        const datacarrierSizeVal = document.getElementById('rule-val-datacarrier_size');
-        const maxOpReturnVal = document.getElementById('rule-val-max_op_return_outputs');
-        const dustRelayVal = document.getElementById('rule-val-dust_relay_fee');
-        const permitBareMultisigVal = document.getElementById('rule-val-permit_bare_multisig');
-        const rejectParasitesVal = document.getElementById('rule-val-reject_parasites');
-        
-        if (profile === 'maximalist' || profile === 'monetary-only') {
-            rejectTokensVal.textContent = 'TRUE (BLOCK)';
-            rejectTokensVal.className = 'rule-status-val status-yes';
-            
-            rejectInscriptionsVal.textContent = 'TRUE (BLOCK)';
-            rejectInscriptionsVal.className = 'rule-status-val status-yes';
-            
-            datacarrierSizeVal.textContent = '0 bytes';
-            datacarrierSizeVal.className = 'rule-status-val status-yes';
-            
-            maxOpReturnVal.textContent = '0';
-            maxOpReturnVal.className = 'rule-status-val status-yes';
-            
-            dustRelayVal.textContent = '3000 sat/kvb';
-            dustRelayVal.className = 'rule-status-val';
-            
-            permitBareMultisigVal.textContent = 'FALSE';
-            permitBareMultisigVal.className = 'rule-status-val status-yes';
-            
-            rejectParasitesVal.textContent = 'TRUE';
-            rejectParasitesVal.className = 'rule-status-val status-yes';
-        } else if (profile === 'bip110-strict') {
-            rejectTokensVal.textContent = 'FALSE (RELAY)';
-            rejectTokensVal.className = 'rule-status-val status-no';
-            
-            rejectInscriptionsVal.textContent = 'CAPPED (BIP110)';
-            rejectInscriptionsVal.className = 'rule-status-val';
-            
-            datacarrierSizeVal.textContent = '83 bytes';
-            datacarrierSizeVal.className = 'rule-status-val';
-            
-            maxOpReturnVal.textContent = '1';
-            maxOpReturnVal.className = 'rule-status-val';
-            
-            dustRelayVal.textContent = '1000 sat/kvb';
-            dustRelayVal.className = 'rule-status-val';
-            
-            permitBareMultisigVal.textContent = 'TRUE';
-            permitBareMultisigVal.className = 'rule-status-val status-no';
-            
-            rejectParasitesVal.textContent = 'FALSE';
-            rejectParasitesVal.className = 'rule-status-val status-no';
-        } else {
-            rejectTokensVal.textContent = 'FALSE';
-            rejectTokensVal.className = 'rule-status-val status-no';
-            
-            rejectInscriptionsVal.textContent = 'FALSE';
-            rejectInscriptionsVal.className = 'rule-status-val status-no';
-            
-            datacarrierSizeVal.textContent = '83 bytes';
-            datacarrierSizeVal.className = 'rule-status-val';
-            
-            maxOpReturnVal.textContent = '1';
-            maxOpReturnVal.className = 'rule-status-val';
-            
-            dustRelayVal.textContent = '1000 sat/kvb';
-            dustRelayVal.className = 'rule-status-val';
-            
-            permitBareMultisigVal.textContent = 'TRUE';
-            permitBareMultisigVal.className = 'rule-status-val status-no';
-            
-            rejectParasitesVal.textContent = 'FALSE';
-            rejectParasitesVal.className = 'rule-status-val status-no';
-        }
     }
     
     function formatUptime(seconds) {
@@ -905,7 +1039,7 @@ document.addEventListener('DOMContentLoaded', () => {
     
     btnApplyProfile.addEventListener('click', async () => {
         if (!isNodeRunning) {
-            alert('Cannot apply profile while node is offline. Please start the node first.');
+            showToast('Start the node before applying a profile.', 'error');
             return;
         }
         
@@ -921,17 +1055,17 @@ document.addEventListener('DOMContentLoaded', () => {
             const data = await res.json();
             
             if (data.success) {
-                console.log('Policy applied', data.output);
-                alert(`Successfully activated policy profile: ${selectedPolicyProfile}`);
+                showToast(`Activated profile: ${selectedPolicyProfile}`, 'success');
+                fetchDashboard();
+                fetchBip110Status();
             } else {
-                alert(`Failed to apply profile: ${data.output}`);
+                showToast(`Failed to apply profile: ${data.output}`, 'error', 6000);
             }
         } catch (err) {
-            alert(`API error: ${err.message}`);
+            showToast(`API error: ${err.message}`, 'error');
         } finally {
             btnApplyProfile.disabled = false;
             btnApplyProfile.textContent = 'Activate Selected Profile';
-            updateNodeInfo();
         }
     });
     
@@ -2675,7 +2809,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // ----------------------------------------------------
     async function fetchLogs() {
         try {
-            const res = await fetch('/api/logs');
+            const res = await fetch(`/api/logs?filter=${logFilterMode}`);
             const data = await res.json();
             
             if (data.success) {
@@ -2708,26 +2842,50 @@ document.addEventListener('DOMContentLoaded', () => {
     // Quick actions handlers
     btnQuickReloadPolicy.addEventListener('click', async () => {
         if (!isNodeRunning) {
-            alert('Node is offline.');
+            showToast('Node is offline.', 'error');
             return;
         }
         try {
-            const res = await fetch('/api/rpc/reload-policy', { method: 'POST' });
+            const res = await fetch('/api/policy/apply', { method: 'POST' });
             const data = await res.json();
             if (data.success) {
-                alert('Successfully reloaded policy.toml configurations!');
-                updateNodeInfo();
+                showToast('Policy applied from policy.toml', 'success');
+                fetchDashboard();
+                fetchBip110Status();
             } else {
-                alert(`Failed to reload policy: ${data.output}`);
+                showToast(`Failed to apply policy: ${data.output || data.error}`, 'error', 6000);
             }
         } catch (err) {
-            alert(`API error: ${err.message}`);
+            showToast(`API error: ${err.message}`, 'error');
         }
     });
 
-    btnQuickMempoolClear.addEventListener('click', () => {
-        switchTab('bip110');
-    });
+    if (btnQuickMempoolInspect) {
+        btnQuickMempoolInspect.addEventListener('click', async () => {
+            if (isNodeRunning) {
+                try {
+                    const res = await fetch('/api/mempool-audit?limit=500');
+                    const data = await res.json();
+                    if (data.success) window._lastMempoolAudit = data.audit;
+                } catch (e) { /* use cached */ }
+            }
+            openMempoolPolicyModal();
+        });
+    }
+
+    const mempoolModalClose = document.getElementById('mempool-modal-close');
+    const mempoolPolicyModal = document.getElementById('mempool-policy-modal');
+    if (mempoolModalClose && mempoolPolicyModal) {
+        mempoolModalClose.addEventListener('click', () => mempoolPolicyModal.classList.add('hidden'));
+        mempoolPolicyModal.addEventListener('click', (e) => {
+            if (e.target === mempoolPolicyModal) mempoolPolicyModal.classList.add('hidden');
+        });
+    }
+
+    const btnLogsAll = document.getElementById('btn-logs-all');
+    const btnLogsPolicy = document.getElementById('btn-logs-policy');
+    if (btnLogsAll) btnLogsAll.addEventListener('click', () => { logFilterMode = 'all'; fetchLogs(); });
+    if (btnLogsPolicy) btnLogsPolicy.addEventListener('click', () => { logFilterMode = 'policy'; fetchLogs(); });
 
     // ----------------------------------------------------
     // Application Initialization

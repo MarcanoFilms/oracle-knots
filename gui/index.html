@@ -99,17 +99,24 @@
                 
                 <!-- Tab: Dashboard -->
                 <div class="tab-pane active" id="tab-dashboard">
-                    <div class="oracle-hero" id="oracle-hero">
+                    <div class="oracle-hero oracle-hero-policy" id="oracle-hero">
                         <img src="/static/assets/oracle-owl.svg" alt="" class="oracle-hero-owl" width="48" height="48">
                         <div class="oracle-hero-text">
-                            <h3>The Oracle Watches the Chain</h3>
+                            <div class="hero-policy-row">
+                                <h3 id="hero-policy-title">Policy: —</h3>
+                                <span class="badge badge-accent" id="hero-bip110-enforced">BIP-110: —</span>
+                            </div>
                             <p id="oracle-hero-desc">Observing every block, filtering every transaction — sovereign verification in real time.</p>
+                            <span class="hero-mode-badge" id="hero-bip110-mode">Mode: —</span>
                         </div>
                         <div class="oracle-hero-stats">
                             <span id="hero-block-pulse" class="hero-stat">Block —</span>
                             <span id="hero-peer-pulse" class="hero-stat">Peers —</span>
+                            <span id="hero-peer-privacy" class="hero-stat hero-stat-muted">Tor 0 · I2P 0</span>
                         </div>
                     </div>
+                    <div class="dashboard-conflict-banner hidden" id="dashboard-conflict-banner"></div>
+                    <div class="dashboard-preflight-strip hidden" id="dashboard-preflight-strip"></div>
 
                     <!-- Top stats cards -->
                     <div class="stats-grid">
@@ -150,12 +157,62 @@
 
                         <div class="stat-card">
                             <div class="stat-header">
-                                <span class="stat-label">Prometheus Uptime</span>
-                                <div class="stat-icon uptime"></div>
+                                <span class="stat-label">Policy Rejections</span>
+                                <div class="stat-icon rejections"></div>
                             </div>
-                            <div class="stat-value" id="dash-uptime-val">0h 0m</div>
-                            <div class="stat-meta" id="dash-uptime-desc">Metrics active</div>
-                            <span class="stat-desc" id="dash-exporter-port">Exporter Port: 9332</span>
+                            <div class="stat-value" id="dash-rejection-count">0</div>
+                            <div class="stat-meta" id="dash-rejection-rate">0% rejection rate</div>
+                            <span class="stat-desc" id="dash-rejection-delta">+0 today · +0 session</span>
+                        </div>
+
+                        <div class="stat-card">
+                            <div class="stat-header">
+                                <span class="stat-label">RDTS Network Signal</span>
+                                <div class="stat-icon rdts"></div>
+                            </div>
+                            <div class="stat-value" id="dash-rdts-pct">0%</div>
+                            <div class="stat-meta" id="dash-rdts-status">Status: unknown</div>
+                            <span class="stat-desc" id="dash-rdts-blocks">0 / 0 blocks signaling</span>
+                        </div>
+                    </div>
+
+                    <!-- Sovereign Mining -->
+                    <div class="panel panel-sovereign-mining mt-4" id="panel-sovereign-mining">
+                        <div class="panel-header">
+                            <h3>Sovereign Mining — Block Template</h3>
+                            <span class="badge badge-accent" id="mining-profile-badge">Profile —</span>
+                        </div>
+                        <div class="panel-body">
+                            <p class="text-secondary text-sm mb-3">Your node builds block templates filtered by <code>policy.toml</code>. Transactions that violate your rules are excluded — ideal for sovereign solo/pool mining.</p>
+                            <div class="mining-stats-grid">
+                                <div class="mining-stat">
+                                    <span class="detail-label">Txs in template</span>
+                                    <span class="detail-value" id="mining-txs-included">—</span>
+                                </div>
+                                <div class="mining-stat">
+                                    <span class="detail-label">Policy filtered</span>
+                                    <span class="detail-value text-danger" id="mining-policy-filtered">—</span>
+                                </div>
+                                <div class="mining-stat">
+                                    <span class="detail-label">Filter rate</span>
+                                    <span class="detail-value" id="mining-filter-rate">—</span>
+                                </div>
+                                <div class="mining-stat">
+                                    <span class="detail-label">Template fees</span>
+                                    <span class="detail-value" id="mining-fees">—</span>
+                                </div>
+                            </div>
+                            <div class="rdts-progress-section mt-4">
+                                <div class="flex-between mb-2">
+                                    <h4 class="text-sm">BIP-110 / RDTS Network Signaling</h4>
+                                    <span class="badge badge-outline" id="rdts-active-badge">—</span>
+                                </div>
+                                <div class="rdts-progress-track">
+                                    <div class="rdts-progress-fill" id="rdts-progress-fill" style="width: 0%"></div>
+                                    <div class="rdts-threshold-marker" id="rdts-threshold-marker" style="left: 55%"></div>
+                                </div>
+                                <p class="text-xs text-secondary mt-2" id="rdts-progress-desc">Signaling data unavailable</p>
+                            </div>
                         </div>
                     </div>
 
@@ -173,19 +230,37 @@
                                     <p>No rejections recorded yet.</p>
                                     <span>Rejections will appear here when transactions violate your policy.toml rules.</span>
                                 </div>
-                                <div class="rejections-list hidden" id="rejections-list">
-                                    <!-- Dynamic rejections list goes here -->
+                                <div class="rejections-bars hidden" id="rejections-list">
+                                    <!-- Top 5 rejection bars -->
                                 </div>
                             </div>
                         </div>
 
-                        <!-- Right pane: Node Settings Quickview -->
+                        <!-- Right pane: Mempool + Node details -->
                         <div class="panel panel-node-info">
                             <div class="panel-header">
-                                <h3>Node Control Center Details</h3>
+                                <h3>Mempool &amp; Node</h3>
                             </div>
                             <div class="panel-body">
-                                <table class="info-table">
+                                <div class="mempool-detail-grid" id="mempool-detail-grid">
+                                    <div class="mempool-detail-item">
+                                        <span class="detail-label">Policy pass rate</span>
+                                        <span class="detail-value" id="dash-pass-rate">—</span>
+                                    </div>
+                                    <div class="mempool-detail-item">
+                                        <span class="detail-label">Mempool RAM</span>
+                                        <span class="detail-value" id="dash-mempool-ram">—</span>
+                                    </div>
+                                    <div class="mempool-detail-item">
+                                        <span class="detail-label">Min relay fee</span>
+                                        <span class="detail-value" id="dash-min-fee">—</span>
+                                    </div>
+                                    <div class="mempool-detail-item">
+                                        <span class="detail-label">Mempool loaded</span>
+                                        <span class="detail-value" id="dash-mempool-loaded">—</span>
+                                    </div>
+                                </div>
+                                <table class="info-table mt-4">
                                     <tbody>
                                         <tr>
                                             <td>Chain Type</td>
@@ -204,8 +279,12 @@
                                             <td class="text-truncate" id="info-datadir">~/.bitcoin</td>
                                         </tr>
                                         <tr>
-                                            <td>RAM Preserving Mode</td>
-                                            <td id="info-ram-mode">Enabled (100MB mempool)</td>
+                                            <td>Max Mempool</td>
+                                            <td id="info-ram-mode">—</td>
+                                        </tr>
+                                        <tr>
+                                            <td>Uptime</td>
+                                            <td id="info-uptime">—</td>
                                         </tr>
                                     </tbody>
                                 </table>
@@ -213,8 +292,8 @@
                                 <div class="quick-actions-panel mt-4">
                                     <h4>Quick Actions</h4>
                                     <div class="btn-group">
-                                        <button class="btn btn-outline" id="btn-quick-mempool-clear">Inspect Mempool</button>
-                                        <button class="btn btn-outline" id="btn-quick-reload-policy">Reload Policy</button>
+                                        <button class="btn btn-outline" id="btn-quick-mempool-inspect">Mempool Details</button>
+                                        <button class="btn btn-outline" id="btn-quick-reload-policy">Apply Policy</button>
                                     </div>
                                 </div>
                             </div>
@@ -630,6 +709,14 @@
                                         </div>
                                         <p>Uses standard Bitcoin Knots relay and policy configuration rules. No additional filtering.</p>
                                     </div>
+
+                                    <div class="profile-card" data-profile="custom" id="prof-card-custom">
+                                        <div class="profile-card-header">
+                                            <h4>Custom</h4>
+                                            <span class="badge badge-outline">Advanced</span>
+                                        </div>
+                                        <p>Use custom_rules from policy.toml. Edit in Configuration → Policy, then Apply Policy on the dashboard.</p>
+                                    </div>
                                 </div>
 
                                 <div class="mt-4 flex-between">
@@ -691,12 +778,13 @@
                     <div class="panel">
                         <div class="panel-header">
                             <h3>BIP-110 temporary soft fork compliance</h3>
-                            <span class="badge badge-accent" id="bip110-compliance-status">Status: Unknown</span>
+                            <span class="badge badge-accent" id="bip110-compliance-status">Enforced: Unknown</span>
                         </div>
                         <div class="panel-body">
                             <div class="bip110-hero">
                                 <div class="bip110-hero-details">
                                     <h4 id="bip110-mode-title">Mode: Auto</h4>
+                                    <p class="text-secondary mt-1" id="bip110-profile-line">Profile: —</p>
                                     <p class="text-secondary mt-2">BIP-110 restricts arbitrary data storage on the blockchain by imposing bounds on transaction outputs and witnesses. This keeps verification lightweight for sovereign operators.</p>
                                 </div>
                             </div>
@@ -720,10 +808,9 @@
                             </div>
 
                             <div class="panel-section mt-4">
-                                <h4>RPC Compliance Audit Log</h4>
+                                <h4>Live Policy Rejections (since startup)</h4>
                                 <div class="audit-log-box" id="bip110-audit-log">
-                                    <!-- Dynamic compliance info from RPC -->
-                                    <p class="text-secondary text-center py-4">Start the node and check sync status to perform a BIP-110 compliance audit.</p>
+                                    <p class="text-secondary text-center py-4">Start the node to view live BIP-110 and policy rejection stats.</p>
                                 </div>
                             </div>
                         </div>
@@ -1429,6 +1516,8 @@
                                 <label class="checkbox-label">
                                     <input type="checkbox" id="log-autoscroll" checked> Autoscroll
                                 </label>
+                                <button class="btn btn-outline btn-sm" id="btn-logs-all">All</button>
+                                <button class="btn btn-outline btn-sm" id="btn-logs-policy">Policy only</button>
                                 <button class="btn btn-outline btn-sm" id="btn-refresh-logs">Refresh</button>
                             </div>
                         </div>
@@ -1495,6 +1584,26 @@
     </div>
 
     <!-- Node Start Modal Settings -->
+    <div class="modal-overlay hidden" id="mempool-policy-modal">
+        <div class="modal modal-wide">
+            <div class="modal-header">
+                <h3>Mempool Policy Audit</h3>
+                <button class="modal-close-btn" id="mempool-modal-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p class="text-secondary text-sm mb-3">Scans your in-memory mempool against the active sovereign policy (pruned-safe).</p>
+                <div class="mining-stats-grid" id="mempool-audit-summary">
+                    <div class="mining-stat"><span class="detail-label">Would pass</span><span class="detail-value" id="audit-pass">—</span></div>
+                    <div class="mining-stat"><span class="detail-label">Would fail</span><span class="detail-value text-danger" id="audit-fail">—</span></div>
+                    <div class="mining-stat"><span class="detail-label">Pass rate</span><span class="detail-value" id="audit-pass-rate">—</span></div>
+                    <div class="mining-stat"><span class="detail-label">Scanned</span><span class="detail-value" id="audit-scanned">—</span></div>
+                </div>
+                <div class="mt-4" id="mempool-audit-failures"></div>
+                <div class="mt-4" id="mempool-audit-samples"></div>
+            </div>
+        </div>
+    </div>
+
     <div class="modal-overlay hidden" id="node-start-modal">
         <div class="modal">
             <div class="modal-header">

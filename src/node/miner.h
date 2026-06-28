@@ -173,6 +173,7 @@ private:
     // Variables used for addPriorityTxs
     int lastFewTxs;
     bool blockFinished;
+    uint64_t m_policy_filtered_count;
 
 public:
     using Options = BlockCreateOptions;
@@ -187,6 +188,10 @@ public:
     /** The weight of the last assembled block (including reserved weight for block header, txs count and coinbase tx) */
     inline static std::optional<int64_t> m_last_block_weight{};
     inline static std::optional<int64_t> m_last_block_size{};
+    inline static std::optional<CAmount> m_last_block_fees{};
+    inline static std::optional<uint64_t> m_last_policy_filtered{};
+    inline static std::optional<uint64_t> m_last_mempool_at_template{};
+    inline static std::optional<int64_t> m_last_assembly_ms{};
 
 private:
     const Options m_options;
@@ -220,7 +225,7 @@ private:
       * locktime, premature-witness, serialized size (if necessary)
       * These checks should always succeed, and they're here
       * only as an extra check in case of suboptimal node configuration */
-    bool TestPackageTransactions(const CTxMemPool::setEntries& package) const;
+    bool TestPackageTransactions(const CTxMemPool::setEntries& package);
     /** Sort the package in an order that is valid to appear in a block */
     void SortForBlock(const CTxMemPool::setEntries& package, std::vector<CTxMemPool::txiter>& sortedEntries);
 };

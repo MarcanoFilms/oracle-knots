@@ -56,6 +56,17 @@ def main():
     status, data = post("/api/cli", {"command": "stop"})
     assert status == 200 and not data.get("success"), "stop should be blocked"
 
+    status, dash = get("/api/dashboard")
+    assert status == 200
+    assert "online" in dash
+    assert "rejections" in dash
+    assert "policy" in dash
+    if not dash.get("online"):
+        assert dash["rejections"]["deltas"]["today"] == 0
+
+    status, pre = get("/api/preflight")
+    assert status == 200 and "checks" in pre
+
     print("GUI smoke tests passed")
     return 0
 
