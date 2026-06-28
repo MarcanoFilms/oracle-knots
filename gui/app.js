@@ -860,9 +860,16 @@ document.addEventListener('DOMContentLoaded', () => {
         if (pMode !== '0') {
             setTxindex.checked = false;
             setTxindex.disabled = true;
+            setPeerBlockFilters.checked = false;
+            setPeerBlockFilters.disabled = true;
+            setBlockFilterIndex.checked = false;
+            setBlockFilterIndex.disabled = true;
         } else {
             setTxindex.disabled = false;
+            setPeerBlockFilters.disabled = false;
+            handlePeerBlockFiltersChange();
         }
+
     };
 
     setPruneMode.addEventListener('change', handlePruneModeChange);
@@ -959,20 +966,18 @@ document.addEventListener('DOMContentLoaded', () => {
                 const pVal = conf['prune'];
                 if (pVal === undefined || pVal === 0 || pVal === '0') {
                     setPruneMode.value = '0';
-                    customPruneSizeRow.classList.add('hidden');
-                    setTxindex.disabled = false;
                 } else if (pVal === 1 || pVal === '1') {
                     setPruneMode.value = '1';
-                    customPruneSizeRow.classList.add('hidden');
-                    setTxindex.disabled = true;
                 } else {
                     setPruneMode.value = 'custom';
                     document.getElementById('set-pruning-target-gb').value = Math.max(1, Math.round(pVal / 1000));
-                    customPruneSizeRow.classList.remove('hidden');
-                    setTxindex.disabled = true;
                 }
+                handlePruneModeChange();
                 
-                setTxindex.checked = (conf['txindex'] === '1' || conf['txindex'] === 1 || conf['txindex'] === undefined) && (pVal === undefined || pVal === 0 || pVal === '0');
+                if (pVal === undefined || pVal === 0 || pVal === '0') {
+                    setTxindex.checked = conf['txindex'] === '1' || conf['txindex'] === 1 || conf['txindex'] === undefined;
+                }
+
 
                 document.getElementById('set-coinstatsindex').checked = conf['coinstatsindex'] === '1' || conf['coinstatsindex'] === 1;
                 document.getElementById('set-blockreconstructionextratxn').value = conf['blockreconstructionextratxn'] !== undefined ? conf['blockreconstructionextratxn'] : 32768;
