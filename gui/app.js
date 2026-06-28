@@ -698,18 +698,45 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    function getDismissedPreflight() {
+        try { return JSON.parse(localStorage.getItem('ok_preflight_dismissed') || '[]'); }
+        catch (e) { return []; }
+    }
+
     function renderPreflightStrip(preflight) {
         const strip = document.getElementById('dashboard-preflight-strip');
         if (!strip || !preflight.checks) return;
         const warnings = preflight.checks.filter(c => c.severity === 'warning' || c.severity === 'critical');
-        if (warnings.length === 0) {
+        const dismissed = getDismissedPreflight();
+        const visible = warnings.filter(c => !dismissed.includes(c.message));
+        if (visible.length === 0) {
             strip.classList.add('hidden');
+            strip.dataset.sig = '';
+            strip.innerHTML = '';
             return;
         }
+        // Only rebuild the DOM when the warning set changes — otherwise each
+        // status poll re-rendered it, which caused the visible flicker.
+        const sig = visible.map(c => `${c.severity}:${c.message}`).join('|');
+        if (strip.dataset.sig === sig && !strip.classList.contains('hidden')) return;
+        strip.dataset.sig = sig;
         strip.classList.remove('hidden');
-        strip.innerHTML = warnings.slice(0, 3).map(c =>
-            `<strong>${c.severity}:</strong> ${c.message}${c.recommendation ? ` — ${c.recommendation}` : ''}`
-        ).join('<br>');
+        strip.innerHTML = visible.slice(0, 3).map(c =>
+            `<div class="preflight-item preflight-${c.severity}">` +
+                `<span class="preflight-text"><strong>${c.severity}:</strong> ${c.message}${c.recommendation ? ` — ${c.recommendation}` : ''}</span>` +
+                `<button class="preflight-close" type="button" aria-label="Dismiss" data-msg="${encodeURIComponent(c.message)}">&times;</button>` +
+            `</div>`
+        ).join('');
+        strip.querySelectorAll('.preflight-close').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const msg = decodeURIComponent(btn.getAttribute('data-msg'));
+                const d = getDismissedPreflight();
+                if (!d.includes(msg)) d.push(msg);
+                localStorage.setItem('ok_preflight_dismissed', JSON.stringify(d));
+                strip.dataset.sig = '';
+                renderPreflightStrip(preflight);
+            });
+        });
     }
 
     function renderMempoolAuditSummary(audit) {

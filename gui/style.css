@@ -602,12 +602,50 @@ body {
 
 .dashboard-preflight-strip {
     margin-bottom: 12px;
-    padding: 10px 14px;
+    padding: 4px 6px;
     border-radius: 8px;
     background: rgba(0, 240, 255, 0.06);
     border: 1px solid var(--border-color-glow);
     font-size: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
 }
+
+.preflight-item {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 4px 8px;
+    border-radius: 6px;
+    line-height: 1.35;
+}
+
+.preflight-item.preflight-critical {
+    background: rgba(255, 67, 101, 0.08);
+    color: var(--status-red);
+}
+
+.preflight-item.preflight-warning {
+    color: var(--status-orange);
+}
+
+.preflight-text { flex: 1 1 auto; }
+
+.preflight-close {
+    flex: 0 0 auto;
+    background: transparent;
+    border: none;
+    color: inherit;
+    opacity: 0.55;
+    cursor: pointer;
+    font-size: 15px;
+    line-height: 1;
+    padding: 0 2px;
+}
+
+.preflight-close:hover { opacity: 1; }
 
 .panel-sovereign-mining {
     position: relative;
@@ -661,7 +699,34 @@ body {
     background: rgba(0, 0, 0, 0.2);
     border: 1px solid var(--border-color);
     border-radius: 8px;
-    padding: 12px;
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.mining-stat .detail-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+}
+
+.mining-stat .detail-value {
+    font-size: 20px;
+    font-weight: 700;
+    font-family: var(--font-mono);
+    background: linear-gradient(90deg, var(--accent-cyan), var(--accent-purple));
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.mining-stat .detail-value.text-danger {
+    background: none;
+    -webkit-text-fill-color: var(--status-red);
+    color: var(--status-red);
 }
 
 .rdts-progress-section h4 {
@@ -671,16 +736,19 @@ body {
 
 .rdts-progress-track {
     position: relative;
-    height: 10px;
+    height: 12px;
+    margin-top: 16px;
     background: rgba(255, 255, 255, 0.06);
-    border-radius: 5px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
     overflow: visible;
 }
 
 .rdts-progress-fill {
     height: 100%;
     background: linear-gradient(90deg, var(--accent-cyan), var(--accent-purple));
-    border-radius: 5px;
+    border-radius: 6px;
+    box-shadow: 0 0 8px rgba(0, 240, 255, 0.35);
     transition: width 0.5s ease;
 }
 
@@ -688,9 +756,23 @@ body {
     position: absolute;
     top: -3px;
     width: 2px;
-    height: 16px;
+    height: 18px;
     background: var(--status-orange);
     transform: translateX(-50%);
+}
+
+.rdts-threshold-marker::after {
+    content: 'lock-in';
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    margin-bottom: 2px;
+    font-size: 8px;
+    letter-spacing: 0.5px;
+    color: var(--status-orange);
+    white-space: nowrap;
+    font-family: var(--font-mono);
 }
 
 .modal-wide {
@@ -1027,7 +1109,7 @@ body {
 }
 
 #tab-dashboard .dashboard-details .rejections-chart-placeholder {
-    height: 140px;
+    height: auto;
 }
 
 .panel-compact .quick-actions-panel {
@@ -1048,6 +1130,26 @@ body {
     border-radius: var(--border-radius);
     position: relative;
     min-height: 96px;
+}
+
+.chain-strip-panel::after {
+    content: '';
+    position: absolute;
+    right: 22px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 96px;
+    height: 96px;
+    background: url('/static/assets/bitcoinknots-logo.svg') no-repeat center / contain;
+    opacity: 0.06;
+    pointer-events: none;
+    z-index: 0;
+}
+
+.chain-strip-header,
+.chain-strip-track {
+    position: relative;
+    z-index: 1;
 }
 
 .chain-strip-header {
@@ -1249,13 +1351,22 @@ body {
 
 /* Rejections list */
 .rejections-chart-placeholder {
-    height: 180px;
+    height: auto;
+    min-height: 56px;
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
     align-items: center;
-    justify-content: center;
-    text-align: center;
+    justify-content: flex-start;
+    gap: 12px;
+    text-align: left;
     color: var(--text-secondary);
+    padding: 8px 2px;
+}
+
+.rejections-chart-placeholder .empty-icon {
+    font-size: 20px;
+    margin-bottom: 0;
+    opacity: 0.7;
 }
 
 .empty-icon {
