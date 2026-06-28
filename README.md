@@ -1,5 +1,6 @@
 # Oracle Knots (SovereignKnots)
 ============================
+<img width="420" height="142" alt="image" src="https://github.com/user-attachments/assets/d227f2b0-7f68-4629-a2a9-cae9ea38604e" />
 
 Oracle Knots is a professional, high-quality fork of **Bitcoin Knots** designed specifically for sovereign individuals, node operators, and low-resource mining operations (such as BitAxe + Mac Mini or single-board setups). 
 
