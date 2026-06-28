@@ -2,6 +2,7 @@
 
 document.addEventListener('DOMContentLoaded', () => {
     const STORAGE_KEY_ACTIVE_WALLET = 'oracle_active_wallet';
+    const STORAGE_KEY_SIDEBAR_COLLAPSED = 'oracle-sidebar-collapsed';
 
     // ----------------------------------------------------
     // Toast Notification System
@@ -43,8 +44,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const syncStatusText = document.getElementById('sync-status-text');
     
     // Topbar
-    const topbarHeight = document.getElementById('topbar-height');
+    const topbarBlockNumber = document.getElementById('topbar-block-number');
     const topbarPeers = document.getElementById('topbar-peers');
+    const sidebar = document.getElementById('sidebar');
+    const sidebarToggle = document.getElementById('sidebar-toggle');
     const nodeToggleBtn = document.getElementById('node-toggle-btn');
     
     // Dashboard Stats
@@ -72,13 +75,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const rejectionsList = document.getElementById('rejections-list');
     const dashRejectionsTotal = document.getElementById('dash-rejections-total');
     const mempoolSparkline = document.getElementById('mempool-sparkline');
-    const heroBlockPulse = document.getElementById('hero-block-pulse');
-    const heroPeerPulse = document.getElementById('hero-peer-pulse');
     const heroPeerPrivacy = document.getElementById('hero-peer-privacy');
     const heroPolicyTitle = document.getElementById('hero-policy-title');
     const heroBip110Enforced = document.getElementById('hero-bip110-enforced');
     const heroBip110Mode = document.getElementById('hero-bip110-mode');
-    const oracleHeroDesc = document.getElementById('oracle-hero-desc');
+
     const infoUptime = document.getElementById('info-uptime');
     const syncOwlEye = document.getElementById('sync-owl-eye');
     const balanceCard = document.querySelector('.balance-card');
@@ -273,6 +274,10 @@ document.addEventListener('DOMContentLoaded', () => {
     let cliHistoryIndex = -1;
     let mempoolHistory = [];
     let lastBlockHeight = 0;
+    let lastChainStripTip = 0;
+    let lastChainStripFetch = 0;
+    const CHAIN_STRIP_FETCH_MIN_MS = 15000;
+    const CHAIN_STRIP_PLACEHOLDER_COUNT = 12;
     const MEMPOOL_HISTORY_MAX = 40;
     let btcPriceUsd = 93500;
     let lastPolicyStatus = null;
@@ -334,14 +339,37 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function pulseHeroBlock(height) {
-        if (!heroBlockPulse) return;
-        heroBlockPulse.textContent = `Block ${height.toLocaleString()}`;
-        if (height !== lastBlockHeight && lastBlockHeight > 0) {
-            heroBlockPulse.classList.remove('pulse-block');
-            void heroBlockPulse.offsetWidth;
-            heroBlockPulse.classList.add('pulse-block');
+        const formatted = height > 0 ? height.toLocaleString() : '—';
+        if (topbarBlockNumber) {
+            topbarBlockNumber.textContent = formatted;
+            if (height !== lastBlockHeight && lastBlockHeight > 0 && height > 0) {
+                topbarBlockNumber.classList.remove('pulse-block');
+                void topbarBlockNumber.offsetWidth;
+                topbarBlockNumber.classList.add('pulse-block');
+            }
         }
         lastBlockHeight = height;
+    }
+
+    function applySidebarCollapsed(collapsed) {
+        if (!sidebar) return;
+        sidebar.classList.toggle('collapsed', collapsed);
+        if (sidebarToggle) {
+            sidebarToggle.setAttribute('aria-expanded', String(!collapsed));
+            sidebarToggle.setAttribute('aria-label', collapsed ? 'Expand sidebar' : 'Collapse sidebar');
+            sidebarToggle.title = collapsed ? 'Expand sidebar' : 'Collapse sidebar';
+        }
+    }
+
+    const savedSidebar = localStorage.getItem(STORAGE_KEY_SIDEBAR_COLLAPSED);
+    applySidebarCollapsed(savedSidebar !== 'false');
+
+    if (sidebarToggle) {
+        sidebarToggle.addEventListener('click', () => {
+            const collapsed = !sidebar.classList.contains('collapsed');
+            applySidebarCollapsed(collapsed);
+            localStorage.setItem(STORAGE_KEY_SIDEBAR_COLLAPSED, String(collapsed));
+        });
     }
 
     function utxoKey(utxo) {
@@ -428,6 +456,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (tabId === 'dashboard' && isNodeRunning) {
             fetchDashboard();
+            fetchChainStrip(true);
         } else if (tabId === 'peers' && isNodeRunning) {
             fetchPeers();
         } else if (tabId === 'bip110' && isNodeRunning) {
@@ -481,7 +510,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 infoRpc.textContent = `127.0.0.1:${status.network === 'mainnet' ? '8332' : (status.network === 'testnet' ? '18332' : '18443')}`;
                 
                 fetchDashboard();
-                
+                if (currentActiveTab === 'dashboard') {
+                    fetchChainStrip(true);
+                }
+
                 if (currentActiveTab === 'peers') {
                     fetchPeers();
                 }
@@ -498,10 +530,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 syncStatusIndicator.className = 'pulse-indicator';
                 syncStatusText.textContent = 'Disconnected';
                 
-                topbarHeight.textContent = 'Block: 0';
-                topbarPeers.textContent = 'Peers: 0';
+                if (topbarBlockNumber) topbarBlockNumber.textContent = '—';
+                if (topbarPeers) topbarPeers.textContent = '0';
                 
                 resetStatsToOffline();
+                renderChainStrip({ online: false });
             }
         } catch (err) {
             console.error('Failed to connect to backend server:', err);
@@ -527,9 +560,17 @@ document.addEventListener('DOMContentLoaded', () => {
         const blockHeight = data.metrics?.block_height || data.sync?.blocks || 0;
         const peers = data.peers?.total ?? data.network?.connections ?? 0;
 
-        topbarHeight.textContent = `Block: ${blockHeight}`;
-        topbarPeers.textContent = `Peers: ${peers}`;
+        if (topbarPeers) topbarPeers.textContent = String(peers);
+        const prevBlockHeight = lastBlockHeight;
         pulseHeroBlock(blockHeight);
+        if (blockHeight !== prevBlockHeight) {
+            fetchChainStrip(true);
+        }
+
+        const uacommentPreview = document.getElementById('uacomment-preview');
+        if (uacommentPreview && data.network?.subversion) {
+            uacommentPreview.textContent = `Current subversion: ${data.network.subversion}`;
+        }
 
         const policy = data.policy || {};
         const profile = policy.profile || 'unknown';
@@ -542,7 +583,6 @@ document.addEventListener('DOMContentLoaded', () => {
             heroBip110Enforced.textContent = enforced ? 'ENFORCED' : 'NOT ENFORCED';
             heroBip110Enforced.className = enforced ? 'badge badge-success' : 'badge badge-outline';
         }
-        if (heroPeerPulse) heroPeerPulse.textContent = `${peers} peers watching`;
         if (heroPeerPrivacy) {
             heroPeerPrivacy.textContent = `Tor ${data.peers?.tor || 0} · I2P ${data.peers?.i2p || 0} · Clear ${data.peers?.clearnet || 0}`;
         }
@@ -558,14 +598,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 syncOwlEye.classList.remove('hidden');
                 syncOwlEye.classList.add('owl-watching');
             }
-            if (oracleHeroDesc) oracleHeroDesc.textContent = 'The Oracle sees all — chain fully verified, mempool under watch.';
         } else {
             syncStatusIndicator.className = 'pulse-indicator syncing';
             syncStatusText.textContent = 'Syncing...';
             dashSyncDesc.textContent = `Syncing blockchain... (${data.sync?.blocks || 0} / ${data.sync?.headers || 0})`;
             widgetStatusDot.className = 'status-dot syncing';
             if (syncOwlEye) syncOwlEye.classList.remove('hidden', 'owl-watching');
-            if (oracleHeroDesc) oracleHeroDesc.textContent = `Opening its eyes on the chain… ${syncPct.toFixed(1)}% synchronized.`;
         }
 
         dashPolicyVal.textContent = profile;
@@ -677,6 +715,179 @@ document.addEventListener('DOMContentLoaded', () => {
     function renderMempoolAuditSummary(audit) {
         if (!audit || !audit.scanned) return;
         window._lastMempoolAudit = audit;
+    }
+
+    const chainStripTrack = document.getElementById('chain-strip-track');
+    const chainStripMeta = document.getElementById('chain-strip-meta');
+    const chainStripTooltip = document.getElementById('chain-strip-tooltip');
+
+    function chainBlockStateClass(block) {
+        if (!block.available) return 'chain-block--unavailable';
+        if (block.bip110_compliant === false) return 'chain-block--bip110-fail';
+        if (block.policy_fail > 0) return 'chain-block--filtered';
+        return 'chain-block--clean';
+    }
+
+    function formatBlockHeightLabel(height) {
+        return height.toLocaleString();
+    }
+
+    function formatSatsCompact(sats) {
+        if (sats == null || sats === 0) return '0 sats';
+        if (sats >= 1_000_000_000) return `${(sats / 1e8).toFixed(4)} BTC`;
+        if (sats >= 1_000_000) return `${(sats / 1e6).toFixed(2)}M sats`;
+        if (sats >= 1_000) return `${(sats / 1e3).toFixed(1)}k sats`;
+        return `${sats.toLocaleString()} sats`;
+    }
+
+    function escapeHtml(text) {
+        return String(text)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+    }
+
+    function buildChainBlockTooltip(block, isTip) {
+        if (!block.available) {
+            return `<span class="tooltip-label">Block</span> <strong>#${formatBlockHeightLabel(block.height)}</strong>`
+                + `<span class="tooltip-row">Data unavailable (pruned or not on disk)</span>`;
+        }
+        const bip110 = block.bip110_compliant
+            ? '<span style="color:var(--accent-cyan)">Compliant</span>'
+            : '<span style="color:#ff5a5a">Non-compliant</span>';
+        const policyLine = block.policy_fail > 0
+            ? `${block.policy_fail.toLocaleString()} txs would fail your policy (${block.policy_fail_pct}%)`
+            : 'All txs pass your sovereign policy';
+        const tipNote = isTip ? '<span class="tooltip-row">Latest block (chain tip)</span>' : '';
+        const miner = block.miner_tag && block.miner_tag !== 'Unknown'
+            ? escapeHtml(block.miner_tag)
+            : 'Unknown miner';
+        const feesLine = block.fees != null
+            ? `${block.fees} BTC fees (${formatSatsCompact(block.fees_sats)})`
+            : '—';
+        const rewardLine = block.coinbase_reward != null
+            ? `${block.coinbase_reward} BTC total coinbase`
+            : '—';
+        const subsidyLine = block.subsidy != null
+            ? `${block.subsidy} BTC block subsidy`
+            : '—';
+        return `<span class="tooltip-label">Block</span> <strong>#${formatBlockHeightLabel(block.height)}</strong>`
+            + `<span class="tooltip-row">${block.n_tx.toLocaleString()} transactions</span>`
+            + `<span class="tooltip-row">Miner: ${miner}</span>`
+            + `<span class="tooltip-row">Fees: ${feesLine}</span>`
+            + `<span class="tooltip-row">Subsidy: ${subsidyLine} · Reward: ${rewardLine}</span>`
+            + `<span class="tooltip-row">Policy: ${policyLine}</span>`
+            + `<span class="tooltip-row">BIP-110: ${bip110}</span>`
+            + tipNote;
+    }
+
+    function showChainTooltip(el, html) {
+        if (!chainStripTooltip) return;
+        chainStripTooltip.innerHTML = html;
+        chainStripTooltip.classList.remove('hidden');
+        const rect = el.getBoundingClientRect();
+        const tipRect = chainStripTooltip.getBoundingClientRect();
+        let left = rect.left + rect.width / 2 - tipRect.width / 2;
+        let top = rect.top - tipRect.height - 10;
+        if (top < 8) top = rect.bottom + 10;
+        left = Math.max(8, Math.min(left, window.innerWidth - tipRect.width - 8));
+        chainStripTooltip.style.left = `${left}px`;
+        chainStripTooltip.style.top = `${top}px`;
+    }
+
+    function hideChainTooltip() {
+        if (chainStripTooltip) chainStripTooltip.classList.add('hidden');
+    }
+
+    function bindChainBlockEvents(el, block, isTip) {
+        el.addEventListener('mouseenter', () => showChainTooltip(el, buildChainBlockTooltip(block, isTip)));
+        el.addEventListener('mousemove', () => showChainTooltip(el, buildChainBlockTooltip(block, isTip)));
+        el.addEventListener('mouseleave', hideChainTooltip);
+    }
+
+    function renderChainStripPlaceholder(message) {
+        if (!chainStripTrack) return;
+        chainStripTrack.innerHTML = '';
+        for (let i = 0; i < CHAIN_STRIP_PLACEHOLDER_COUNT; i++) {
+            const el = document.createElement('div');
+            el.className = 'chain-block chain-block--placeholder';
+            el.setAttribute('role', 'listitem');
+            el.innerHTML = '<span class="chain-block-indicator"></span><span class="chain-block-height">—</span>';
+            chainStripTrack.appendChild(el);
+        }
+        if (chainStripMeta) chainStripMeta.textContent = message || 'Waiting for chain data…';
+    }
+
+    function renderChainStrip(data) {
+        if (!chainStripTrack) return;
+        const blocks = data?.blocks || [];
+        const tipHeight = data?.tip_height || 0;
+        const profile = data?.active_policy_profile;
+
+        if (!data?.online) {
+            renderChainStripPlaceholder('Node offline — start the node to watch the chain');
+            lastChainStripTip = 0;
+            return;
+        }
+
+        if (data.rpc_unavailable || blocks.length === 0) {
+            renderChainStripPlaceholder('Rebuild bitcoind for chain policy audit RPC');
+            if (chainStripMeta && tipHeight) {
+                chainStripMeta.textContent = `Tip #${tipHeight.toLocaleString()} · RPC pending`;
+            }
+            return;
+        }
+
+        const tipChanged = tipHeight > lastChainStripTip;
+        lastChainStripTip = tipHeight;
+
+        if (chainStripMeta) {
+            const clean = blocks.filter(b => b.available && b.policy_clean && b.bip110_compliant !== false).length;
+            const profileLabel = profile ? ` · ${profile}` : '';
+            chainStripMeta.textContent = `Tip #${tipHeight.toLocaleString()} · ${clean}/${blocks.length} clean${profileLabel}`;
+        }
+
+        chainStripTrack.innerHTML = '';
+        blocks.forEach((block, idx) => {
+            const isTip = block.height === tipHeight;
+            const el = document.createElement('div');
+            el.className = `chain-block ${chainBlockStateClass(block)}${isTip ? ' chain-block--tip' : ''}`;
+            if (tipChanged && isTip) el.classList.add('chain-block--new');
+            el.setAttribute('role', 'listitem');
+            el.dataset.height = String(block.height);
+
+            const barPct = block.available && block.n_tx > 0
+                ? Math.min(100, (block.policy_fail / block.n_tx) * 100)
+                : 0;
+
+            el.innerHTML = `
+                <span class="chain-block-indicator" aria-hidden="true"></span>
+                <span class="chain-block-height" title="#${block.height}">#${formatBlockHeightLabel(block.height)}</span>
+                <span class="chain-block-bar" aria-hidden="true"><span class="chain-block-bar-fill" style="width:${barPct}%"></span></span>
+            `;
+
+            el.addEventListener('animationend', () => el.classList.remove('chain-block--new'), { once: true });
+            bindChainBlockEvents(el, block, isTip);
+            chainStripTrack.appendChild(el);
+        });
+    }
+
+    async function fetchChainStrip(force = false) {
+        if (!isNodeRunning || currentActiveTab !== 'dashboard') return;
+        const now = Date.now();
+        const heightChanged = lastBlockHeight > lastChainStripTip;
+        if (!force && !heightChanged && (now - lastChainStripFetch) < CHAIN_STRIP_FETCH_MIN_MS) {
+            return;
+        }
+        lastChainStripFetch = now;
+        try {
+            const res = await fetch('/api/chain-strip');
+            if (!res.ok) return;
+            renderChainStrip(await res.json());
+        } catch (err) {
+            console.error('Error fetching chain strip:', err);
+        }
     }
 
     function openMempoolPolicyModal() {
@@ -881,6 +1092,7 @@ document.addEventListener('DOMContentLoaded', () => {
             el.className = 'rule-status-val';
         });
         if (dashboardConflictBanner) dashboardConflictBanner.classList.add('hidden');
+        renderChainStrip({ online: false });
     }
     
     function updateRejectionsPanel(topItems, total) {
@@ -1277,6 +1489,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 document.getElementById('set-addnode').value = Array.isArray(conf['addnode']) ? conf['addnode'].join(', ') : (conf['addnode'] || '');
                 document.getElementById('set-proxy').value = conf['proxy'] || '';
                 document.getElementById('set-onion').value = conf['onion'] || '';
+                document.getElementById('set-i2psam').value = conf['i2psam'] || '';
+                document.getElementById('set-torcontrol').value = conf['torcontrol'] || '';
                 document.getElementById('set-discover').checked = conf['discover'] === '1' || conf['discover'] === 1 || conf['discover'] === undefined;
                 
                 // 3. Policy Pane
@@ -1343,6 +1557,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 document.getElementById('set-rest').checked = conf['rest'] === '1' || conf['rest'] === 1;
                 document.getElementById('set-rpcworkqueue').value = conf['rpcworkqueue'] !== undefined ? conf['rpcworkqueue'] : 128;
 
+                const uacommentEl = document.getElementById('set-uacomment');
+                if (uacommentEl) {
+                    uacommentEl.value = conf['uacomment'] || '';
+                }
 
             }
         } catch (err) {
@@ -1415,6 +1633,8 @@ document.addEventListener('DOMContentLoaded', () => {
         formData['connect'] = document.getElementById('set-connect').value.trim();
         formData['addnode'] = document.getElementById('set-addnode').value.trim();
         formData['onion'] = document.getElementById('set-onion').value.trim();
+        formData['i2psam'] = document.getElementById('set-i2psam').value.trim();
+        formData['torcontrol'] = document.getElementById('set-torcontrol').value.trim();
         formData['discover'] = document.getElementById('set-discover').checked ? 1 : 0;
         
         // 3. Policy
@@ -1473,7 +1693,10 @@ document.addEventListener('DOMContentLoaded', () => {
         formData['rest'] = document.getElementById('set-rest').checked ? 1 : 0;
         formData['rpcworkqueue'] = parseInt(document.getElementById('set-rpcworkqueue').value);
 
-
+        const uacommentEl = document.getElementById('set-uacomment');
+        if (uacommentEl) {
+            formData['uacomment'] = uacommentEl.value.trim();
+        }
 
         try {
             btnSaveVisualSettings.disabled = true;
@@ -2423,6 +2646,29 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    const cliRefBody = document.getElementById('cli-ref-body');
+    const cliRefPanel = document.getElementById('cli-reference-panel');
+    const cliRefCollapse = document.getElementById('cli-ref-collapse');
+
+    if (cliRefBody) {
+        cliRefBody.querySelectorAll('.cli-ref-item').forEach(item => {
+            item.addEventListener('click', () => {
+                const cmd = item.dataset.cmd;
+                if (!cmd || !cliInput) return;
+                cliInput.value = cmd;
+                cliInput.focus();
+            });
+        });
+    }
+
+    if (cliRefCollapse && cliRefPanel) {
+        cliRefCollapse.addEventListener('click', () => {
+            const hidden = cliRefPanel.classList.toggle('collapsed');
+            cliRefCollapse.textContent = hidden ? '+' : '−';
+            cliRefCollapse.title = hidden ? 'Expand reference' : 'Collapse reference';
+        });
+    }
+
     async function fetchWalletAddresses() {
         if (!activeWalletName || !walletAddressesList) return;
         try {
@@ -2890,5 +3136,6 @@ document.addEventListener('DOMContentLoaded', () => {
     // ----------------------------------------------------
     // Application Initialization
     // ----------------------------------------------------
+    renderChainStripPlaceholder('Latest blocks on chain');
     startMetricsPolling();
 });

@@ -269,6 +269,73 @@ POLICY_PRESETS = {
 GUI_STATE_DIR = os.path.expanduser("~/.oracle-knots-gui")
 _dashboard_cache = {"ts": 0.0, "data": None}
 DASHBOARD_CACHE_TTL = 2.0
+_chain_strip_cache = {"ts": 0.0, "tip_height": None, "data": None}
+CHAIN_STRIP_CACHE_TTL = 30.0
+CHAIN_STRIP_BLOCK_COUNT = 12
+
+
+def _normalize_chain_block(raw):
+    """Normalize one block entry from getrecentblockpolicyaudit for the GUI."""
+    if not raw or not isinstance(raw, dict):
+        return None
+    height = raw.get("height")
+    if height is None:
+        return None
+    available = bool(raw.get("available", False))
+    n_tx = int(raw.get("n_tx") or 0)
+    policy_fail = int(raw.get("policy_fail") or 0) if available else 0
+    policy_pass = int(raw.get("policy_pass") or 0) if available else 0
+    fail_pct = round((policy_fail / n_tx) * 100, 2) if available and n_tx > 0 else 0.0
+    return {
+        "height": int(height),
+        "hash": raw.get("hash", ""),
+        "time": int(raw.get("time") or 0),
+        "n_tx": n_tx,
+        "available": available,
+        "bip110_compliant": raw.get("bip110_compliant") if available else None,
+        "policy_pass": policy_pass,
+        "policy_fail": policy_fail,
+        "policy_clean": bool(raw.get("policy_clean")) if available else None,
+        "policy_fail_pct": fail_pct,
+        "subsidy": raw.get("subsidy") if available else None,
+        "fees": raw.get("fees") if available else None,
+        "coinbase_reward": raw.get("coinbase_reward") if available else None,
+        "fees_sats": int(raw.get("fees_sats") or 0) if available else None,
+        "miner_tag": raw.get("miner_tag") if available else None,
+    }
+
+
+def _build_chain_strip(running, pid, count=CHAIN_STRIP_BLOCK_COUNT):
+    if not running:
+        return {
+            "online": False,
+            "blocks": [],
+            "tip_height": 0,
+            "active_policy_profile": None,
+        }
+    datadir = get_node_datadir(pid)
+    network = get_node_network(pid)
+    audit = _rpc_json("getrecentblockpolicyaudit", datadir, network, timeout=45.0)
+    if not audit:
+        chain = _rpc_json("getblockchaininfo", datadir, network) or {}
+        tip = int(chain.get("blocks") or 0)
+        return {
+            "online": True,
+            "blocks": [],
+            "tip_height": tip,
+            "active_policy_profile": None,
+            "rpc_unavailable": True,
+        }
+    blocks = [
+        b for b in (_normalize_chain_block(x) for x in (audit.get("blocks") or []))
+        if b is not None
+    ]
+    return {
+        "online": True,
+        "blocks": blocks,
+        "tip_height": int(audit.get("tip_height") or 0),
+        "active_policy_profile": audit.get("active_policy_profile"),
+    }
 
 def _bool_cli(val):
     return "true" if val else "false"
@@ -440,11 +507,11 @@ def _backup_policy_file(path):
     except Exception:
         pass
 
-def _rpc_json(method, datadir, network, extra_args=None):
+def _rpc_json(method, datadir, network, extra_args=None, timeout=5.0):
     cmd = [method]
     if extra_args:
         cmd.extend(str(a) for a in extra_args)
-    success, output = run_bitcoin_cli(cmd, datadir, network)
+    success, output = run_bitcoin_cli(cmd, datadir, network, timeout=timeout)
     if not success:
         return None
     try:
@@ -478,12 +545,19 @@ def _build_preflight(running, datadir, network):
             "message": "Node is not running.",
             "recommendation": "Start the node to enable mempool audit and template stats.",
         })
-        if not bitcoin_conf.get("proxy") and network == "mainnet":
-            checks.append({
-                "id": "privacy_tor", "severity": "warning",
-                "message": "No Tor proxy in bitcoin.conf (offline check).",
-                "recommendation": "Set proxy=127.0.0.1:9050 for mainnet privacy.",
-            })
+        if network == "mainnet":
+            if not bitcoin_conf.get("onion") and not bitcoin_conf.get("proxy"):
+                checks.append({
+                    "id": "privacy_tor", "severity": "warning",
+                    "message": "No Tor proxy (onion/proxy) in bitcoin.conf.",
+                    "recommendation": "Set onion=127.0.0.1:9050 and run scripts/setup-tor-i2p.sh.",
+                })
+            if bitcoin_conf.get("i2pacceptincoming") in (1, "1") and not bitcoin_conf.get("i2psam"):
+                checks.append({
+                    "id": "privacy_i2p", "severity": "warning",
+                    "message": "I2P incoming enabled but i2psam is not set.",
+                    "recommendation": "Set i2psam=127.0.0.1:7656 and run scripts/setup-tor-i2p.sh.",
+                })
 
     conf_profile = bitcoin_conf.get("policyprofile")
     if conf_profile and conf_profile != parsed_policy.get("profile"):
@@ -609,6 +683,33 @@ def _build_dashboard(running, pid):
 # ----------------------------------------------------
 # Configuration Parsing / Updating Utilities
 # ----------------------------------------------------
+UA_COMMENT_UNSAFE = set("/:()")
+UA_COMMENT_MAX_LEN = 64
+
+
+def _sanitize_uacomment(value):
+    """Sanitize -uacomment per Bitcoin Core rules (BIP-14 subset)."""
+    if value is None:
+        return ""
+    text = str(value).strip()
+    if not text:
+        return ""
+    if len(text) > UA_COMMENT_MAX_LEN:
+        raise ValueError(
+            f"User Agent comment must be {UA_COMMENT_MAX_LEN} characters or fewer"
+        )
+    for ch in text:
+        if ch in UA_COMMENT_UNSAFE:
+            raise ValueError(
+                f"User Agent comment contains unsafe character: {ch!r} (forbidden: / : ( ))"
+            )
+        if ord(ch) > 127:
+            raise ValueError(
+                f"User Agent comment contains non-ASCII character: {ch!r}"
+            )
+    return text
+
+
 def parse_bitcoin_conf(file_path):
     config = {}
     if not os.path.exists(file_path):
@@ -920,6 +1021,35 @@ def api_mempool_audit():
         return {"success": False, "error": "getmempoolpolicyaudit unavailable — rebuild bitcoind"}
     return {"success": True, "audit": audit}
 
+@route('/api/chain-strip')
+def api_chain_strip():
+    global _chain_strip_cache
+    now = time.time()
+    running, pid = check_node_running()
+    tip_height = None
+    if running:
+        chain = _rpc_json(
+            "getblockchaininfo",
+            get_node_datadir(pid),
+            get_node_network(pid),
+        ) or {}
+        tip_height = chain.get("blocks")
+
+    cached = _chain_strip_cache.get("data")
+    cache_tip = _chain_strip_cache.get("tip_height")
+    cache_age = now - _chain_strip_cache.get("ts", 0.0)
+    if (
+        cached is not None
+        and cache_age < CHAIN_STRIP_CACHE_TTL
+        and (tip_height is None or tip_height == cache_tip)
+    ):
+        return cached
+
+    data = _build_chain_strip(running, pid)
+    _chain_strip_cache = {"ts": now, "tip_height": tip_height, "data": data}
+    return data
+
+
 @route('/api/dashboard')
 def api_dashboard():
     global _dashboard_cache
@@ -1095,7 +1225,7 @@ def api_save_parsed_config():
     # Fully expanded key mappings from forms
     bitcoin_keys = [
         "maxmempool", "dbcache", "maxconnections", "txindex", 
-        "blocksonly", "proxy", "onion", "listenonion", "discover",
+        "blocksonly", "proxy", "onion", "i2psam", "torcontrol", "listenonion", "discover",
         "prometheus", "prometheusport", "prune", "listen",
         "connect", "addnode", "par", "server", "rpcport", "rpcallowip",
         "onlynet", "i2pacceptincoming", "peerblockfilters", "blockfilterindex",
@@ -1108,7 +1238,7 @@ def api_save_parsed_config():
         "blockreconstructionextratxn", "blockreconstructionextratxnsize",
         "coinstatsindex", "mempoolexpiry", "persistmempool", "maxorphantx", "datum",
         "chain", "rest", "rpcworkqueue",
-        "policyprofile", "bip110", "rejectinscriptions",
+        "policyprofile", "bip110", "rejectinscriptions", "uacomment",
     ]
 
 
@@ -1123,6 +1253,14 @@ def api_save_parsed_config():
             bitcoin_settings[k] = val
         elif k.startswith("custom_rules.") or k in ["profile", "bip110_mode"]:
             policy_settings[k] = val
+
+    if "uacomment" in bitcoin_settings:
+        try:
+            bitcoin_settings["uacomment"] = _sanitize_uacomment(
+                bitcoin_settings["uacomment"]
+            )
+        except ValueError as e:
+            return {"success": False, "error": str(e)}
             
     try:
         _backup_policy_file(policy_toml_path)

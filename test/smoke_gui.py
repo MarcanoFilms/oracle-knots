@@ -67,6 +67,10 @@ def main():
     status, pre = get("/api/preflight")
     assert status == 200 and "checks" in pre
 
+    status, chain = get("/api/chain-strip")
+    assert status == 200
+    assert "blocks" in chain and "tip_height" in chain
+
     print("GUI smoke tests passed")
     return 0
 

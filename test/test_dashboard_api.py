@@ -79,6 +79,48 @@ def test_build_setsovereignpolicy_args_preset():
     assert args == ["setsovereignpolicy", "maximalist"]
 
 
+def test_normalize_chain_block():
+    raw = {
+        "height": 900001,
+        "hash": "abc",
+        "time": 1719000000,
+        "n_tx": 2500,
+        "available": True,
+        "bip110_compliant": True,
+        "policy_pass": 2490,
+        "policy_fail": 10,
+        "policy_clean": False,
+    }
+    block = gui._normalize_chain_block(raw)
+    assert block["height"] == 900001
+    assert block["policy_fail"] == 10
+    assert block["policy_fail_pct"] == 0.4
+    assert block["policy_clean"] is False
+
+    unavailable = gui._normalize_chain_block({
+        "height": 1, "n_tx": 1, "available": False,
+    })
+    assert unavailable["policy_fail"] == 0
+    assert unavailable["bip110_compliant"] is None
+
+
+def test_sanitize_uacomment():
+    assert gui._sanitize_uacomment("sovereign-miner") == "sovereign-miner"
+    assert gui._sanitize_uacomment("  trimmed  ") == "trimmed"
+    assert gui._sanitize_uacomment("") == ""
+    assert gui._sanitize_uacomment(None) == ""
+    try:
+        gui._sanitize_uacomment("bad/slash")
+        assert False, "expected ValueError"
+    except ValueError:
+        pass
+    try:
+        gui._sanitize_uacomment("x" * 65)
+        assert False, "expected ValueError"
+    except ValueError:
+        pass
+
+
 if __name__ == "__main__":
     test_summarize_peers()
     test_top_rejections()
@@ -86,4 +128,6 @@ if __name__ == "__main__":
     test_parse_rdts_deployment()
     test_policy_preset_detection()
     test_build_setsovereignpolicy_args_preset()
+    test_normalize_chain_block()
+    test_sanitize_uacomment()
     print("Dashboard API unit tests passed")

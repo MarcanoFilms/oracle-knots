@@ -51,9 +51,19 @@ Use **Dashboard → Sovereign Mining** or `bitcoin-cli getsovereigntemplatestats
 
 Reason codes map to operator text (e.g. `inscription` → "Ordinals inscription detected").
 
+## User Agent Comment (`uacomment`)
+
+Append a custom tag to your node's P2P user agent (equivalent to `-uacomment=` in `bitcoin.conf`). This does **not** change the full user agent string — only adds a comment per BIP-14.
+
+- **GUI**: Configuration → P2P Network → Node Identity
+- **Config file**: `uacomment=sovereign-miner` in `bitcoin.conf`
+- **Requires node restart** to take effect
+- **Unsafe characters** (rejected): `/`, `:`, `(`, `)`, non-ASCII. Max 64 characters in the GUI.
+
 ## GUI
 
-- **Dashboard**: Sovereign Mining card, RDTS signaling progress bar, mempool pass rate
+- **Dashboard**: Collapsible sidebar (icons only by default), prominent block height, Sovereign Mining card, RDTS progress bar
+- **Oracle CLI**: Command reference panel with descriptions (click to insert)
 - **Mempool Policy** button: modal with audit breakdown
 - **Preflight** banner: Tor, policy conflicts, sync, prune notes
 - **Logs tab**: "Policy only" filter for `Oracle Policy` lines

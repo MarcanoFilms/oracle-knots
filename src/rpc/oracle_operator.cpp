@@ -4,7 +4,9 @@
 #include <chain.h>
 #include <chainparams.h>
 #include <common/args.h>
+#include <consensus/tx_verify.h>
 #include <consensus/validation.h>
+#include <node/blockstorage.h>
 #include <core_io.h>
 #include <deploymentinfo.h>
 #include <deploymentstatus.h>
@@ -20,6 +22,7 @@
 #include <validation.h>
 
 using node::BlockAssembler;
+using node::BlockManager;
 using node::NodeContext;
 
 static UniValue TemplateStatsToJSON()
@@ -160,6 +163,22 @@ static std::string NormalizeReasonKey(const std::string& reason)
     return reason.empty() ? "policy" : reason;
 }
 
+static int ParseBoundedIntArg(const UniValue& val, int default_val, int min_val, int max_val)
+{
+    if (val.isNull()) return default_val;
+    int parsed = default_val;
+    if (val.isNum()) {
+        parsed = val.getInt<int>();
+    } else if (val.isStr()) {
+        if (!ParseInt32(val.get_str(), &parsed)) {
+            throw JSONRPCError(RPC_TYPE_ERROR, "Invalid integer argument");
+        }
+    } else {
+        throw JSONRPCError(RPC_TYPE_ERROR, "Invalid integer argument");
+    }
+    return std::min(max_val, std::max(min_val, parsed));
+}
+
 static RPCHelpMan getmempoolpolicyaudit()
 {
     return RPCHelpMan{"getmempoolpolicyaudit",
@@ -228,6 +247,195 @@ static RPCHelpMan getmempoolpolicyaudit()
         }};
 }
 
+static void AuditBlockPolicy(const CBlock& block, const kernel::MemPoolOptions& opts,
+                             uint64_t& policy_pass, uint64_t& policy_fail, bool& bip110_compliant)
+{
+    policy_pass = 0;
+    policy_fail = 0;
+    bip110_compliant = true;
+    for (const CTransactionRef& tx : block.vtx) {
+        TxValidationState tx_state;
+        if (!Consensus::CheckOutputSizes(*tx, tx_state)) {
+            bip110_compliant = false;
+        }
+        std::string reason;
+        if (IsStandardTx(*tx, opts, reason, empty_ignore_rejects, /*record_rejections=*/false)) {
+            policy_pass++;
+        } else {
+            policy_fail++;
+        }
+    }
+}
+
+static bool BlockDataAvailable(BlockManager& blockman, const CBlockIndex& index)
+{
+    if (!(index.nStatus & BLOCK_HAVE_DATA)) {
+        return false;
+    }
+    return !blockman.IsBlockPruned(index);
+}
+
+static std::string ExtractCoinbaseMinerTag(const CBlock& block)
+{
+    if (block.vtx.empty() || block.vtx[0]->vin.empty()) return "Unknown";
+    const std::vector<unsigned char> script(block.vtx[0]->vin[0].scriptSig.begin(), block.vtx[0]->vin[0].scriptSig.end());
+    std::string best;
+    std::string current;
+    for (unsigned char c : script) {
+        if (c >= 0x20 && c <= 0x7e) {
+            current += static_cast<char>(c);
+        } else {
+            if (current.size() >= 3 && current.size() > best.size()) {
+                best = current;
+            }
+            current.clear();
+        }
+    }
+    if (current.size() >= 3 && current.size() > best.size()) {
+        best = current;
+    }
+    if (best.empty()) return "Unknown";
+    if (best.size() > 64) best.resize(64);
+    return best;
+}
+
+static void PushCoinbaseEconomics(UniValue& item, const CBlock& block, int height, const Consensus::Params& consensus)
+{
+    if (block.vtx.empty()) return;
+    CAmount coinbase_value{0};
+    for (const auto& out : block.vtx[0]->vout) {
+        coinbase_value += out.nValue;
+    }
+    const CAmount subsidy = GetBlockSubsidy(height, consensus);
+    const CAmount fees = coinbase_value - subsidy;
+    item.pushKV("subsidy", ValueFromAmount(subsidy));
+    item.pushKV("fees", ValueFromAmount(fees));
+    item.pushKV("coinbase_reward", ValueFromAmount(coinbase_value));
+    item.pushKV("fees_sats", fees);
+    item.pushKV("miner_tag", ExtractCoinbaseMinerTag(block));
+}
+
+static RPCHelpMan getrecentblockpolicyaudit()
+{
+    return RPCHelpMan{"getrecentblockpolicyaudit",
+        "\nAudit the most recent blocks against sovereign policy and BIP-110 output limits.\n"
+        "Works in pruned mode for blocks still on disk (typically the chain tip window).\n",
+        {
+            {"count", RPCArg::Type::NUM, RPCArg::Default{12},
+                "Number of recent blocks to audit (1-24, oldest to newest)"},
+        },
+        RPCResult{RPCResult::Type::OBJ, "", "",
+            {
+                {RPCResult::Type::ARR, "blocks", "Blocks from oldest to newest",
+                    {
+                        {RPCResult::Type::OBJ, "", "",
+                            {
+                                {RPCResult::Type::NUM, "height", "Block height"},
+                                {RPCResult::Type::STR_HEX, "hash", "Block hash"},
+                                {RPCResult::Type::NUM, "time", "Block time (unix)"},
+                                {RPCResult::Type::NUM, "n_tx", "Transaction count"},
+                                {RPCResult::Type::BOOL, "available", "Whether full block data was read"},
+                                {RPCResult::Type::BOOL, "bip110_compliant", "BIP-110 output size compliance"},
+                                {RPCResult::Type::NUM, "policy_pass", "Transactions passing sovereign policy"},
+                                {RPCResult::Type::NUM, "policy_fail", "Transactions failing sovereign policy"},
+                                {RPCResult::Type::BOOL, "policy_clean", "True when policy_fail is 0"},
+                                {RPCResult::Type::STR_AMOUNT, "subsidy", "Block subsidy (coinbase minus fees)"},
+                                {RPCResult::Type::STR_AMOUNT, "fees", "Total transaction fees in coinbase"},
+                                {RPCResult::Type::STR_AMOUNT, "coinbase_reward", "Total coinbase output value"},
+                                {RPCResult::Type::NUM, "fees_sats", "Fees in satoshis"},
+                                {RPCResult::Type::STR, "miner_tag", "Miner/pool tag from coinbase scriptSig"},
+                            }},
+                    }},
+                {RPCResult::Type::NUM, "tip_height", "Current chain tip height"},
+                {RPCResult::Type::STR, "active_policy_profile", "Active policy profile"},
+            }},
+        RPCExamples{
+            HelpExampleCli("getrecentblockpolicyaudit", "12")
+            + HelpExampleRpc("getrecentblockpolicyaudit", "12")},
+        [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue {
+            NodeContext& node = EnsureAnyNodeContext(request.context);
+            ChainstateManager& chainman = EnsureChainman(node);
+            const CTxMemPool& mempool = EnsureMemPool(node);
+
+            const int count = request.params.size() > 0
+                ? ParseBoundedIntArg(request.params[0], 12, 1, 24)
+                : 12;
+
+            kernel::MemPoolOptions opts;
+            {
+                LOCK(mempool.cs);
+                opts = mempool.m_opts;
+            }
+
+            UniValue blocks(UniValue::VARR);
+            int tip_height = 0;
+
+            LOCK(cs_main);
+            const CBlockIndex* tip = chainman.ActiveChain().Tip();
+            if (!tip) {
+                UniValue result(UniValue::VOBJ);
+                result.pushKV("blocks", std::move(blocks));
+                result.pushKV("tip_height", 0);
+                result.pushKV("active_policy_profile", OraclePolicy::g_active_profile);
+                return result;
+            }
+
+            tip_height = tip->nHeight;
+            const int start_height = std::max(0, tip_height - count + 1);
+
+            for (int height = start_height; height <= tip_height; ++height) {
+                const CBlockIndex* pindex = chainman.ActiveChain()[height];
+                if (!pindex) continue;
+
+                UniValue item(UniValue::VOBJ);
+                item.pushKV("height", pindex->nHeight);
+                item.pushKV("hash", pindex->GetBlockHash().GetHex());
+                item.pushKV("time", pindex->GetBlockTime());
+                item.pushKV("n_tx", static_cast<uint64_t>(pindex->nTx));
+
+                if (!BlockDataAvailable(chainman.m_blockman, *pindex)) {
+                    item.pushKV("available", false);
+                    item.pushKV("bip110_compliant", UniValue());
+                    item.pushKV("policy_pass", UniValue());
+                    item.pushKV("policy_fail", UniValue());
+                    item.pushKV("policy_clean", UniValue());
+                    blocks.push_back(std::move(item));
+                    continue;
+                }
+
+                CBlock block;
+                if (!chainman.m_blockman.ReadBlock(block, *pindex)) {
+                    item.pushKV("available", false);
+                    item.pushKV("bip110_compliant", UniValue());
+                    item.pushKV("policy_pass", UniValue());
+                    item.pushKV("policy_fail", UniValue());
+                    item.pushKV("policy_clean", UniValue());
+                    blocks.push_back(std::move(item));
+                    continue;
+                }
+
+                uint64_t policy_pass = 0;
+                uint64_t policy_fail = 0;
+                bool bip110_compliant = true;
+                AuditBlockPolicy(block, opts, policy_pass, policy_fail, bip110_compliant);
+
+                item.pushKV("available", true);
+                item.pushKV("bip110_compliant", bip110_compliant);
+                item.pushKV("policy_pass", policy_pass);
+                item.pushKV("policy_fail", policy_fail);
+                item.pushKV("policy_clean", policy_fail == 0);
+                PushCoinbaseEconomics(item, block, pindex->nHeight, chainman.GetParams().GetConsensus());
+                blocks.push_back(std::move(item));
+            }
+
+            UniValue result(UniValue::VOBJ);
+            result.pushKV("blocks", std::move(blocks));
+            result.pushKV("tip_height", tip_height);
+            result.pushKV("active_policy_profile", OraclePolicy::g_active_profile);
+            return result;
+        }};
+}
+
 static RPCHelpMan getrecentpolicyrejections()
 {
     return RPCHelpMan{"getrecentpolicyrejections",
@@ -276,6 +484,7 @@ void RegisterOracleOperatorRPCCommands(CRPCTable& t)
         {"util", &getsovereigndiagnostics},
         {"mining", &getmempoolpolicyaudit},
         {"util", &getrecentpolicyrejections},
+        {"util", &getrecentblockpolicyaudit},
     };
     for (const auto& c : commands) {
         t.appendCommand(c.name, &c);
