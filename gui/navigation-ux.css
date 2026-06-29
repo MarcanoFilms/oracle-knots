@@ -1,0 +1,433 @@
+/*
+  Navigation UX Enhancements
+  Breadcrumbs, command palette, navigation improvements
+*/
+
+/* ============================================================================
+   BREADCRUMBS
+   ============================================================================ */
+
+.breadcrumb-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  background: rgba(0, 240, 255, 0.02);
+  border-bottom: 1px solid var(--border-color);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.breadcrumb-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.breadcrumb-item a {
+  color: var(--accent-cyan);
+  text-decoration: none;
+  cursor: pointer;
+  transition: all var(--transition-speed);
+  padding: 2px 4px;
+  border-radius: 2px;
+}
+
+.breadcrumb-item a:hover {
+  color: #00ffff;
+  background: rgba(0, 240, 255, 0.1);
+}
+
+.breadcrumb-item.active {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.breadcrumb-separator {
+  color: var(--text-muted);
+}
+
+/* ============================================================================
+   COMMAND PALETTE (Ctrl+K)
+   ============================================================================ */
+
+.command-palette-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.7);
+  display: none;
+  align-items: flex-start;
+  justify-content: center;
+  z-index: 3000;
+  backdrop-filter: blur(2px);
+  padding-top: 10vh;
+}
+
+.command-palette-backdrop.active {
+  display: flex;
+}
+
+.command-palette {
+  background: var(--bg-darker);
+  border: 1px solid var(--border-color-glow);
+  border-radius: var(--border-radius-md);
+  width: 90%;
+  max-width: 600px;
+  max-height: 500px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 20px 80px rgba(0, 0, 0, 0.8);
+}
+
+.command-palette-header {
+  padding: 16px;
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.command-palette-icon {
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent-cyan);
+  font-size: 14px;
+}
+
+.command-palette-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  font-size: 16px;
+  outline: none;
+  font-family: var(--font-sans);
+}
+
+.command-palette-input::placeholder {
+  color: var(--text-muted);
+}
+
+.command-palette-results {
+  flex: 1;
+  overflow-y: auto;
+  max-height: 350px;
+}
+
+.command-palette-empty {
+  padding: 24px;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.command-palette-group {
+  padding: 8px 0;
+}
+
+.command-palette-group-label {
+  padding: 8px 16px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  letter-spacing: 1px;
+}
+
+.command-palette-item {
+  padding: 10px 16px;
+  cursor: pointer;
+  transition: all var(--transition-speed);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-left: 2px solid transparent;
+  color: var(--text-secondary);
+}
+
+.command-palette-item:hover {
+  background: rgba(0, 240, 255, 0.1);
+  color: var(--text-primary);
+  border-left-color: var(--accent-cyan);
+}
+
+.command-palette-item.selected {
+  background: rgba(0, 240, 255, 0.15);
+  color: var(--accent-cyan);
+  border-left-color: var(--accent-cyan);
+}
+
+.command-palette-item-icon {
+  flex-shrink: 0;
+  width: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+}
+
+.command-palette-item-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.command-palette-item-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: inherit;
+}
+
+.command-palette-item-shortcut {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-left: auto;
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+}
+
+.command-palette-footer {
+  padding: 8px 16px;
+  border-top: 1px solid var(--border-color);
+  font-size: 11px;
+  color: var(--text-muted);
+  background: rgba(0, 0, 0, 0.2);
+  display: flex;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.command-palette-help {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+/* ============================================================================
+   ENHANCED NAVIGATION MENU
+   ============================================================================ */
+
+.nav-section {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.nav-section:last-child {
+  border-bottom: none;
+}
+
+.nav-section-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  letter-spacing: 0.5px;
+  padding: 8px 16px;
+  margin-bottom: 4px;
+}
+
+.nav-item-with-submenu {
+  position: relative;
+}
+
+.nav-item-submenu {
+  display: none;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px 8px 4px 28px;
+  background: rgba(0, 240, 255, 0.03);
+}
+
+.nav-item-with-submenu.expanded > .nav-item-submenu {
+  display: flex;
+}
+
+.nav-submenu-item {
+  padding: 6px 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all var(--transition-speed);
+}
+
+.nav-submenu-item:hover {
+  background: rgba(0, 240, 255, 0.1);
+  color: var(--accent-cyan);
+}
+
+.nav-submenu-item.active {
+  background: rgba(0, 240, 255, 0.15);
+  color: var(--accent-cyan);
+  font-weight: 500;
+}
+
+/* ============================================================================
+   BACK BUTTON & NAVIGATION CONTEXT
+   ============================================================================ */
+
+.back-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--accent-cyan);
+  background: transparent;
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  cursor: pointer;
+  transition: all var(--transition-speed);
+}
+
+.back-button:hover {
+  background: rgba(0, 240, 255, 0.1);
+  border-color: var(--accent-cyan);
+}
+
+.back-button svg {
+  width: 14px;
+  height: 14px;
+}
+
+.page-header-with-nav {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: rgba(0, 240, 255, 0.02);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.page-header-title {
+  flex: 1;
+}
+
+.page-header-title h2 {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.page-header-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* ============================================================================
+   CONTEXTUAL LINKS & BREADCRUMB ALTERNATIVES
+   ============================================================================ */
+
+.contextual-nav {
+  padding: 12px 16px;
+  background: rgba(0, 240, 255, 0.02);
+  border-radius: var(--border-radius);
+  margin: 16px 0;
+}
+
+.contextual-nav-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+  letter-spacing: 0.5px;
+}
+
+.contextual-nav-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.contextual-link {
+  padding: 6px 10px;
+  font-size: 12px;
+  background: transparent;
+  color: var(--accent-cyan);
+  border: 1px solid rgba(0, 240, 255, 0.3);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all var(--transition-speed);
+  text-decoration: none;
+}
+
+.contextual-link:hover {
+  background: rgba(0, 240, 255, 0.1);
+  border-color: var(--accent-cyan);
+}
+
+/* ============================================================================
+   KEYBOARD SHORTCUTS
+   ============================================================================ */
+
+.keyboard-hint {
+  display: inline-block;
+  padding: 2px 6px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--border-color);
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+
+/* ============================================================================
+   RESPONSIVE NAVIGATION
+   ============================================================================ */
+
+@media (max-width: 768px) {
+  .breadcrumb-nav {
+    padding: 8px 12px;
+    overflow-x: auto;
+  }
+
+  .command-palette {
+    width: 95%;
+    max-width: none;
+  }
+
+  .nav-section-label {
+    padding: 6px 12px;
+  }
+
+  .page-header-with-nav {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .page-header-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .contextual-nav-links {
+    flex-direction: column;
+  }
+
+  .contextual-link {
+    flex: 1;
+    text-align: center;
+  }
+}
+
+/* ============================================================================
+   KEYBOARD NAVIGATION
+   ============================================================================ */
+
+@media (prefers-reduced-motion: reduce) {
+  .command-palette-item,
+  .command-palette-item:hover,
+  .breadcrumb-item a,
+  .back-button {
+    transition: none;
+  }
+}

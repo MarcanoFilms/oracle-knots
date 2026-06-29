@@ -1,0 +1,607 @@
+/*
+  Onboarding & Help System CSS
+  Tooltips, help content, first-run checklist, command reference
+*/
+
+/* ============================================================================
+   TOOLTIPS & CONTEXTUAL HELP
+   ============================================================================ */
+
+.help-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: rgba(0, 240, 255, 0.1);
+  border: 1px solid var(--accent-cyan);
+  color: var(--accent-cyan);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: help;
+  margin-left: 4px;
+  transition: all var(--transition-speed);
+  flex-shrink: 0;
+}
+
+.help-icon:hover {
+  background: rgba(0, 240, 255, 0.2);
+  box-shadow: 0 0 8px rgba(0, 240, 255, 0.3);
+}
+
+/* Tooltip Container */
+.tooltip {
+  position: relative;
+  display: inline-block;
+}
+
+.tooltip .tooltip-text {
+  visibility: hidden;
+  width: 250px;
+  background: var(--bg-darker);
+  color: var(--text-primary);
+  text-align: left;
+  border-radius: var(--border-radius);
+  padding: 10px 12px;
+  position: absolute;
+  z-index: 1000;
+  bottom: 125%;
+  left: 50%;
+  margin-left: -125px;
+  opacity: 0;
+  transition: opacity var(--transition-speed);
+  border: 1px solid var(--border-color-glow);
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.4);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.tooltip .tooltip-text::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  margin-left: -5px;
+  border-width: 5px;
+  border-style: solid;
+  border-color: var(--bg-darker) transparent transparent transparent;
+}
+
+.tooltip:hover .tooltip-text {
+  visibility: visible;
+  opacity: 1;
+}
+
+/* Tooltip on Right (for mobile) */
+.tooltip.tooltip-right .tooltip-text {
+  bottom: auto;
+  left: 125%;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.tooltip.tooltip-right .tooltip-text::after {
+  top: 50%;
+  left: auto;
+  right: 100%;
+  transform: translateY(-50%);
+  border-color: transparent var(--bg-darker) transparent transparent;
+}
+
+/* ============================================================================
+   FIRST-RUN CHECKLIST MODAL
+   ============================================================================ */
+
+.first-run-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  backdrop-filter: blur(4px);
+}
+
+.first-run-modal.hidden {
+  display: none;
+}
+
+.first-run-checklist {
+  background: var(--bg-darker);
+  border: 1px solid var(--border-color-glow);
+  border-radius: var(--border-radius-md);
+  max-width: 500px;
+  width: 90%;
+  overflow: hidden;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8);
+}
+
+.checklist-header {
+  background: linear-gradient(135deg, rgba(0, 240, 255, 0.15), rgba(189, 94, 255, 0.1));
+  border-bottom: 1px solid var(--border-color);
+  padding: 24px;
+}
+
+.checklist-header h2 {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 4px 0;
+}
+
+.checklist-header p {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.checklist-progress {
+  margin-top: 16px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.progress-bar {
+  flex: 1;
+  height: 4px;
+  background: var(--bg-dark);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.progress-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent-cyan), var(--accent-purple));
+  transition: width 0.3s ease;
+}
+
+.progress-text {
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.checklist-body {
+  padding: 16px;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.checklist-item {
+  display: flex;
+  gap: 12px;
+  padding: 12px;
+  margin-bottom: 8px;
+  background: rgba(0, 240, 255, 0.02);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  align-items: flex-start;
+  transition: all var(--transition-speed);
+}
+
+.checklist-item.completed {
+  background: rgba(0, 255, 170, 0.05);
+  border-color: rgba(0, 255, 170, 0.2);
+}
+
+.checklist-checkbox {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  border: 2px solid var(--border-color);
+  background: var(--bg-dark);
+  cursor: pointer;
+  transition: all var(--transition-speed);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 2px;
+}
+
+.checklist-checkbox:hover {
+  border-color: var(--accent-cyan);
+}
+
+.checklist-item.completed .checklist-checkbox {
+  background: var(--status-green);
+  border-color: var(--status-green);
+}
+
+.checklist-checkbox::after {
+  content: "✓";
+  color: var(--status-green);
+  font-weight: 600;
+  opacity: 0;
+  transition: opacity var(--transition-speed);
+}
+
+.checklist-item.completed .checklist-checkbox::after {
+  opacity: 1;
+}
+
+.checklist-content {
+  flex: 1;
+}
+
+.checklist-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+  margin: 0 0 2px 0;
+}
+
+.checklist-item.completed .checklist-title {
+  text-decoration: line-through;
+  color: var(--text-secondary);
+}
+
+.checklist-description {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.checklist-footer {
+  padding: 16px;
+  border-top: 1px solid var(--border-color);
+  background: rgba(0, 0, 0, 0.1);
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.checklist-footer .btn {
+  min-height: 40px;
+}
+
+/* ============================================================================
+   HELP PANEL & SIDEBAR
+   ============================================================================ */
+
+.help-panel {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-md);
+  overflow: hidden;
+}
+
+.help-panel-header {
+  padding: 16px;
+  background: linear-gradient(90deg, rgba(0, 240, 255, 0.05), transparent);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.help-panel-header h3 {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 4px 0;
+}
+
+.help-panel-description {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.help-panel-content {
+  padding: 16px;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.help-section {
+  margin-bottom: 16px;
+}
+
+.help-section:last-child {
+  margin-bottom: 0;
+}
+
+.help-section h4 {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 8px 0;
+}
+
+.help-section p {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin: 0 0 8px 0;
+}
+
+.help-section p:last-child {
+  margin-bottom: 0;
+}
+
+.help-section ul {
+  margin: 0;
+  padding-left: 16px;
+}
+
+.help-section li {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+.help-section code {
+  background: rgba(255, 255, 255, 0.05);
+  padding: 2px 4px;
+  border-radius: 2px;
+  font-family: var(--font-mono);
+  color: var(--accent-cyan);
+  font-size: 11px;
+}
+
+.help-link {
+  color: var(--accent-cyan);
+  text-decoration: none;
+  cursor: pointer;
+  border-bottom: 1px solid rgba(0, 240, 255, 0.3);
+  transition: all var(--transition-speed);
+}
+
+.help-link:hover {
+  color: #00ffff;
+  border-bottom-color: var(--accent-cyan);
+}
+
+/* ============================================================================
+   CLI COMMAND REFERENCE
+   ============================================================================ */
+
+.command-reference {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-md);
+  overflow: hidden;
+}
+
+.command-search {
+  padding: 12px;
+  border-bottom: 1px solid var(--border-color);
+  background: rgba(0, 240, 255, 0.02);
+}
+
+.command-search input {
+  width: 100%;
+  min-height: 36px;
+  padding: 8px 12px;
+  font-size: 13px;
+  background: var(--bg-dark);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+}
+
+.command-list {
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.command-item {
+  padding: 12px;
+  border-bottom: 1px solid var(--border-color);
+  cursor: pointer;
+  transition: all var(--transition-speed);
+}
+
+.command-item:hover {
+  background: rgba(0, 240, 255, 0.05);
+  border-left: 2px solid var(--accent-cyan);
+  padding-left: 10px;
+}
+
+.command-name {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent-cyan);
+  margin: 0 0 4px 0;
+}
+
+.command-description {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin: 0 0 6px 0;
+}
+
+.command-example {
+  background: var(--bg-dark);
+  border-left: 2px solid var(--border-color);
+  padding: 6px 8px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-primary);
+  border-radius: 2px;
+  margin: 0;
+  overflow-x: auto;
+}
+
+.command-copy-btn {
+  display: inline-block;
+  padding: 2px 6px;
+  font-size: 10px;
+  background: rgba(0, 240, 255, 0.1);
+  border: 1px solid rgba(0, 240, 255, 0.3);
+  color: var(--accent-cyan);
+  border-radius: 2px;
+  cursor: pointer;
+  transition: all var(--transition-speed);
+  margin-top: 4px;
+}
+
+.command-copy-btn:hover {
+  background: rgba(0, 240, 255, 0.2);
+  border-color: var(--accent-cyan);
+}
+
+/* ============================================================================
+   GETTING STARTED GUIDE
+   ============================================================================ */
+
+.guide-container {
+  display: grid;
+  grid-template-columns: 250px 1fr;
+  gap: 16px;
+  height: calc(100vh - 200px);
+}
+
+.guide-toc {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  overflow-y: auto;
+  padding: 0;
+}
+
+.guide-toc-header {
+  padding: 16px;
+  border-bottom: 1px solid var(--border-color);
+  background: rgba(0, 240, 255, 0.03);
+}
+
+.guide-toc-header h3 {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.guide-toc-list {
+  list-style: none;
+  margin: 0;
+  padding: 8px;
+}
+
+.guide-toc-item {
+  margin-bottom: 4px;
+}
+
+.guide-toc-link {
+  display: block;
+  padding: 10px 12px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  border-radius: 6px;
+  text-decoration: none;
+  transition: all var(--transition-speed);
+  cursor: pointer;
+}
+
+.guide-toc-link:hover {
+  background: rgba(0, 240, 255, 0.1);
+  color: var(--accent-cyan);
+}
+
+.guide-toc-link.active {
+  background: rgba(0, 240, 255, 0.15);
+  color: var(--accent-cyan);
+  font-weight: 600;
+  border-left: 2px solid var(--accent-cyan);
+  padding-left: 10px;
+}
+
+.guide-content {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  padding: 24px;
+  overflow-y: auto;
+}
+
+.guide-content h2 {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 12px 0;
+}
+
+.guide-content h3 {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 16px 0 8px 0;
+}
+
+.guide-content p {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  margin: 0 0 12px 0;
+}
+
+.guide-content ul,
+.guide-content ol {
+  margin: 0 0 12px 16px;
+  padding: 0;
+}
+
+.guide-content li {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+  line-height: 1.5;
+}
+
+.guide-content code {
+  background: rgba(255, 255, 255, 0.05);
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  color: var(--accent-cyan);
+  font-size: 12px;
+}
+
+.guide-content pre {
+  background: var(--bg-dark);
+  border: 1px solid var(--border-color);
+  padding: 12px;
+  border-radius: 6px;
+  overflow-x: auto;
+  margin: 12px 0;
+}
+
+.guide-content pre code {
+  background: none;
+  padding: 0;
+  color: var(--text-primary);
+}
+
+/* ============================================================================
+   RESPONSIVE ONBOARDING
+   ============================================================================ */
+
+@media (max-width: 768px) {
+  .guide-container {
+    grid-template-columns: 1fr;
+    height: auto;
+  }
+
+  .guide-toc {
+    display: none;
+  }
+
+  .tooltip .tooltip-text {
+    width: 200px;
+    margin-left: -100px;
+  }
+
+  .first-run-checklist {
+    width: 95%;
+  }
+
+  .help-panel {
+    max-height: 300px;
+  }
+}

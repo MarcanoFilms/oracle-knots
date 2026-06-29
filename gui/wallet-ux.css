@@ -1,0 +1,634 @@
+/*
+  Wallet UX Enhancements
+  Improved styling and interactions for wallet features
+*/
+
+/* ============================================================================
+   WALLET LAYOUT & STRUCTURE
+   ============================================================================ */
+
+.wallet-layout {
+  display: grid;
+  grid-template-columns: 1fr 2fr;
+  gap: 16px;
+  padding: 16px;
+}
+
+@media (max-width: 1024px) {
+  .wallet-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.wallet-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-md);
+  padding: 16px;
+  transition: all var(--transition-speed);
+}
+
+.wallet-card:hover {
+  border-color: var(--border-color-glow);
+}
+
+.wallet-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.wallet-selector-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex: 1;
+}
+
+.wallet-selector {
+  flex: 1;
+  min-height: 36px;
+  padding: 8px 12px;
+  font-size: 13px;
+  background: var(--bg-dark);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  cursor: pointer;
+}
+
+.wallet-selector:hover {
+  border-color: var(--border-color-glow);
+}
+
+.wallet-selector:focus {
+  outline: none;
+  border-color: var(--accent-cyan);
+  box-shadow: 0 0 0 2px rgba(0, 240, 255, 0.1);
+}
+
+/* ============================================================================
+   UTXO VISUALIZATION & COIN CONTROL
+   ============================================================================ */
+
+.utxo-stats-bar {
+  display: flex;
+  gap: 16px;
+  padding: 12px;
+  background: rgba(0, 240, 255, 0.03);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.utxo-stats-bar .divider {
+  color: var(--text-muted);
+}
+
+.utxo-table-wrap {
+  max-height: 500px;
+  overflow-y: auto;
+}
+
+.utxo-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.utxo-table thead {
+  background: var(--bg-dark);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.utxo-table thead th {
+  padding: 12px;
+  text-align: left;
+  font-weight: 600;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.utxo-table tbody td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-color);
+  color: var(--text-primary);
+}
+
+.utxo-table tbody tr:hover {
+  background: rgba(0, 240, 255, 0.05);
+}
+
+/* UTXO Status Colors */
+.utxo-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.utxo-status.spendable {
+  background: rgba(0, 255, 170, 0.15);
+  color: var(--status-green);
+}
+
+.utxo-status.spendable::before {
+  content: "●";
+  font-size: 8px;
+}
+
+.utxo-status.unconfirmed {
+  background: rgba(255, 176, 0, 0.15);
+  color: var(--status-orange);
+}
+
+.utxo-status.unconfirmed::before {
+  content: "◐";
+  font-size: 8px;
+  animation: pulse 2s infinite;
+}
+
+.utxo-status.locked {
+  background: rgba(148, 163, 184, 0.15);
+  color: var(--text-secondary);
+}
+
+.utxo-status.locked::before {
+  content: "🔒";
+}
+
+.utxo-status.immature {
+  background: rgba(189, 94, 255, 0.15);
+  color: var(--accent-purple);
+}
+
+.utxo-status.immature::before {
+  content: "⏳";
+}
+
+/* UTXO Amount Column */
+.utxo-amount {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--accent-cyan);
+}
+
+.utxo-amount.selected {
+  color: var(--status-green);
+  background: rgba(0, 255, 170, 0.1);
+  padding: 2px 4px;
+  border-radius: 2px;
+}
+
+/* ============================================================================
+   ADDRESS MANAGEMENT & LABELING
+   ============================================================================ */
+
+.address-list-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.address-item {
+  background: var(--bg-dark);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  padding: 12px;
+  transition: all var(--transition-speed);
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.address-item:hover {
+  border-color: var(--border-color-glow);
+  background: rgba(0, 240, 255, 0.03);
+}
+
+.address-item-icon {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 240, 255, 0.1);
+  border-radius: 8px;
+  font-size: 18px;
+}
+
+.address-item-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.address-item-address {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--accent-cyan);
+  word-break: break-all;
+  margin-bottom: 4px;
+}
+
+.address-item-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.address-item-label.no-label {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.address-item-meta {
+  display: flex;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 6px;
+}
+
+.address-item-actions {
+  flex-shrink: 0;
+  display: flex;
+  gap: 4px;
+}
+
+.address-item-actions .btn {
+  padding: 4px 8px;
+  font-size: 11px;
+  min-height: auto;
+}
+
+/* Label Edit Form */
+.label-edit-form {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.label-edit-form input {
+  flex: 1;
+  min-height: 32px;
+  padding: 6px 10px;
+  font-size: 13px;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border: 1px solid var(--accent-cyan);
+  border-radius: 4px;
+}
+
+.label-edit-form .btn {
+  padding: 4px 10px;
+  font-size: 11px;
+  min-height: auto;
+}
+
+/* ============================================================================
+   TRANSACTION FILTERING & SEARCH
+   ============================================================================ */
+
+.tx-filter-bar {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 12px;
+  padding: 12px;
+  background: rgba(0, 240, 255, 0.03);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  margin-bottom: 12px;
+}
+
+@media (max-width: 768px) {
+  .tx-filter-bar {
+    grid-template-columns: 1fr;
+  }
+}
+
+.tx-search-input {
+  min-height: 36px;
+  padding: 8px 12px;
+  font-size: 13px;
+  background: var(--bg-dark);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+}
+
+.tx-search-input::placeholder {
+  color: var(--text-muted);
+}
+
+.tx-search-input:focus {
+  outline: none;
+  border-color: var(--accent-cyan);
+  box-shadow: 0 0 0 2px rgba(0, 240, 255, 0.1);
+}
+
+.tx-filter-group {
+  display: flex;
+  gap: 6px;
+}
+
+.tx-filter-btn {
+  padding: 8px 12px;
+  font-size: 12px;
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all var(--transition-speed);
+}
+
+.tx-filter-btn:hover {
+  border-color: var(--accent-cyan);
+  color: var(--accent-cyan);
+}
+
+.tx-filter-btn.active {
+  background: rgba(0, 240, 255, 0.15);
+  border-color: var(--accent-cyan);
+  color: var(--accent-cyan);
+}
+
+/* Transaction List */
+.tx-list-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tx-item {
+  background: var(--bg-dark);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  padding: 12px;
+  transition: all var(--transition-speed);
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 12px;
+  align-items: center;
+}
+
+.tx-item:hover {
+  border-color: var(--border-color-glow);
+  background: rgba(0, 240, 255, 0.03);
+}
+
+.tx-icon {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  font-size: 20px;
+}
+
+.tx-icon.sent {
+  background: rgba(255, 67, 101, 0.15);
+}
+
+.tx-icon.received {
+  background: rgba(0, 255, 170, 0.15);
+}
+
+.tx-icon.pending {
+  background: rgba(255, 176, 0, 0.15);
+}
+
+.tx-content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tx-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.tx-label {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.tx-amount {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.tx-amount.sent {
+  color: var(--status-red);
+}
+
+.tx-amount.received {
+  color: var(--status-green);
+}
+
+.tx-meta {
+  display: flex;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+/* ============================================================================
+   PSBT WORKFLOW WIZARD
+   ============================================================================ */
+
+.psbt-wizard {
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-md);
+  overflow: hidden;
+}
+
+.psbt-wizard-header {
+  background: linear-gradient(90deg, rgba(0, 240, 255, 0.05), rgba(189, 94, 255, 0.03));
+  border-bottom: 1px solid var(--border-color);
+  padding: 16px;
+}
+
+.psbt-steps {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+}
+
+.psbt-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.psbt-step-number {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--border-color);
+}
+
+.psbt-step.active .psbt-step-number {
+  background: rgba(0, 240, 255, 0.15);
+  border-color: var(--accent-cyan);
+  color: var(--accent-cyan);
+  font-weight: 600;
+}
+
+.psbt-step.completed .psbt-step-number {
+  background: rgba(0, 255, 170, 0.15);
+  border-color: var(--status-green);
+  color: var(--status-green);
+}
+
+.psbt-step.completed .psbt-step-number::after {
+  content: "✓";
+  font-size: 12px;
+}
+
+.psbt-step-connector {
+  flex: 1;
+  height: 1px;
+  background: var(--border-color);
+}
+
+.psbt-wizard-body {
+  padding: 16px;
+}
+
+.psbt-wizard-pane {
+  display: none;
+}
+
+.psbt-wizard-pane.active {
+  display: block;
+}
+
+.psbt-wizard-footer {
+  display: flex;
+  gap: 8px;
+  padding: 16px;
+  border-top: 1px solid var(--border-color);
+  background: rgba(255, 255, 255, 0.01);
+  justify-content: flex-end;
+}
+
+/* ============================================================================
+   FORM ENHANCEMENTS
+   ============================================================================ */
+
+.send-mode-bar {
+  padding: 12px;
+  background: rgba(0, 240, 255, 0.02);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  margin-bottom: 16px;
+}
+
+.tab-pill-group {
+  display: flex;
+  gap: 6px;
+}
+
+.tab-pill {
+  padding: 6px 12px;
+  font-size: 12px;
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 20px;
+  cursor: pointer;
+  transition: all var(--transition-speed);
+  font-weight: 500;
+}
+
+.tab-pill:hover {
+  border-color: var(--accent-cyan);
+  color: var(--accent-cyan);
+}
+
+.tab-pill.active {
+  background: rgba(0, 240, 255, 0.15);
+  border-color: var(--accent-cyan);
+  color: var(--accent-cyan);
+}
+
+.utxo-selection-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: rgba(0, 240, 255, 0.05);
+  border: 1px solid rgba(0, 240, 255, 0.2);
+  border-radius: 4px;
+  font-size: 12px;
+  color: var(--accent-cyan);
+}
+
+.utxo-selection-summary .divider {
+  color: var(--border-color);
+}
+
+/* ============================================================================
+   RESPONSIVE WALLET
+   ============================================================================ */
+
+@media (max-width: 768px) {
+  .wallet-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .wallet-quick-actions {
+    display: flex;
+    gap: 8px;
+  }
+
+  .wallet-quick-actions .btn {
+    flex: 1;
+  }
+
+  .address-item {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .address-item-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .tx-item {
+    grid-template-columns: 1fr;
+  }
+
+  .tx-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}

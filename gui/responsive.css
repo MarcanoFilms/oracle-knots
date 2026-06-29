@@ -1,0 +1,552 @@
+/*
+  Oracle Knots Responsive Design Rules
+
+  Mobile-first approach: Base styles for mobile, enhance for larger screens.
+
+  Breakpoints:
+  - Mobile: 320px - 767px (phones)
+  - Tablet: 768px - 1023px (tablets)
+  - Desktop: 1024px - 1919px (standard desktop)
+  - Large: 1920px+ (large monitors, 4K)
+
+  Testing requirements:
+  - iPhone SE (375px): phones
+  - iPad (768px): tablets
+  - MacBook Air (1440px): standard desktop
+  - 4K monitor (2560px): large screens
+*/
+
+/* ============================================================================
+   BASE STYLES (Mobile First)
+   Applied to all viewport sizes, then overridden by media queries
+   ============================================================================ */
+
+:root {
+  /* Mobile-optimized touch target */
+  --touch-target-min: 48px;
+}
+
+/* Sidebar defaults to collapsed on mobile */
+@media (max-width: 767px) {
+  .sidebar {
+    position: fixed;
+    left: 0;
+    top: 0;
+    height: 100vh;
+    z-index: 1000;
+    transition: transform 0.3s ease;
+    transform: translateX(-100%);
+  }
+
+  .sidebar.open {
+    transform: translateX(0);
+  }
+
+  /* Hamburger menu button (if implemented) */
+  .btn-sidebar-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    background: transparent;
+    border: none;
+    color: var(--accent-cyan);
+    font-size: 20px;
+    cursor: pointer;
+  }
+
+  /* Content takes full width on mobile */
+  .content-area {
+    width: 100vw;
+  }
+
+  /* Stack header items vertically on very small screens */
+  .topbar.unified-header {
+    padding: 12px;
+    flex-wrap: wrap;
+    height: auto;
+    gap: 8px;
+  }
+
+  .header-brand {
+    width: 100%;
+    min-width: 100%;
+    order: 1;
+  }
+
+  .header-metrics {
+    width: 100%;
+    order: 3;
+    justify-content: space-between;
+  }
+
+  .header-actions {
+    width: 100%;
+    order: 4;
+  }
+
+  .header-actions .btn {
+    width: 100%;
+  }
+
+  /* Cards stack vertically */
+  .stats-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+
+  /* Reduce padding on mobile */
+  .card-header,
+  .card-body,
+  .card-footer {
+    padding: 12px;
+  }
+
+  .card {
+    margin: 0;
+  }
+
+  /* Smaller font sizes on mobile */
+  .header-context h2 {
+    font-size: 13px;
+  }
+
+  .block-height-value {
+    font-size: 20px;
+  }
+
+  .header-peers-value {
+    font-size: 14px;
+  }
+
+  /* Tab content padding */
+  .tab-content {
+    padding: 8px;
+  }
+
+  /* Forms take full width */
+  .form-group {
+    width: 100%;
+  }
+
+  .input-field {
+    width: 100%;
+  }
+
+  /* Button groups stack vertically on mobile */
+  .btn-group {
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .btn-group .btn {
+    width: 100%;
+  }
+
+  /* Table responsive */
+  .data-table-compact {
+    font-size: 11px;
+  }
+
+  .data-table-compact td,
+  .data-table-compact th {
+    padding: 4px 6px;
+  }
+
+  /* Modal adjustments */
+  .modal {
+    width: 95vw;
+    max-width: 100%;
+    margin: 8px;
+  }
+
+  /* Hide non-critical info on mobile */
+  .hide-mobile {
+    display: none;
+  }
+
+  /* Reduce animations on mobile for performance */
+  * {
+    animation-duration: 0.5s;
+  }
+
+  /* No horizontal scrolling - ensure all content fits */
+  body,
+  html {
+    overflow-x: hidden;
+    width: 100%;
+  }
+
+  .app-container {
+    width: 100%;
+    overflow-x: hidden;
+  }
+}
+
+/* ============================================================================
+   TABLET STYLES (768px - 1023px)
+   ============================================================================ */
+
+@media (min-width: 768px) and (max-width: 1023px) {
+  :root {
+    --sidebar-width-tablet: 220px;
+  }
+
+  /* Sidebar visible but narrower */
+  .sidebar {
+    width: 220px;
+  }
+
+  .sidebar.collapsed {
+    width: 64px;
+  }
+
+  /* Header adjustments */
+  .topbar.unified-header {
+    padding: 0 12px;
+    flex-wrap: nowrap;
+  }
+
+  /* 2-column grid on tablet */
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+  }
+
+  .dashboard-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+  }
+
+  /* Reduce font sizes slightly */
+  .header-context h2 {
+    font-size: 14px;
+  }
+
+  .block-height-value {
+    font-size: 24px;
+  }
+
+  /* Buttons stay horizontal but with padding */
+  .btn-group {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .btn-group .btn {
+    flex: 1;
+    min-width: 120px;
+  }
+
+  /* Table slightly condensed */
+  .data-table-compact {
+    font-size: 12px;
+  }
+
+  /* CLI layout single column */
+  .cli-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .cli-reference-panel {
+    max-height: 240px;
+  }
+
+  /* Hide tablet-specific items */
+  .hide-tablet {
+    display: none;
+  }
+}
+
+/* ============================================================================
+   DESKTOP STYLES (1024px - 1919px)
+   Standard desktop experience
+   ============================================================================ */
+
+@media (min-width: 1024px) {
+  :root {
+    --touch-target-min: 44px;
+  }
+
+  /* Sidebar always visible */
+  .sidebar {
+    position: relative;
+    transform: none;
+    width: var(--sidebar-width);
+  }
+
+  .sidebar.collapsed {
+    width: var(--sidebar-width-collapsed);
+  }
+
+  /* Content beside sidebar */
+  .content-area {
+    width: calc(100vw - var(--sidebar-width));
+  }
+
+  .sidebar.collapsed ~ .content-area {
+    width: calc(100vw - var(--sidebar-width-collapsed));
+  }
+
+  /* 3-column grid on desktop */
+  .stats-grid {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+  }
+
+  .dashboard-grid {
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+  }
+
+  /* Header normal styling */
+  .topbar.unified-header {
+    padding: 0 16px;
+    justify-content: space-between;
+  }
+
+  /* Button groups horizontal */
+  .btn-group {
+    flex-direction: row;
+    flex-wrap: nowrap;
+  }
+
+  /* CLI layout 2 columns */
+  .cli-layout {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .cli-reference-panel {
+    max-height: 100%;
+  }
+
+  /* Show desktop-specific items */
+  .show-desktop {
+    display: block;
+  }
+
+  .hide-desktop {
+    display: none;
+  }
+
+  /* Hover effects on desktop */
+  .card:hover {
+    border-color: var(--border-color-glow);
+    background: rgba(0, 240, 255, 0.02);
+  }
+
+  .nav-item:hover {
+    background: rgba(255, 255, 255, 0.04);
+  }
+}
+
+/* ============================================================================
+   LARGE DESKTOP STYLES (1920px+)
+   Extra spacing for 4K and large monitors
+   ============================================================================ */
+
+@media (min-width: 1920px) {
+  :root {
+    --space-xl: 32px;
+    --space-2xl: 40px;
+    --space-3xl: 64px;
+  }
+
+  .stats-grid {
+    grid-template-columns: repeat(4, 1fr);
+    gap: 20px;
+  }
+
+  .dashboard-grid {
+    grid-template-columns: repeat(5, 1fr);
+    gap: 20px;
+  }
+
+  .card-body {
+    padding: var(--space-xl);
+  }
+
+  /* Larger text on large screens */
+  .header-peers-value {
+    font-size: 20px;
+  }
+
+  .block-height-value {
+    font-size: 32px;
+  }
+}
+
+/* ============================================================================
+   PRINT STYLES
+   ============================================================================ */
+
+@media print {
+  .sidebar,
+  .topbar,
+  .hide-print,
+  .btn,
+  .nav-item,
+  .btn-group {
+    display: none;
+  }
+
+  .content-area {
+    width: 100%;
+    padding: 20px;
+  }
+
+  .card {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  body {
+    background: white;
+    color: black;
+  }
+
+  a {
+    text-decoration: underline;
+  }
+}
+
+/* ============================================================================
+   ORIENTATION-SPECIFIC STYLES
+   ============================================================================ */
+
+@media (orientation: portrait) and (max-width: 767px) {
+  /* Portrait mobile: extra adjustments */
+  .topbar.unified-header {
+    flex-direction: column;
+  }
+
+  .header-metrics {
+    flex-direction: column;
+  }
+}
+
+@media (orientation: landscape) and (max-width: 767px) {
+  /* Landscape mobile: compressed header */
+  .topbar.unified-header {
+    height: auto;
+    min-height: 56px;
+  }
+
+  .header-brand,
+  .header-logo {
+    width: 40%;
+  }
+
+  .header-metrics {
+    width: 30%;
+  }
+
+  .header-actions {
+    width: 30%;
+  }
+}
+
+/* ============================================================================
+   ACCESSIBILITY - PREFERS REDUCED MOTION
+   Respect user preferences for reduced animations
+   ============================================================================ */
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .owlBreathe,
+  .pulse,
+  .spin {
+    animation: none;
+  }
+}
+
+/* ============================================================================
+   HIGH CONTRAST MODE - PREFERS CONTRAST
+   Enhanced colors and borders for accessibility
+   ============================================================================ */
+
+@media (prefers-contrast: more) {
+  :root {
+    --border-color: rgba(255, 255, 255, 0.15);
+    --text-secondary: #c5d3e0;
+    --text-muted: #667080;
+  }
+
+  .btn {
+    border-width: 2px;
+  }
+
+  .card {
+    border-width: 2px;
+  }
+
+  .input-field {
+    border-width: 2px;
+  }
+
+  .nav-item.active {
+    border-width: 2px;
+  }
+}
+
+/* ============================================================================
+   DARK MODE (if light theme ever added)
+   Currently always dark, but prepared for future light mode
+   ============================================================================ */
+
+@media (prefers-color-scheme: light) {
+  /* Light mode colors would go here */
+  /* Currently not implemented, but structure ready */
+}
+
+/* ============================================================================
+   TESTING CHECKLIST
+   ============================================================================
+
+  Mobile (320px - 375px):
+  - [ ] Sidebar hidden (if hamburger implemented)
+  - [ ] No horizontal scrolling
+  - [ ] All buttons >= 44px tall
+  - [ ] Single column layout
+  - [ ] Header wraps properly
+  - [ ] Forms full-width
+  - [ ] Tab content readable
+
+  Tablet (768px):
+  - [ ] Sidebar narrower but visible
+  - [ ] 2-column grid visible
+  - [ ] Header fits without wrapping
+  - [ ] Touch targets still large
+  - [ ] Balanced spacing
+
+  Desktop (1024px - 1440px):
+  - [ ] Standard 3-column grid
+  - [ ] Sidebar full width
+  - [ ] Header horizontal layout
+  - [ ] Hover effects working
+  - [ ] All features visible
+
+  Large Desktop (1920px+):
+  - [ ] Extra spacing used
+  - [ ] 4-5 column grid
+  - [ ] Large text readable
+  - [ ] No awkward empty space
+
+  Cross-device:
+  - [ ] No horizontal scroll at any size
+  - [ ] Touch targets >= 44px on mobile/tablet
+  - [ ] Text contrast WCAG AA everywhere
+  - [ ] Animations smooth (or disabled on preference)
+  - [ ] Forms usable on all sizes
+  - [ ] Modals readable on mobile
+
+============================================================================ */

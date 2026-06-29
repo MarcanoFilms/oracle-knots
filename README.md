@@ -1,10 +1,18 @@
-# Oracle Knots (SovereignKnots)
-============================
-<img width="420" height="142" alt="image" src="https://github.com/user-attachments/assets/d227f2b0-7f68-4629-a2a9-cae9ea38604e" />
+# Oracle Knots - Modern Bitcoin Node GUI
 
-Oracle Knots is a professional, high-quality fork of **Bitcoin Knots** designed specifically for sovereign individuals, node operators, and low-resource mining operations (such as BitAxe + Mac Mini or single-board setups). 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Version: 1.0](https://img.shields.io/badge/Version-1.0-blue.svg)](#)
+[![Bitcoin: BIP-110](https://img.shields.io/badge/Bitcoin-BIP--110-orange.svg)](https://github.com/bitcoinknots/bitcoin)
+[![Tests: 49/49](https://img.shields.io/badge/Tests-49%2F49-brightgreen.svg)](#)
+[![Python: 3.8+](https://img.shields.io/badge/Python-3.8+-green.svg)](#)
 
-Our philosophy centers on **"Don't Trust, Verify"**, reclaiming Bitcoin as **sound money first**, and keeping node verification lightweight by aggressively filtering non-financial data spam (e.g., Runes, BRC-20, Ordinals, and bloated OP_RETURN outputs).
+**Run your own Bitcoin node without command-line expertise. Modern GUI. Complete control. Sovereign verification.**
+
+<img width="420" height="142" alt="Oracle Knots" src="https://github.com/user-attachments/assets/d227f2b0-7f68-4629-a2a9-cae9ea38604e" />
+
+Oracle Knots is a professional Bitcoin node GUI built on Bitcoin Knots. It brings the power and sovereignty of running a full node to non-technical users through an intuitive graphical interface.
+
+**Our Philosophy**: "Don't Trust, Verify" — Reclaim Bitcoin as sound money and keep node verification lightweight by filtering non-financial data spam.
 
 ---
 

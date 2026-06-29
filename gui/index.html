@@ -8,7 +8,14 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/design-tokens.css">
     <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="/static/utilities.css">
+    <link rel="stylesheet" href="/static/responsive.css">
+    <link rel="stylesheet" href="/static/wallet-ux.css">
+    <link rel="stylesheet" href="/static/config-ux.css">
+    <link rel="stylesheet" href="/static/onboarding-ux.css">
+    <link rel="stylesheet" href="/static/navigation-ux.css">
     <!-- Local QRCode Generator Library -->
     <script src="/static/qrcode.min.js"></script>
 </head>
@@ -514,7 +521,22 @@
 
                                     <!-- Sub-tab: History -->
                                     <div class="wallet-sub-pane hidden" id="wallet-sub-history">
-                                        <h4>Recent Transactions</h4>
+                                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                                            <h4>Recent Transactions</h4>
+                                            <button class="btn btn-outline btn-sm" id="btn-refresh-history" title="Refresh transaction list">Refresh</button>
+                                        </div>
+
+                                        <!-- Transaction Filter Bar -->
+                                        <div class="tx-filter-bar mt-3">
+                                            <input type="text" class="tx-search-input" id="tx-search" placeholder="Search by address, txid, or amount...">
+                                            <div class="tx-filter-group">
+                                                <button class="tx-filter-btn active" id="tx-filter-all" data-filter="all">All</button>
+                                                <button class="tx-filter-btn" id="tx-filter-sent" data-filter="sent">Sent</button>
+                                                <button class="tx-filter-btn" id="tx-filter-received" data-filter="received">Received</button>
+                                                <button class="tx-filter-btn" id="tx-filter-pending" data-filter="pending">Pending</button>
+                                            </div>
+                                        </div>
+
                                         <div class="tx-list-container mt-3" id="wallet-tx-list">
                                             <p class="text-secondary text-center py-4">No recent transactions found.</p>
                                         </div>

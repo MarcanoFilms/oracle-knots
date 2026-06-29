@@ -1,0 +1,727 @@
+/*
+  Oracle Knots Utility Classes
+
+  Reusable, single-responsibility CSS classes for common layout and styling needs.
+  Follow the BEM-ish naming convention: .component-modifier
+  These utilities help maintain consistency while reducing duplicate CSS.
+*/
+
+/* ============================================================================
+   BUTTON UTILITIES
+   ============================================================================ */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 16px;
+  min-height: 44px;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 500;
+  border: 1px solid transparent;
+  border-radius: var(--border-radius);
+  cursor: pointer;
+  transition: all var(--transition-speed);
+  text-decoration: none;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn:focus {
+  outline: 2px solid var(--accent-cyan);
+  outline-offset: 2px;
+}
+
+/* Primary Button - Main Action */
+.btn-primary {
+  background: transparent;
+  color: var(--accent-cyan);
+  border-color: rgba(0, 240, 255, 0.2);
+}
+
+.btn-primary:hover:not(:disabled) {
+  color: #00ffff;
+  border-color: var(--accent-cyan);
+  background: rgba(0, 240, 255, 0.08);
+  box-shadow: 0 0 8px rgba(0, 240, 255, 0.2);
+}
+
+.btn-primary:active:not(:disabled) {
+  background: rgba(0, 240, 255, 0.15);
+  box-shadow: 0 0 12px rgba(0, 240, 255, 0.3);
+}
+
+/* Secondary Button - Alternative Action */
+.btn-secondary {
+  background: transparent;
+  color: var(--text-secondary);
+  border-color: var(--border-color);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.04);
+  border-color: var(--border-color-glow);
+}
+
+.btn-secondary:active:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* Danger Button - Destructive Action */
+.btn-danger {
+  background: transparent;
+  color: var(--status-red);
+  border-color: rgba(255, 67, 101, 0.2);
+}
+
+.btn-danger:hover:not(:disabled) {
+  color: #ff5577;
+  border-color: var(--status-red);
+  background: rgba(255, 67, 101, 0.08);
+  box-shadow: 0 0 8px rgba(255, 67, 101, 0.2);
+}
+
+.btn-danger:active:not(:disabled) {
+  background: rgba(255, 67, 101, 0.15);
+  box-shadow: 0 0 12px rgba(255, 67, 101, 0.3);
+}
+
+/* Success Button */
+.btn-success {
+  background: transparent;
+  color: var(--status-green);
+  border-color: rgba(0, 255, 170, 0.2);
+}
+
+.btn-success:hover:not(:disabled) {
+  color: #00ffbb;
+  border-color: var(--status-green);
+  background: rgba(0, 255, 170, 0.08);
+  box-shadow: 0 0 8px rgba(0, 255, 170, 0.2);
+}
+
+/* Small Button Variant */
+.btn-sm {
+  padding: 6px 12px;
+  min-height: 36px;
+  font-size: 12px;
+}
+
+/* Large Button Variant */
+.btn-lg {
+  padding: 14px 24px;
+  min-height: 52px;
+  font-size: 16px;
+}
+
+/* Button Group - Stack buttons horizontally */
+.btn-group {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* Close Button - Small X button */
+.btn-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 20px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: all var(--transition-speed);
+}
+
+.btn-close:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+/* ============================================================================
+   CARD & CONTAINER UTILITIES
+   ============================================================================ */
+
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius-md);
+  transition: border-color var(--transition-speed), background var(--transition-speed);
+}
+
+.card:hover {
+  border-color: var(--border-color-glow);
+}
+
+.card-header {
+  padding: var(--space-lg);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.card-header h2,
+.card-header h3 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 16px;
+}
+
+.card-body {
+  padding: var(--space-lg);
+}
+
+.card-footer {
+  padding: var(--space-lg);
+  border-top: 1px solid var(--border-color);
+  display: flex;
+  gap: var(--space-md);
+  justify-content: flex-end;
+}
+
+/* Card without padding (for custom layouts) */
+.card-flush {
+  padding: 0;
+}
+
+.card-flush > * + * {
+  border-top: 1px solid var(--border-color);
+}
+
+/* ============================================================================
+   FORM UTILITIES
+   ============================================================================ */
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-md);
+}
+
+.form-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.form-label.required::after {
+  content: " *";
+  color: var(--status-red);
+}
+
+.input-field {
+  min-height: 44px;
+  padding: 10px 12px;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  background: var(--bg-dark);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  transition: all var(--transition-speed);
+}
+
+.input-field::placeholder {
+  color: var(--text-muted);
+}
+
+.input-field:hover {
+  border-color: var(--border-color-glow);
+}
+
+.input-field:focus {
+  outline: none;
+  border-color: var(--accent-cyan);
+  box-shadow: 0 0 0 2px rgba(0, 240, 255, 0.1), 0 0 8px rgba(0, 240, 255, 0.2);
+}
+
+.input-field:disabled {
+  background: var(--bg-darker);
+  color: var(--text-muted);
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* Small Input Variant */
+.input-sm {
+  min-height: 36px;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+/* Large Input Variant */
+.input-lg {
+  min-height: 52px;
+  padding: 14px 16px;
+  font-size: 16px;
+}
+
+/* Checkbox & Radio Utilities */
+.checkbox,
+.radio {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  cursor: pointer;
+  accent-color: var(--accent-cyan);
+}
+
+.checkbox-group,
+.radio-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.checkbox-label,
+.radio-label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  cursor: pointer;
+  user-select: none;
+  font-size: 14px;
+}
+
+/* Form Help Text */
+.form-help {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: -4px;
+}
+
+.form-error {
+  font-size: 12px;
+  color: var(--status-red);
+  margin-top: -4px;
+}
+
+/* ============================================================================
+   BADGE & LABEL UTILITIES
+   ============================================================================ */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: var(--border-radius-sm);
+  white-space: nowrap;
+}
+
+/* Badge Variants */
+.badge-primary {
+  background: rgba(0, 240, 255, 0.15);
+  color: var(--accent-cyan);
+  border: 1px solid rgba(0, 240, 255, 0.25);
+}
+
+.badge-accent {
+  background: rgba(189, 94, 255, 0.15);
+  color: var(--accent-purple);
+  border: 1px solid rgba(189, 94, 255, 0.25);
+}
+
+.badge-success {
+  background: rgba(0, 255, 170, 0.15);
+  color: var(--status-green);
+  border: 1px solid rgba(0, 255, 170, 0.25);
+}
+
+.badge-danger {
+  background: rgba(255, 67, 101, 0.15);
+  color: var(--status-red);
+  border: 1px solid rgba(255, 67, 101, 0.25);
+}
+
+.badge-warning {
+  background: rgba(255, 176, 0, 0.15);
+  color: var(--status-orange);
+  border: 1px solid rgba(255, 176, 0, 0.25);
+}
+
+.badge-outline {
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+}
+
+/* ============================================================================
+   LAYOUT & SPACING UTILITIES
+   ============================================================================ */
+
+/* Flexbox Utilities */
+.flex {
+  display: flex;
+}
+
+.flex-col {
+  flex-direction: column;
+}
+
+.flex-row {
+  flex-direction: row;
+}
+
+.flex-center {
+  align-items: center;
+  justify-content: center;
+}
+
+.flex-between {
+  justify-content: space-between;
+  align-items: center;
+}
+
+.flex-start {
+  justify-content: flex-start;
+  align-items: center;
+}
+
+.flex-end {
+  justify-content: flex-end;
+  align-items: center;
+}
+
+.flex-wrap {
+  flex-wrap: wrap;
+}
+
+.flex-1 {
+  flex: 1;
+}
+
+.flex-grow {
+  flex-grow: 1;
+}
+
+.flex-shrink {
+  flex-shrink: 1;
+}
+
+/* Gap Utilities */
+.gap-xs {
+  gap: var(--space-xs);
+}
+
+.gap-sm {
+  gap: var(--space-sm);
+}
+
+.gap-md {
+  gap: var(--space-md);
+}
+
+.gap-lg {
+  gap: var(--space-lg);
+}
+
+.gap-xl {
+  gap: var(--space-xl);
+}
+
+/* Padding Utilities */
+.p-xs {
+  padding: var(--space-xs);
+}
+
+.p-sm {
+  padding: var(--space-sm);
+}
+
+.p-md {
+  padding: var(--space-md);
+}
+
+.p-lg {
+  padding: var(--space-lg);
+}
+
+.p-xl {
+  padding: var(--space-xl);
+}
+
+/* Margin Utilities */
+.m-xs {
+  margin: var(--space-xs);
+}
+
+.m-sm {
+  margin: var(--space-sm);
+}
+
+.m-md {
+  margin: var(--space-md);
+}
+
+.m-lg {
+  margin: var(--space-lg);
+}
+
+.m-xl {
+  margin: var(--space-xl);
+}
+
+.mb-xs {
+  margin-bottom: var(--space-xs);
+}
+
+.mb-sm {
+  margin-bottom: var(--space-sm);
+}
+
+.mb-md {
+  margin-bottom: var(--space-md);
+}
+
+.mb-lg {
+  margin-bottom: var(--space-lg);
+}
+
+.mb-xl {
+  margin-bottom: var(--space-xl);
+}
+
+/* Grid Utilities */
+.grid {
+  display: grid;
+}
+
+.grid-cols-1 {
+  grid-template-columns: 1fr;
+}
+
+.grid-cols-2 {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.grid-cols-3 {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.grid-cols-4 {
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.grid-gap-sm {
+  gap: var(--space-sm);
+}
+
+.grid-gap-md {
+  gap: var(--space-md);
+}
+
+.grid-gap-lg {
+  gap: var(--space-lg);
+}
+
+/* ============================================================================
+   TEXT UTILITIES
+   ============================================================================ */
+
+.text-xs {
+  font-size: var(--text-xs);
+}
+
+.text-sm {
+  font-size: var(--text-sm);
+}
+
+.text-base {
+  font-size: var(--text-base);
+}
+
+.text-lg {
+  font-size: var(--text-lg);
+}
+
+.text-xl {
+  font-size: var(--text-xl);
+}
+
+.text-2xl {
+  font-size: var(--text-2xl);
+}
+
+.text-primary {
+  color: var(--text-primary);
+}
+
+.text-secondary {
+  color: var(--text-secondary);
+}
+
+.text-muted {
+  color: var(--text-muted);
+}
+
+.text-accent {
+  color: var(--accent-cyan);
+}
+
+.text-success {
+  color: var(--status-green);
+}
+
+.text-danger {
+  color: var(--status-red);
+}
+
+.text-warning {
+  color: var(--status-orange);
+}
+
+.font-mono {
+  font-family: var(--font-mono);
+}
+
+.font-normal {
+  font-weight: var(--font-weight-normal);
+}
+
+.font-medium {
+  font-weight: var(--font-weight-medium);
+}
+
+.font-semibold {
+  font-weight: var(--font-weight-semibold);
+}
+
+.font-bold {
+  font-weight: var(--font-weight-bold);
+}
+
+.text-center {
+  text-align: center;
+}
+
+.text-left {
+  text-align: left;
+}
+
+.text-right {
+  text-align: right;
+}
+
+/* ============================================================================
+   VISIBILITY & DISPLAY UTILITIES
+   ============================================================================ */
+
+.hidden {
+  display: none;
+}
+
+.visible {
+  display: block;
+}
+
+.invisible {
+  visibility: hidden;
+}
+
+.opacity-50 {
+  opacity: 0.5;
+}
+
+.opacity-75 {
+  opacity: 0.75;
+}
+
+.opacity-100 {
+  opacity: 1;
+}
+
+/* ============================================================================
+   RESPONSIVE DISPLAY UTILITIES
+   ============================================================================ */
+
+/* Hide on mobile */
+@media (max-width: 767px) {
+  .hide-mobile {
+    display: none;
+  }
+}
+
+/* Hide on tablet and below */
+@media (max-width: 1023px) {
+  .hide-tablet {
+    display: none;
+  }
+}
+
+/* Hide on desktop and above */
+@media (min-width: 1024px) {
+  .hide-desktop {
+    display: none;
+  }
+}
+
+/* ============================================================================
+   ACCESSIBILITY UTILITIES
+   ============================================================================ */
+
+/* Skip to content link (for keyboard navigation) */
+.skip-link {
+  position: absolute;
+  top: -40px;
+  left: 0;
+  background: var(--accent-cyan);
+  color: var(--bg-darkest);
+  padding: 8px;
+  border-radius: 0 0 8px 0;
+  z-index: 100;
+}
+
+.skip-link:focus {
+  top: 0;
+}
+
+/* Focus visible ring for keyboard navigation */
+:focus-visible {
+  outline: 2px solid var(--accent-cyan);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* ============================================================================
+   ANIMATION UTILITIES
+   ============================================================================ */
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-pulse {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
