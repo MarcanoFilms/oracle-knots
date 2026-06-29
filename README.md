@@ -186,6 +186,166 @@ The Control Center dashboard shows **Sovereign Mining — Block Template** stats
 
 ---
 
+## Installation by Platform
+
+Oracle Knots is **fully compatible with Windows, macOS, and Linux**. Choose your operating system below:
+
+### 🪟 Windows
+
+**Option 1: Pre-built Binary (Easiest)**
+1. Download the latest `.exe` from [Releases](https://github.com/MarcanoFilms/oracle-knots/releases)
+2. Extract to your desired location
+3. Run `oracle-knots.exe`
+4. GUI opens automatically in your browser
+
+**Option 2: Build from Source**
+- Install [Git for Windows](https://git-scm.com/download/win)
+- Install [MinGW or MSVC](https://sourceforge.net/projects/mingw-w64/)
+- Install [Python 3.8+](https://www.python.org/downloads/)
+- Clone and build:
+```bash
+git clone https://github.com/MarcanoFilms/oracle-knots.git
+cd oracle-knots
+.\autogen.sh
+.\configure
+make -j%NUMBER_OF_PROCESSORS%
+python gui.py
+```
+
+### 🍎 macOS
+
+**Intel & Apple Silicon Support**
+
+```bash
+# Install Homebrew (if needed)
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+# Install dependencies
+brew install autoconf automake libtool python@3.11
+
+# Clone and build
+git clone https://github.com/MarcanoFilms/oracle-knots.git
+cd oracle-knots
+./autogen.sh
+./configure
+make -j$(sysctl -n hw.ncpu)
+
+# Run GUI
+python3 gui.py
+```
+
+Then open: **http://127.0.0.1:8080**
+
+### 🐧 Linux - Ubuntu/Debian
+
+**Ubuntu 20.04+, Debian 11+**
+
+```bash
+# Update package list
+sudo apt-get update
+
+# Install dependencies
+sudo apt-get install -y \
+  build-essential \
+  autoconf \
+  automake \
+  libtool \
+  git \
+  python3 \
+  python3-dev \
+  python3-pip \
+  libssl-dev \
+  libevent-dev \
+  libsqlite3-dev
+
+# Clone and build
+git clone https://github.com/MarcanoFilms/oracle-knots.git
+cd oracle-knots
+./autogen.sh
+./configure
+make -j$(nproc)
+
+# Run GUI
+python3 gui.py
+```
+
+### 🎩 Linux - Fedora/RHEL
+
+**Fedora 38+, RHEL 8+**
+
+```bash
+# Install build tools group
+sudo dnf groupinstall -y "Development Tools"
+
+# Install dependencies
+sudo dnf install -y \
+  git \
+  python3 \
+  python3-devel \
+  openssl-devel \
+  libevent-devel \
+  sqlite-devel \
+  autoconf \
+  automake \
+  libtool \
+  boost-devel
+
+# Clone and build
+git clone https://github.com/MarcanoFilms/oracle-knots.git
+cd oracle-knots
+./autogen.sh
+./configure
+make -j$(nproc)
+
+# Run GUI
+python3 gui.py
+```
+
+### 🔵 Linux - Arch Linux
+
+**Arch Linux, Manjaro**
+
+```bash
+# Install dependencies
+sudo pacman -S base-devel boost openssl libevent sqlite python
+
+# Clone and build
+git clone https://github.com/MarcanoFilms/oracle-knots.git
+cd oracle-knots
+./autogen.sh
+./configure
+make -j$(nproc)
+
+# Run GUI
+python3 gui.py
+```
+
+### Other Linux Distributions
+
+For other distros (openSUSE, Gentoo, etc.), install equivalent packages for:
+- `build-essential` or `base-devel` (compiler toolchain)
+- `python3-dev` (Python development files)
+- `libssl-dev` / `openssl-devel` (OpenSSL)
+- `libevent-dev` / `libevent-devel` (Libevent)
+- `libsqlite3-dev` / `sqlite-devel` (SQLite)
+- `autoconf`, `automake`, `libtool`
+
+Then follow the standard build steps:
+```bash
+./autogen.sh && ./configure && make -j$(nproc) && python3 gui.py
+```
+
+### 🐳 Docker
+
+```bash
+docker build -t oracle-knots .
+docker run -p 8080:8080 oracle-knots
+```
+
+Open browser to: **http://localhost:8080**
+
+---
+
 ## Publicar en GitHub
 
 Para subir el repo **sin compilar ni ejecutar el nodo** (útil si esa máquina ya tiene otro nodo activo), ver **[GITHUB_PUSH.md](GITHUB_PUSH.md)**.
