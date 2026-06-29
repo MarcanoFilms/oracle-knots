@@ -344,19 +344,6 @@ docker run -p 8080:8080 oracle-knots
 
 Open browser to: **http://localhost:8080**
 
----
-
-## Publicar en GitHub
-
-Para subir el repo **sin compilar ni ejecutar el nodo** (útil si esa máquina ya tiene otro nodo activo), ver **[GITHUB_PUSH.md](GITHUB_PUSH.md)**.
-
-Resumen rápido en la otra PC:
-
-```bash
-cd ~/oracle-knots
-git restore depends/          # si el tarball no trajo depends/
-./scripts/push-to-github.sh   # push no interactivo
-```
 
 ---
 
