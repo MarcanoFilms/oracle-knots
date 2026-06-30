@@ -442,6 +442,18 @@ body {
 
 .header-actions {
     flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+/* Oracle Knots logo on the right side of the topbar (fills space freed by
+   moving block count + peers into the Blockchain Sync card) */
+.header-logo-right {
+    flex-shrink: 0;
+    filter: drop-shadow(0 0 12px rgba(0, 240, 255, 0.45));
+    animation: owlBreathe 4s ease-in-out infinite;
+    opacity: 0.92;
 }
 
 .page-title {
@@ -729,6 +741,59 @@ body {
     color: var(--status-red);
 }
 
+.mining-coinbase-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border-color);
+}
+
+.mining-coinbase-row .detail-label {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+.mining-coinbase-row .detail-value {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--accent-cyan);
+}
+
+.mempool-top-fees {
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.top-fee-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 11px;
+    padding: 2px 0;
+}
+
+.top-fee-txid {
+    font-family: var(--font-mono);
+    color: var(--text-secondary);
+}
+
+.top-fee-rate {
+    font-family: var(--font-mono);
+    font-weight: 700;
+    color: var(--accent-cyan);
+}
+
 .rdts-progress-section h4 {
     margin: 0;
     color: var(--text-secondary);
@@ -788,6 +853,99 @@ body {
     .mining-stats-grid {
         grid-template-columns: 1fr 1fr;
     }
+}
+
+/* ============================================================
+   BENTO — Sovereign Mining collapsed/expanded states
+   ============================================================ */
+.mining-empty-hint {
+    display: none;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    color: var(--text-secondary);
+}
+.mining-empty-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--text-muted);
+    box-shadow: 0 0 6px rgba(255, 255, 255, 0.15);
+    flex-shrink: 0;
+}
+.panel-sovereign-mining.mining-collapsed .mining-expanded-content {
+    display: none;
+}
+.panel-sovereign-mining.mining-collapsed .mining-empty-hint {
+    display: flex;
+}
+.panel-sovereign-mining.mining-collapsed .panel-body {
+    padding-top: 8px;
+    padding-bottom: 8px;
+}
+
+/* ============================================================
+   BENTO — Data Spam Rejection (compact bars)
+   ============================================================ */
+.da-spam .panel-body {
+    padding: 10px 14px;
+}
+.da-spam .rejections-bars {
+    gap: 8px;
+}
+.da-spam .rejection-bar-track {
+    height: 6px;
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 3px;
+    overflow: hidden;
+}
+.da-spam .rejection-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--status-red), var(--accent-purple));
+    border-radius: 3px;
+    transition: width 0.5s ease;
+}
+.da-spam .rejection-bar-header {
+    font-size: 11px;
+}
+.da-spam .rejection-bar-header .font-mono {
+    color: var(--text-secondary);
+}
+/* Compact empty state so it doesn't dominate the panel */
+.da-spam .rejections-chart-placeholder {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    gap: 4px;
+    padding: 12px;
+    color: var(--text-secondary);
+}
+.da-spam .rejections-chart-placeholder .empty-icon {
+    font-size: 26px;
+    opacity: 0.7;
+}
+.da-spam .rejections-chart-placeholder p {
+    font-size: 12px;
+    color: var(--text-primary);
+}
+.da-spam .rejections-chart-placeholder span {
+    font-size: 10px;
+    max-width: 240px;
+    line-height: 1.5;
+}
+
+/* ============================================================
+   BENTO — Mempool & Node (aligned with design language)
+   ============================================================ */
+
+/* ============================================================
+   BENTO — Recent Blocks integrated into grid
+   ============================================================ */
+.da-blocks {
+    margin-top: 0 !important;
+    min-height: 0;
 }
 
 @keyframes heroPulse {
@@ -947,7 +1105,59 @@ body {
     display: flex;
 }
 
-/* Stats Cards Grid */
+/* ============================================================
+   DASHBOARD BENTO GRID (no-scroll, fills viewport)
+   ============================================================ */
+.tab-pane.active.dashboard-bento {
+    display: grid;
+    grid-template-columns: repeat(12, 1fr);
+    grid-template-rows: auto auto minmax(0, 1.15fr) minmax(0, 1fr) auto auto;
+    grid-template-areas:
+        "alerts alerts alerts alerts alerts alerts alerts alerts alerts alerts alerts alerts"
+        "policy policy policy policy policy policy policy policy policy policy policy policy"
+        "sync   sync   sync   sync   mem    mem    mem    spam   spam   spam   spam   spam"
+        "mining mining mining mining mining mining mining mining mining mining mining mining"
+        "blocks blocks blocks blocks blocks blocks blocks blocks blocks blocks blocks blocks";
+    gap: 10px;
+    height: 100%;
+    min-height: 0;
+    flex-grow: 1;
+}
+
+.da-alerts  { grid-area: alerts; display: flex; flex-direction: column; gap: 8px; }
+.da-policy { grid-area: policy; }
+.da-sync   { grid-area: sync; }
+.da-mem    { grid-area: mem; }
+.da-spam   { grid-area: spam; }
+.da-mining { grid-area: mining; }
+.da-blocks { grid-area: blocks; }
+
+/* Bento children must be allowed to shrink within their grid track */
+.dashboard-bento > .stat-card,
+.dashboard-bento > .panel {
+    min-height: 0;
+    min-width: 0;
+    margin: 0;
+}
+
+/* Compact panel headers throughout the bento to conserve vertical space */
+.dashboard-bento .panel > .panel-header {
+    padding: 11px 16px;
+}
+
+/* The policy strip sits in the grid flow, no extra bottom margin */
+.dashboard-bento .dashboard-policy-strip {
+    margin-bottom: 0;
+}
+
+/* Banners are overlays before the grid flow — keep them out of the area map */
+.dashboard-bento .dashboard-conflict-banner,
+.dashboard-bento .dashboard-preflight-strip,
+.dashboard-bento .ibd-hint-banner {
+    grid-column: 1 / -1;
+}
+
+/* Stats Cards Grid (legacy — kept for any other usage) */
 .stats-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
@@ -965,6 +1175,68 @@ body {
     flex-direction: column;
     position: relative;
     overflow: hidden;
+}
+
+/* ---- Bento KPI variants ---- */
+/* Feature tiles (Sync, Mempool): larger value, room for chart/bar */
+.stat-card-feature {
+    justify-content: flex-start;
+    padding: 16px 18px;
+}
+.stat-card-feature .stat-value {
+    font-size: 30px;
+}
+
+/* Sync info grid (Block, Peers, Node version) inside Blockchain Sync */
+.sync-info-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    margin: 12px 0;
+    padding: 10px;
+    background: rgba(0, 240, 255, 0.03);
+    border-radius: 8px;
+    border: 1px solid rgba(0, 240, 255, 0.1);
+}
+
+.sync-info-item {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.sync-info-label {
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+    font-weight: 600;
+}
+
+.sync-info-value {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--accent-cyan);
+    font-family: var(--font-mono);
+}
+
+/* Mini tiles (Policy, Rejections, RDTS): compact */
+.stat-card-mini {
+    padding: 12px 14px;
+}
+.stat-card-mini .stat-header {
+    margin-bottom: 8px;
+}
+.stat-card-mini .stat-value {
+    font-size: 19px;
+    margin-bottom: 4px;
+}
+.stat-card-mini .stat-meta,
+.stat-card-mini .stat-desc {
+    font-size: 10px;
+}
+.stat-card-mini .badge-row {
+    margin-top: 2px;
 }
 
 .stat-card::before {
@@ -2450,7 +2722,22 @@ body {
         grid-template-columns: 1fr 1fr;
         gap: 12px;
     }
-    
+
+    /* Bento collapses to a single scrollable column on narrow screens */
+    .tab-pane.active.dashboard-bento {
+        display: flex;
+        flex-direction: column;
+        height: auto;
+        gap: 12px;
+    }
+    .dashboard-bento > .da-sync,
+    .dashboard-bento > .da-mem,
+    .dashboard-bento > .da-spam,
+    .dashboard-bento > .da-mining,
+    .dashboard-bento > .da-blocks {
+        width: 100%;
+    }
+
     .dashboard-details,
     .policy-layout,
     .config-layout,

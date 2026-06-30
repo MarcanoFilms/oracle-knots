@@ -29,6 +29,48 @@ document.addEventListener('DOMContentLoaded', () => {
         if (duration > 0) setTimeout(dismiss, duration);
     }
 
+    // Global handler — prevents pywebview from closing the page on unhandled rejections
+    window.addEventListener('unhandledrejection', (event) => {
+        console.error('[Oracle Knots] Unhandled promise rejection:', event.reason);
+        event.preventDefault();
+    });
+
+    // ----------------------------------------------------
+    // Clipboard utility — 3-tier fallback for pywebview
+    // ----------------------------------------------------
+    // pywebview 5+ denies navigator.clipboard by default.
+    // Order: pywebview native api → Clipboard API → execCommand fallback.
+    async function copyToClipboard(text) {
+        // Tier 0: Bottle server endpoint — wl-copy/xclip run as detached subprocesses, safe.
+        try {
+            const res = await fetch('/api/clipboard', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text })
+            });
+            if (res.ok) {
+                const data = await res.json();
+                if (data.success) return true;
+            }
+        } catch (_) {}
+        // Tier 1: execCommand — does NOT emit featurePermissionRequested in Qt WebEngine.
+        // NEVER use navigator.clipboard here: it triggers QWebEnginePage::featurePermissionRequested,
+        // whose pywebview PyQt6 slot proxy crashes with a Python exception → QMessageLogger::fatal → SIGABRT.
+        try {
+            const ta = document.createElement('textarea');
+            ta.value = text;
+            ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0;pointer-events:none';
+            document.body.appendChild(ta);
+            ta.focus();
+            ta.select();
+            const ok = document.execCommand('copy');
+            document.body.removeChild(ta);
+            return ok;
+        } catch (_) {
+            return false;
+        }
+    }
+
     // ----------------------------------------------------
     // UI Elements
     // ----------------------------------------------------
@@ -154,6 +196,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const pillWalletHistory = document.getElementById('pill-wallet-history');
     const pillWalletAddresses = document.getElementById('pill-wallet-addresses');
     const pillWalletTools = document.getElementById('pill-wallet-tools');
+    const pillWalletPortfolio = document.getElementById('pill-wallet-portfolio');
 
     const walletSubReceive = document.getElementById('wallet-sub-receive');
     const walletSubSend = document.getElementById('wallet-sub-send');
@@ -161,6 +204,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const walletSubHistory = document.getElementById('wallet-sub-history');
     const walletSubAddresses = document.getElementById('wallet-sub-addresses');
     const walletSubTools = document.getElementById('wallet-sub-tools');
+    const walletSubPortfolio = document.getElementById('wallet-sub-portfolio');
 
     const walletSelector = document.getElementById('wallet-selector');
     const btnWalletUnload = document.getElementById('btn-wallet-unload');
@@ -280,6 +324,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const CHAIN_STRIP_PLACEHOLDER_COUNT = 12;
     const MEMPOOL_HISTORY_MAX = 40;
     let btcPriceUsd = 93500;
+    let portfolioDashboard = null;
+    let isIbd = false;
     let lastPolicyStatus = null;
     let logFilterMode = 'all';
 
@@ -462,6 +508,7 @@ document.addEventListener('DOMContentLoaded', () => {
         } else if (tabId === 'bip110' && isNodeRunning) {
             fetchBip110Status();
         }
+
     }
     
     // Mobile More Drawer Toggle
@@ -484,8 +531,14 @@ document.addEventListener('DOMContentLoaded', () => {
     function startMetricsPolling() {
         updateNodeInfo();
         fetchBtcPrice();
+        scheduleNextPoll();
+    }
+
+    function scheduleNextPoll() {
         if (updateIntervalId) clearInterval(updateIntervalId);
-        updateIntervalId = setInterval(updateNodeInfo, 2000);
+        // During IBD the node is CPU/disk-bound — poll slowly to stay out of its way
+        const interval = isIbd ? 15000 : 5000;
+        updateIntervalId = setInterval(updateNodeInfo, interval);
     }
     
     async function updateNodeInfo() {
@@ -505,12 +558,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 widgetStatusText.title = `PID: ${status.pid}`;
                 
                 widgetNetworkBadge.textContent = status.network.toUpperCase();
-                infoChain.textContent = status.network;
-                infoDatadir.textContent = status.datadir;
-                infoRpc.textContent = `127.0.0.1:${status.network === 'mainnet' ? '8332' : (status.network === 'testnet' ? '18332' : '18443')}`;
+                if (infoChain) infoChain.textContent = status.network;
+                if (infoDatadir) infoDatadir.textContent = status.datadir;
+                if (infoRpc) infoRpc.textContent = `127.0.0.1:${status.network === 'mainnet' ? '8332' : (status.network === 'testnet' ? '18332' : '18443')}`;
                 
                 fetchDashboard();
-                if (currentActiveTab === 'dashboard') {
+                if (currentActiveTab === 'dashboard' && !isIbd) {
                     fetchChainStrip(true);
                 }
 
@@ -563,7 +616,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (topbarPeers) topbarPeers.textContent = String(peers);
         const prevBlockHeight = lastBlockHeight;
         pulseHeroBlock(blockHeight);
-        if (blockHeight !== prevBlockHeight) {
+        if (blockHeight !== prevBlockHeight && !isIbd) {
             fetchChainStrip(true);
         }
 
@@ -590,13 +643,26 @@ document.addEventListener('DOMContentLoaded', () => {
         const syncPct = data.sync?.progress_pct ?? 0;
         dashSyncVal.textContent = `${syncPct.toFixed(2)}%`;
         dashSyncProgress.style.width = `${syncPct}%`;
+
+        // Populate sync info grid (Block, Peers, Node version)
+        const syncBlockEl = document.getElementById('sync-block-count');
+        if (syncBlockEl) syncBlockEl.textContent = `${blockHeight}`;
+        const syncPeersEl = document.getElementById('sync-peers-count');
+        if (syncPeersEl) syncPeersEl.textContent = `${peers}`;
+
         if (syncPct >= 99.9) {
             syncStatusIndicator.className = 'pulse-indicator active';
             syncStatusText.textContent = 'Synced';
-            dashSyncDesc.textContent = `Fully synced at block #${blockHeight}`;
+            dashSyncDesc.textContent = 'Fully synced';
             if (syncOwlEye) {
                 syncOwlEye.classList.remove('hidden');
                 syncOwlEye.classList.add('owl-watching');
+            }
+            // Transition out of IBD mode
+            if (isIbd) {
+                isIbd = false;
+                document.body.classList.remove('ibd-mode');
+                scheduleNextPoll();
             }
         } else {
             syncStatusIndicator.className = 'pulse-indicator syncing';
@@ -604,10 +670,17 @@ document.addEventListener('DOMContentLoaded', () => {
             dashSyncDesc.textContent = `Syncing blockchain... (${data.sync?.blocks || 0} / ${data.sync?.headers || 0})`;
             widgetStatusDot.className = 'status-dot syncing';
             if (syncOwlEye) syncOwlEye.classList.remove('hidden', 'owl-watching');
+            // Enable IBD mode to reduce UI load on node and old hardware
+            if (!isIbd) {
+                isIbd = true;
+                document.body.classList.add('ibd-mode');
+                scheduleNextPoll();
+            }
         }
 
-        dashPolicyVal.textContent = profile;
-        dashBip110Badge.textContent = `BIP-110: ${bip110Mode}`;
+        // Update policy info for policy strip (still used in hero section)
+        if (dashPolicyVal) dashPolicyVal.textContent = profile;
+        if (dashBip110Badge) dashBip110Badge.textContent = `BIP-110: ${bip110Mode}`;
         policyActiveIndicator.innerHTML = `Current profile: <strong style="color: var(--accent-cyan)">${profile}</strong>`;
         highlightActiveProfileCard(profile);
 
@@ -621,31 +694,41 @@ document.addEventListener('DOMContentLoaded', () => {
         const maxMb = ((mempool.maxmempool || 0) / (1024 * 1024)).toFixed(0);
         dashMempoolBytes.textContent = `${mBytes} KB · ${mUsage}/${maxMb} MB RAM (${mempool.usage_pct || 0}%)`;
 
+        const topFeesEl = document.getElementById('mempool-top-fees');
+        if (topFeesEl && data.top_mempool_txs?.length) {
+            topFeesEl.innerHTML = data.top_mempool_txs.map(tx =>
+                `<div class="top-fee-row"><span class="top-fee-txid">${tx.txid}…</span><span class="top-fee-rate">${tx.fee_rate} sat/vB</span></div>`
+            ).join('');
+        }
+
         const rej = data.rejections || {};
         const stats = rej.stats || {};
-        if (dashRejectionCount) dashRejectionCount.textContent = stats.total ?? 0;
-        if (dashRejectionRate) dashRejectionRate.textContent = `${stats.rate_pct ?? 0}% rejection rate (since startup)`;
-        if (dashRejectionDelta) {
-            const d = rej.deltas || {};
-            dashRejectionDelta.textContent = `+${d.today ?? 0} today · +${d.session ?? 0} session`;
-        }
-        if (dashPassRate) dashPassRate.textContent = `${stats.pass_rate_pct ?? 100}% pass rate`;
-        if (dashMempoolRam) dashMempoolRam.textContent = `${mUsage} / ${maxMb} MB`;
-        if (dashMinFee) dashMinFee.textContent = mempool.mempoolminfee != null ? String(mempool.mempoolminfee) : '—';
-        if (dashMempoolLoaded) dashMempoolLoaded.textContent = mempool.loaded ? 'Yes' : 'No';
-
-        const rdts = data.rdts || {};
-        if (dashRdtsPct) dashRdtsPct.textContent = `${rdts.signaling_pct ?? 0}%`;
-        if (dashRdtsStatus) dashRdtsStatus.textContent = `Status: ${rdts.status || 'unknown'}`;
-        if (dashRdtsBlocks) dashRdtsBlocks.textContent = `${rdts.blocks_signaling || 0} / ${rdts.period || 0} blocks signaling`;
 
         updateRejectionsPanel(rej.top || [], stats.total || 0);
 
         lastPolicyStatus = policy;
         updateRulesListFromStatus(policy);
 
-        if (data.network?.subversion) infoAgent.textContent = data.network.subversion;
-        if (data.sync?.chain) infoChain.textContent = data.sync.chain;
+        // Populate sync user agent info — show the Oracle Knots subversion
+        // UA format: "/Satoshi:29.3.0/OracleKnots:20260508/" → prefer the Knots part
+        if (data.network?.subversion) {
+            if (infoAgent) infoAgent.textContent = data.network.subversion;
+            const ua = data.network.subversion;
+            // Split into "/Name:version/" segments and prefer one mentioning Knots/Oracle
+            const segments = ua.split('/').filter(Boolean);
+            let nodeName = 'Unknown';
+            const knotsSeg = segments.find(s => /knots|oracle/i.test(s));
+            const chosen = knotsSeg || segments[0];
+            if (chosen) {
+                const namePart = chosen.split(':')[0];
+                const verPart = chosen.split(':')[1];
+                nodeName = verPart ? `${namePart} ${verPart}` : namePart;
+            }
+            const syncUserAgentEl = document.getElementById('sync-user-agent-name');
+            if (syncUserAgentEl) syncUserAgentEl.textContent = nodeName;
+        }
+
+        if (data.sync?.chain && infoChain) infoChain.textContent = data.sync.chain;
         if (infoUptime && data.metrics?.uptime) infoUptime.textContent = formatUptime(data.metrics.uptime);
         const ramModeEl = document.getElementById('info-ram-mode');
         if (ramModeEl) ramModeEl.textContent = `${maxMb} MB max mempool`;
@@ -659,43 +742,30 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
-        renderSovereignMining(data.mining || {}, data.rdts || {});
+        renderSovereignMining(data.mining || {}, data.datum || {});
         renderPreflightStrip(data.preflight || {});
         renderMempoolAuditSummary(data.mempool_audit || {});
     }
 
-    function renderSovereignMining(mining, rdts) {
+    function renderSovereignMining(mining, datum) {
         const profile = mining.profile || mining.active_policy_profile || '—';
         const badge = document.getElementById('mining-profile-badge');
         if (badge) badge.textContent = `Profile: ${profile}`;
 
         const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
         set('mining-txs-included', mining.txs_included ?? mining.currentblocktx ?? '—');
-        set('mining-policy-filtered', mining.policy_filtered ?? '0');
-        const rate = mining.template_filter_rate_pct;
-        set('mining-filter-rate', rate != null ? `${Number(rate).toFixed(1)}%` : '—');
-        const fees = mining.fees ?? mining.currentblockfees;
-        set('mining-fees', fees != null ? `${fees} sats` : '—');
+        set('mining-fees', datum.block_value || (mining.fees != null ? `${mining.fees} sats` : '—'));
+        set('mining-hashrate', datum.hashrate || '—');
+        set('mining-workers', datum.workers ?? '—');
+        set('mining-shares', datum.shares_accepted || '—');
+        set('mining-coinbase-tag', datum.coinbase_tag || '—');
 
-        const fill = document.getElementById('rdts-progress-fill');
-        const marker = document.getElementById('rdts-threshold-marker');
-        const desc = document.getElementById('rdts-progress-desc');
-        const activeBadge = document.getElementById('rdts-active-badge');
-        const sigPct = rdts.signaling_pct ?? 0;
-        const threshPct = rdts.threshold_pct ?? 55;
-        if (fill) fill.style.width = `${Math.min(100, sigPct)}%`;
-        if (marker) marker.style.left = `${Math.min(100, threshPct)}%`;
-        if (activeBadge) {
-            activeBadge.textContent = rdts.active ? 'ACTIVE' : (rdts.status || 'unknown').toUpperCase();
-            activeBadge.className = rdts.active ? 'badge badge-success' : 'badge badge-outline';
-        }
-        if (desc) {
-            const blocks = rdts.blocks_signaling ?? 0;
-            const period = rdts.period ?? 0;
-            const threshold = rdts.threshold ?? 0;
-            const toGo = rdts.blocks_to_threshold ?? Math.max(0, threshold - blocks);
-            desc.textContent = `${blocks}/${period} blocks signaling (${sigPct}%) · need ${threshold} for lock-in · ${toGo} blocks to threshold · status: ${rdts.status || 'unknown'}`;
-        }
+        // Expand panel when datum is active or there's a block template
+        const hasTemplate = datum.hashrate
+            || (mining.txs_included ?? mining.currentblocktx ?? 0) > 0
+            || (mining.fees ?? mining.currentblockfees ?? 0) > 0;
+        const miningPanel = document.getElementById('panel-sovereign-mining');
+        if (miningPanel) miningPanel.classList.toggle('mining-collapsed', !hasTemplate);
     }
 
     function getDismissedPreflight() {
@@ -1086,8 +1156,8 @@ document.addEventListener('DOMContentLoaded', () => {
         dashSyncProgress.style.width = '0%';
         dashSyncDesc.textContent = 'Node is stopped';
         
-        dashPolicyVal.textContent = 'None';
-        dashBip110Badge.textContent = 'BIP-110: Unknown';
+        if (dashPolicyVal) dashPolicyVal.textContent = 'None';
+        if (dashBip110Badge) dashBip110Badge.textContent = 'BIP-110: Unknown';
         policyActiveIndicator.innerHTML = 'Current profile: <strong>Offline</strong>';
         
         dashMempoolCount.textContent = '0';
@@ -1105,9 +1175,11 @@ document.addEventListener('DOMContentLoaded', () => {
         rejectionsEmptyView.classList.remove('hidden');
         rejectionsList.classList.add('hidden');
         
-        infoChain.textContent = 'Unknown';
-        infoAgent.textContent = 'Unknown';
-        
+        if (infoChain) infoChain.textContent = 'Unknown';
+        if (infoAgent) infoAgent.textContent = 'Unknown';
+        const syncUserAgentEl = document.getElementById('sync-user-agent-name');
+        if (syncUserAgentEl) syncUserAgentEl.textContent = '—';
+
         const tbody = document.getElementById('peers-table-body');
         if (tbody) tbody.innerHTML = `<tr><td colspan="6" class="text-center text-secondary py-4">No peers connected. Start the node to connect.</td></tr>`;
         
@@ -1171,13 +1243,13 @@ document.addEventListener('DOMContentLoaded', () => {
     
     async function fetchBtcPrice() {
         try {
-            const res = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd');
+            const res = await fetch('/api/bitcoin/price');
             const data = await res.json();
-            if (data.bitcoin && data.bitcoin.usd) {
-                btcPriceUsd = data.bitcoin.usd;
+            if (data.success && data.price && data.price.usd) {
+                btcPriceUsd = data.price.usd;
             }
         } catch (e) {
-            console.log("CoinGecko offline, using simulated BTC price of $93,500");
+            console.log("Price API unavailable, using cached BTC price");
         }
     }
     
@@ -2062,8 +2134,8 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    const walletSubPills = [pillWalletReceive, pillWalletSend, pillWalletUtxos, pillWalletHistory, pillWalletAddresses, pillWalletTools];
-    const walletSubPanes = [walletSubReceive, walletSubSend, walletSubUtxos, walletSubHistory, walletSubAddresses, walletSubTools];
+    const walletSubPills = [pillWalletReceive, pillWalletSend, pillWalletUtxos, pillWalletHistory, pillWalletAddresses, pillWalletTools, pillWalletPortfolio];
+    const walletSubPanes = [walletSubReceive, walletSubSend, walletSubUtxos, walletSubHistory, walletSubAddresses, walletSubTools, walletSubPortfolio];
 
     function switchSendMode(mode) {
         const isAdvanced = mode === 'advanced';
@@ -2242,11 +2314,23 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     pillWalletReceive.addEventListener('click', () => switchWalletSubTab(pillWalletReceive, walletSubReceive));
-    pillWalletSend.addEventListener('click', () => switchWalletSubTab(pillWalletSend, walletSubSend));
-    pillWalletUtxos.addEventListener('click', () => switchWalletSubTab(pillWalletUtxos, walletSubUtxos));
-    pillWalletHistory.addEventListener('click', () => switchWalletSubTab(pillWalletHistory, walletSubHistory));
-    pillWalletAddresses.addEventListener('click', () => switchWalletSubTab(pillWalletAddresses, walletSubAddresses));
-    pillWalletTools.addEventListener('click', () => switchWalletSubTab(pillWalletTools, walletSubTools));
+    const stopPortfolioRefresh = () => { if (portfolioDashboard) portfolioDashboard._stopAutoRefresh(); };
+    pillWalletSend.addEventListener('click', () => { stopPortfolioRefresh(); switchWalletSubTab(pillWalletSend, walletSubSend); });
+    pillWalletUtxos.addEventListener('click', () => { stopPortfolioRefresh(); switchWalletSubTab(pillWalletUtxos, walletSubUtxos); });
+    pillWalletHistory.addEventListener('click', () => { stopPortfolioRefresh(); switchWalletSubTab(pillWalletHistory, walletSubHistory); });
+    pillWalletAddresses.addEventListener('click', () => { stopPortfolioRefresh(); switchWalletSubTab(pillWalletAddresses, walletSubAddresses); });
+    pillWalletTools.addEventListener('click', () => { stopPortfolioRefresh(); switchWalletSubTab(pillWalletTools, walletSubTools); });
+    if (pillWalletPortfolio) {
+        pillWalletPortfolio.addEventListener('click', () => {
+            switchWalletSubTab(pillWalletPortfolio, walletSubPortfolio);
+            if (!portfolioDashboard) {
+                portfolioDashboard = new PortfolioDashboard('portfolio-dashboard-container');
+                portfolioDashboard.init();
+            } else {
+                portfolioDashboard.fetchData();
+            }
+        });
+    }
 
     if (sendModeSimple) sendModeSimple.addEventListener('click', () => switchSendMode('simple'));
     if (sendModeAdvanced) sendModeAdvanced.addEventListener('click', () => switchSendMode('advanced'));
@@ -2728,10 +2812,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 walletAddressesList.appendChild(tr);
             });
             walletAddressesList.querySelectorAll('.addr-action-btn').forEach(btn => {
-                btn.addEventListener('click', () => {
+                btn.addEventListener('click', async () => {
                     const addr = btn.dataset.addr;
                     if (btn.dataset.action === 'copy') {
-                        navigator.clipboard.writeText(addr).then(() => showToast('Address copied', 'success', 2000));
+                        const ok = await copyToClipboard(addr);
+                        showToast(ok ? 'Address copied' : 'Copy failed — select manually', ok ? 'success' : 'error', 2000);
                     } else {
                         switchWalletSubTab(pillWalletReceive, walletSubReceive);
                         receiveAddressText.value = addr;
@@ -2964,14 +3049,21 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // Copy Address Button
-    btnCopyAddress.addEventListener('click', () => {
-        const addr = receiveAddressText.value;
-        if (addr) {
-            navigator.clipboard.writeText(addr).then(() => showToast('Address copied', 'success', 2000));
-        }
-        btnCopyAddress.textContent = 'Copied!';
-        setTimeout(() => { btnCopyAddress.textContent = 'Copy'; }, 1500);
-    });
+    if (btnCopyAddress) {
+        btnCopyAddress.addEventListener('click', async () => {
+            if (!receiveAddressText) return;
+            const addr = receiveAddressText.value;
+            if (!addr) return;
+            const ok = await copyToClipboard(addr);
+            if (ok) {
+                showToast('Address copied', 'success', 2000);
+                btnCopyAddress.textContent = 'Copied!';
+                setTimeout(() => { btnCopyAddress.textContent = 'Copy'; }, 1500);
+            } else {
+                showToast('Copy failed — select the address text manually', 'error', 3000);
+            }
+        });
+    }
 
     // Send Coins Button
     btnSendCoins.addEventListener('click', async () => {
@@ -3113,7 +3205,7 @@ document.addEventListener('DOMContentLoaded', () => {
     btnRefreshLogs.addEventListener('click', fetchLogs);
     
     // Quick actions handlers
-    btnQuickReloadPolicy.addEventListener('click', async () => {
+    if (btnQuickReloadPolicy) btnQuickReloadPolicy.addEventListener('click', async () => {
         if (!isNodeRunning) {
             showToast('Node is offline.', 'error');
             return;

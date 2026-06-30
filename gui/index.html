@@ -16,6 +16,12 @@
     <link rel="stylesheet" href="/static/config-ux.css">
     <link rel="stylesheet" href="/static/onboarding-ux.css">
     <link rel="stylesheet" href="/static/navigation-ux.css">
+    <!-- Phase 4.1: Bitcoin Price Widget -->
+    <link rel="stylesheet" href="/static/css/price-widget.css">
+    <!-- Phase 4.2: Portfolio Dashboard -->
+    <link rel="stylesheet" href="/static/css/portfolio-dashboard.css">
+    <!-- Performance: IBD mode for old hardware -->
+    <link rel="stylesheet" href="/static/css/ibd-performance.css">
     <!-- Local QRCode Generator Library -->
     <script src="/static/qrcode.min.js"></script>
 </head>
@@ -106,19 +112,9 @@
                     </div>
                 </div>
 
-                <div class="header-metrics">
-                    <div class="block-height-display" id="block-height-display">
-                        <span class="block-height-label">Block</span>
-                        <span class="block-height-value" id="topbar-block-number">—</span>
-                    </div>
-                    <div class="header-peers-pill" id="topbar-peers-wrap">
-                        <span class="header-peers-label">Peers</span>
-                        <span class="header-peers-value" id="topbar-peers">0</span>
-                    </div>
-                </div>
-
                 <div class="header-actions">
                     <button class="btn btn-primary" id="node-toggle-btn">Start Node</button>
+                    <img src="/static/assets/oracle-owl.svg" alt="Oracle Knots" class="header-logo-right" width="44" height="44">
                 </div>
             </header>
 
@@ -126,76 +122,86 @@
             <div class="tab-content">
                 
                 <!-- Tab: Dashboard -->
-                <div class="tab-pane active" id="tab-dashboard">
-                    <div class="dashboard-policy-strip" id="dashboard-policy-strip">
+                <div class="tab-pane active dashboard-bento" id="tab-dashboard">
+                    <!-- area: alerts (banners — only take space when something is shown) -->
+                    <div class="da-alerts" id="dashboard-alerts">
+                        <div class="dashboard-conflict-banner hidden" id="dashboard-conflict-banner"></div>
+                        <div class="dashboard-preflight-strip hidden" id="dashboard-preflight-strip"></div>
+                        <!-- IBD hint — visible only via body.ibd-mode CSS -->
+                        <div class="ibd-hint-banner">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>
+                            <span><strong>IBD in progress</strong> — UI refresh reduced to 15s to keep the node responsive</span>
+                        </div>
+                    </div>
+
+                    <!-- area: policy -->
+                    <div class="dashboard-policy-strip da-policy" id="dashboard-policy-strip">
                         <span class="policy-strip-title" id="hero-policy-title">Policy: —</span>
                         <span class="badge badge-accent" id="hero-bip110-enforced">BIP-110: —</span>
                         <span class="badge badge-outline" id="hero-bip110-mode">Mode: —</span>
                         <span class="policy-strip-meta" id="hero-peer-privacy">Tor 0 · I2P 0 · Clear 0</span>
                     </div>
-                    <div class="dashboard-conflict-banner hidden" id="dashboard-conflict-banner"></div>
-                    <div class="dashboard-preflight-strip hidden" id="dashboard-preflight-strip"></div>
 
-                    <!-- Top stats cards -->
-                    <div class="stats-grid">
-                        <div class="stat-card">
-                            <div class="stat-header">
-                                <span class="stat-label">Blockchain Sync</span>
-                                <div class="stat-icon sync"></div>
-                            </div>
-                            <div class="stat-value" id="dash-sync-val">0.00%</div>
-                            <div class="progress-bar-container">
-                                <div class="progress-bar" id="dash-sync-progress" style="width: 0%"></div>
-                            </div>
-                            <span class="stat-desc" id="dash-sync-desc">Checking status...</span>
+                    <!-- area: sync (feature KPI) - now includes block count, peers, user agent -->
+                    <div class="stat-card stat-card-feature da-sync">
+                        <div class="stat-header">
+                            <span class="stat-label">Blockchain Sync</span>
+                            <div class="stat-icon sync"></div>
                         </div>
-                        
-                        <div class="stat-card">
-                            <div class="stat-header">
-                                <span class="stat-label">Active Policy Profile</span>
-                                <div class="stat-icon policy"></div>
-                            </div>
-                            <div class="stat-value text-accent" id="dash-policy-val">None</div>
-                            <div class="badge-row mt-2" id="dash-policy-badges">
-                                <span class="badge" id="dash-bip110-badge">BIP-110: Unknown</span>
-                            </div>
-                            <span class="stat-desc" id="dash-policy-desc">Spam filtering settings</span>
+                        <div class="stat-value" id="dash-sync-val">0.00%</div>
+                        <div class="progress-bar-container">
+                            <div class="progress-bar" id="dash-sync-progress" style="width: 0%"></div>
                         </div>
+                        <div class="sync-info-grid">
+                            <div class="sync-info-item">
+                                <span class="sync-info-label">Block</span>
+                                <span class="sync-info-value" id="sync-block-count">—</span>
+                            </div>
+                            <div class="sync-info-item">
+                                <span class="sync-info-label">Peers</span>
+                                <span class="sync-info-value" id="sync-peers-count">—</span>
+                            </div>
+                            <div class="sync-info-item">
+                                <span class="sync-info-label">Node</span>
+                                <span class="sync-info-value" id="sync-user-agent-name">—</span>
+                            </div>
+                        </div>
+                        <span class="stat-desc" id="dash-sync-desc">Checking status...</span>
+                    </div>
 
-                        <div class="stat-card stat-card-mempool">
-                            <div class="stat-header">
-                                <span class="stat-label">Mempool Transactions</span>
-                                <div class="stat-icon mempool"></div>
-                            </div>
-                            <div class="stat-value" id="dash-mempool-count">0</div>
-                            <canvas id="mempool-sparkline" class="mempool-sparkline" width="280" height="28" aria-hidden="true"></canvas>
-                            <div class="stat-meta" id="dash-mempool-bytes">0 KB / 0 MB limit</div>
-                            <span class="stat-desc" id="dash-mempool-desc">Live mempool activity</span>
+                    <!-- area: mem (feature KPI) -->
+                    <div class="stat-card stat-card-feature stat-card-mempool da-mem">
+                        <div class="stat-header">
+                            <span class="stat-label">Mempool Transactions</span>
+                            <div class="stat-icon mempool"></div>
                         </div>
+                        <div class="stat-value" id="dash-mempool-count">0</div>
+                        <canvas id="mempool-sparkline" class="mempool-sparkline" width="280" height="28" aria-hidden="true"></canvas>
+                        <div class="stat-meta" id="dash-mempool-bytes">0 KB / 0 MB limit</div>
+                        <span class="stat-desc" id="dash-mempool-desc">Live mempool activity</span>
+                        <div class="mempool-top-fees" id="mempool-top-fees"></div>
+                    </div>
 
-                        <div class="stat-card">
-                            <div class="stat-header">
-                                <span class="stat-label">Policy Rejections</span>
-                                <div class="stat-icon rejections"></div>
-                            </div>
-                            <div class="stat-value" id="dash-rejection-count">0</div>
-                            <div class="stat-meta" id="dash-rejection-rate">0% rejection rate</div>
-                            <span class="stat-desc" id="dash-rejection-delta">+0 today · +0 session</span>
+                    <!-- area: spam (Data Spam Rejection) -->
+                    <div class="panel panel-rejections da-spam">
+                        <div class="panel-header">
+                            <h3>Data Spam Rejection</h3>
+                            <span class="badge badge-danger" id="dash-rejections-total">0 Rejected</span>
                         </div>
-
-                        <div class="stat-card">
-                            <div class="stat-header">
-                                <span class="stat-label">RDTS Network Signal</span>
-                                <div class="stat-icon rdts"></div>
+                        <div class="panel-body">
+                            <div class="rejections-chart-placeholder" id="rejections-empty-view">
+                                <div class="empty-icon">🛡️</div>
+                                <p>No rejections recorded yet.</p>
+                                <span>Rejections will appear here when transactions violate your policy.toml rules.</span>
                             </div>
-                            <div class="stat-value" id="dash-rdts-pct">0%</div>
-                            <div class="stat-meta" id="dash-rdts-status">Status: unknown</div>
-                            <span class="stat-desc" id="dash-rdts-blocks">0 / 0 blocks signaling</span>
+                            <div class="rejections-bars hidden" id="rejections-list">
+                                <!-- Top 5 rejection bars -->
+                            </div>
                         </div>
                     </div>
 
-                    <!-- Sovereign Mining -->
-                    <div class="panel panel-sovereign-mining panel-accent mt-3" id="panel-sovereign-mining">
+                    <!-- area: mining (collapses to thin strip when no datum) -->
+                    <div class="panel panel-sovereign-mining panel-accent da-mining mining-collapsed" id="panel-sovereign-mining">
                         <div class="panel-header">
                             <h3><span class="sovereign-icon" aria-hidden="true">⛏</span> Sovereign Mining — Block Template</h3>
                             <div class="panel-header-badges">
@@ -204,121 +210,44 @@
                             </div>
                         </div>
                         <div class="panel-body panel-body-compact">
-                            <p class="text-secondary text-xs mb-2 sovereign-desc">Block templates filtered by <code>policy.toml</code> — sovereign solo/pool mining.</p>
-                            <div class="mining-stats-grid">
-                                <div class="mining-stat">
-                                    <span class="detail-label">Txs in template</span>
-                                    <span class="detail-value" id="mining-txs-included">—</span>
-                                </div>
-                                <div class="mining-stat">
-                                    <span class="detail-label">Policy filtered</span>
-                                    <span class="detail-value text-danger" id="mining-policy-filtered">—</span>
-                                </div>
-                                <div class="mining-stat">
-                                    <span class="detail-label">Filter rate</span>
-                                    <span class="detail-value" id="mining-filter-rate">—</span>
-                                </div>
-                                <div class="mining-stat">
-                                    <span class="detail-label">Template fees</span>
-                                    <span class="detail-value" id="mining-fees">—</span>
-                                </div>
+                            <div class="mining-empty-hint">
+                                <span class="mining-empty-dot"></span>
+                                Connect a datum/mining endpoint to see the policy-filtered block template.
                             </div>
-                            <div class="rdts-progress-section mt-4">
-                                <div class="flex-between mb-2">
-                                    <h4 class="text-sm">BIP-110 / RDTS Network Signaling</h4>
-                                    <span class="badge badge-outline" id="rdts-active-badge">—</span>
-                                </div>
-                                <div class="rdts-progress-track">
-                                    <div class="rdts-progress-fill" id="rdts-progress-fill" style="width: 0%"></div>
-                                    <div class="rdts-threshold-marker" id="rdts-threshold-marker" style="left: 55%"></div>
-                                </div>
-                                <p class="text-xs text-secondary mt-2" id="rdts-progress-desc">Signaling data unavailable</p>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Bottom panel layout -->
-                    <div class="dashboard-details">
-                        <!-- Left pane: Rejections list -->
-                        <div class="panel panel-rejections">
-                            <div class="panel-header">
-                                <h3>Data Spam Rejection Summary</h3>
-                                <span class="badge badge-danger" id="dash-rejections-total">0 Rejected</span>
-                            </div>
-                            <div class="panel-body">
-                                <div class="rejections-chart-placeholder" id="rejections-empty-view">
-                                    <div class="empty-icon">🛡️</div>
-                                    <p>No rejections recorded yet.</p>
-                                    <span>Rejections will appear here when transactions violate your policy.toml rules.</span>
-                                </div>
-                                <div class="rejections-bars hidden" id="rejections-list">
-                                    <!-- Top 5 rejection bars -->
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Right pane: Mempool + Node details -->
-                        <div class="panel panel-node-info panel-compact">
-                            <div class="panel-header">
-                                <h3>Mempool &amp; Node</h3>
-                            </div>
-                            <div class="panel-body panel-body-flush">
-                                <div class="node-info-compact-grid" id="mempool-detail-grid">
-                                    <div class="node-info-cell">
-                                        <span class="detail-label">Pass rate</span>
-                                        <span class="detail-value" id="dash-pass-rate">—</span>
+                            <div class="mining-expanded-content">
+                                <p class="text-secondary text-xs mb-2 sovereign-desc">Block templates filtered by <code>policy.toml</code> — sovereign solo/pool mining.</p>
+                                <div class="mining-stats-grid">
+                                    <div class="mining-stat">
+                                        <span class="detail-label">Txs in template</span>
+                                        <span class="detail-value" id="mining-txs-included">—</span>
                                     </div>
-                                    <div class="node-info-cell">
-                                        <span class="detail-label">Mempool RAM</span>
-                                        <span class="detail-value" id="dash-mempool-ram">—</span>
+                                    <div class="mining-stat">
+                                        <span class="detail-label">Block value</span>
+                                        <span class="detail-value" id="mining-fees">—</span>
                                     </div>
-                                    <div class="node-info-cell">
-                                        <span class="detail-label">Min relay fee</span>
-                                        <span class="detail-value" id="dash-min-fee">—</span>
+                                    <div class="mining-stat">
+                                        <span class="detail-label">Hashrate</span>
+                                        <span class="detail-value" id="mining-hashrate">—</span>
                                     </div>
-                                    <div class="node-info-cell">
-                                        <span class="detail-label">Mempool loaded</span>
-                                        <span class="detail-value" id="dash-mempool-loaded">—</span>
+                                    <div class="mining-stat">
+                                        <span class="detail-label">Workers</span>
+                                        <span class="detail-value" id="mining-workers">—</span>
                                     </div>
-                                    <div class="node-info-cell">
-                                        <span class="detail-label">Chain</span>
-                                        <span class="detail-value" id="info-chain">Unknown</span>
-                                    </div>
-                                    <div class="node-info-cell node-info-cell-wide">
-                                        <span class="detail-label">User Agent</span>
-                                        <span class="detail-value detail-value-sm" id="info-agent">Unknown</span>
-                                    </div>
-                                    <div class="node-info-cell">
-                                        <span class="detail-label">RPC</span>
-                                        <span class="detail-value" id="info-rpc">127.0.0.1:8332</span>
-                                    </div>
-                                    <div class="node-info-cell node-info-cell-wide">
-                                        <span class="detail-label">Data dir</span>
-                                        <span class="detail-value detail-value-sm text-truncate" id="info-datadir">~/.bitcoin</span>
-                                    </div>
-                                    <div class="node-info-cell">
-                                        <span class="detail-label">Max mempool</span>
-                                        <span class="detail-value" id="info-ram-mode">—</span>
-                                    </div>
-                                    <div class="node-info-cell">
-                                        <span class="detail-label">Uptime</span>
-                                        <span class="detail-value" id="info-uptime">—</span>
+                                    <div class="mining-stat">
+                                        <span class="detail-label">Shares</span>
+                                        <span class="detail-value" id="mining-shares">—</span>
                                     </div>
                                 </div>
-
-                                <div class="quick-actions-panel mt-2">
-                                    <h4>Quick Actions</h4>
-                                    <div class="btn-group">
-                                        <button class="btn btn-outline" id="btn-quick-mempool-inspect">Mempool Details</button>
-                                        <button class="btn btn-outline" id="btn-quick-reload-policy">Apply Policy</button>
-                                    </div>
+                                <div class="mining-coinbase-row">
+                                    <span class="detail-label">Coinbase Tag</span>
+                                    <span class="detail-value" id="mining-coinbase-tag">—</span>
                                 </div>
                             </div>
                         </div>
                     </div>
 
-                    <!-- Recent Blocks strip -->
-                    <section class="chain-strip-panel" id="chain-strip-panel">
+                    <!-- area: blocks (Recent Blocks) -->
+                    <section class="chain-strip-panel da-blocks" id="chain-strip-panel">
                         <div class="chain-strip-header">
                             <h3>Recent Blocks</h3>
                             <span class="chain-strip-meta" id="chain-strip-meta">Latest blocks on chain</span>
@@ -326,6 +255,7 @@
                         <div class="chain-strip-track" id="chain-strip-track" role="list" aria-label="Recent blocks"></div>
                         <div class="chain-strip-tooltip hidden" id="chain-strip-tooltip" role="tooltip"></div>
                     </section>
+
                 </div>
 
                 <!-- Tab: Wallet Manager -->
@@ -346,6 +276,8 @@
 
                     <!-- Active Wallet View -->
                     <div class="wallet-active-view hidden" id="wallet-active-view">
+                        <!-- Bitcoin Price Widget (Phase 4.1) — full-width strip above layout -->
+                        <div id="price-widget-container" class="wallet-price-widget-wrap"></div>
                         <div class="wallet-layout">
                             <!-- Balance Card -->
                             <div class="wallet-card balance-card panel-accent">
@@ -366,7 +298,7 @@
                                         <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg> Send
                                     </button>
                                     <button class="btn btn-primary btn-circle-action" id="btn-wallet-goto-receive">
-                                        <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M20 5H4c-1.1 0-1.99.9-1.99 2L2 17c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm-5 12H7v-2h8v2zm3-4H7v-2h11v2zm0-4H7V7h11v2z"/></svg> Receive
+                                        <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M20 5H4c-1.1 0-1.99.9-1.99 2L2 17c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2zm-5 12H7v-2h8v2zm3-4H7v-2h11v2zm0-4H7V7h11v2z"/></svg> Receive
                                     </button>
                                 </div>
                             </div>
@@ -381,6 +313,7 @@
                                         <button class="tab-pill" id="pill-wallet-history">History</button>
                                         <button class="tab-pill" id="pill-wallet-addresses">Addresses</button>
                                         <button class="tab-pill" id="pill-wallet-tools">Tools</button>
+                                        <button class="tab-pill" id="pill-wallet-portfolio">Portfolio</button>
                                     </div>
                                 </div>
                                 <div class="panel-body">
@@ -703,6 +636,12 @@
                                         </div>
                                     </div>
                                 </div>
+
+                                    <!-- Sub-tab: Portfolio (Phase 4.2) -->
+                                    <div class="wallet-sub-pane hidden" id="wallet-sub-portfolio">
+                                        <div id="portfolio-dashboard-container"></div>
+                                    </div>
+
                             </div>
                         </div>
                     </div>
@@ -1759,6 +1698,10 @@
 
     <div id="toast-container" class="toast-container" aria-live="polite"></div>
 
+    <!-- Phase 4.1: Bitcoin Price Widget Component -->
+    <script src="/static/components/PriceWidget.js"></script>
+    <!-- Phase 4.2: Portfolio Dashboard Component -->
+    <script src="/static/components/PortfolioDashboard.js"></script>
     <script src="/static/app.js"></script>
 </body>
 </html>

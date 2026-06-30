@@ -12,6 +12,12 @@ import shlex
 from datetime import datetime, timezone
 from bottle import route, run, static_file, request, response
 
+# Bitcoin Price Widget (Phase 4.1)
+from api.routes_bitcoin_price import setup_price_routes
+# Portfolio Dashboard (Phase 4.2)
+from api.portfolio import PortfolioManager
+from api.routes_portfolio import setup_portfolio_routes
+
 # Define paths (portable — relative to this script)
 ORACLE_KNOTS_DIR = os.path.dirname(os.path.abspath(__file__))
 GUI_DIR = os.path.join(ORACLE_KNOTS_DIR, "gui")
@@ -678,7 +684,64 @@ def _build_dashboard(running, pid):
         "mempool_audit": _rpc_json("getmempoolpolicyaudit", datadir, network, ["200"]) or {},
         "recent_rejections": _rpc_json("getrecentpolicyrejections", datadir, network, ["25"]) or [],
         "preflight": _build_preflight(True, datadir, network),
+        "datum": _fetch_datum_status(),
+        "top_mempool_txs": _fetch_top_mempool_txs(datadir, network, 5),
     }
+
+
+def _fetch_datum_status():
+    """Scrape the local Datum Gateway status page and return key mining stats."""
+    import re
+    from html import unescape
+    try:
+        with urllib.request.urlopen("http://127.0.0.1:7152/", timeout=1.5) as resp:
+            html = resp.read().decode("utf-8", errors="replace")
+    except Exception:
+        return {}
+
+    def _extract(label):
+        pattern = re.escape(label) + r"</td>\s*<td[^>]*>(.*?)</td>"
+        m = re.search(pattern, html, re.DOTALL)
+        if not m:
+            return None
+        return unescape(re.sub(r"<[^>]+>", "", m.group(1)).strip())
+
+    shares_raw = _extract("Shares Accepted:") or ""
+    shares_num = shares_raw.split()[0] if shares_raw else "0"
+    try:
+        workers = int(_extract("Total Connections:") or "0")
+    except ValueError:
+        workers = 0
+
+    return {
+        "hashrate": _extract("Estimated Hashrate:"),
+        "workers": workers,
+        "shares_accepted": shares_num,
+        "coinbase_tag": (_extract("Secondary/Miner Tag:") or "").strip('"'),
+        "pool_tag": (_extract("Pool Tag:") or "").strip('"'),
+        "status": _extract("Status:"),
+        "block_value": _extract("Block Value:"),
+    }
+
+
+def _fetch_top_mempool_txs(datadir, network, n=5):
+    """Return top N mempool transactions sorted by fee rate (sat/vB)."""
+    raw = _rpc_json("getrawmempool", datadir, network, ["true"])
+    if not raw or not isinstance(raw, dict):
+        return []
+    txs = []
+    for txid, info in raw.items():
+        try:
+            fee_btc = info.get("fees", {}).get("modified") or info.get("fee", 0)
+            vsize = info.get("vsize") or info.get("size") or 1
+            fee_sat = round(fee_btc * 1e8)
+            fee_rate = round(fee_sat / vsize, 1)
+            txs.append({"txid": txid[:12], "fee_sat": fee_sat, "vsize": vsize, "fee_rate": fee_rate})
+        except Exception:
+            continue
+    txs.sort(key=lambda x: x["fee_rate"], reverse=True)
+    return txs[:n]
+
 
 # ----------------------------------------------------
 # Configuration Parsing / Updating Utilities
@@ -914,6 +977,56 @@ def api_status():
             "datadir": os.path.expanduser("~/.bitcoin"),
             "network": "mainnet"
         }
+
+@route('/api/clipboard', method='POST')
+def api_clipboard():
+    """Clipboard proxy — non-blocking. wl-copy/xclip run as detached subprocesses so
+    they never block the Bottle server thread. On Wayland, wl-copy stays alive as a
+    daemon serving clipboard requests; we don't wait for it to exit."""
+    data = request.json or {}
+    text = data.get('text', '')
+    response.content_type = 'application/json'
+    if not text:
+        return json.dumps({'success': False, 'error': 'no text'})
+
+    if sys.platform != 'linux':
+        return json.dumps({'success': False, 'error': 'non-linux'})
+
+    env = dict(os.environ)
+    session = env.get('XDG_SESSION_TYPE', '').lower()
+
+    if session == 'wayland':
+        # wl-copy reads stdin then stays alive serving clipboard requests.
+        # Use Popen + communicate (no timeout) — it finishes reading stdin quickly.
+        try:
+            proc = subprocess.Popen(
+                ['wl-copy'],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                env=env,
+                close_fds=True
+            )
+            proc.stdin.write(text.encode('utf-8'))
+            proc.stdin.close()
+            # Don't wait — wl-copy runs as daemon. Assume success if Popen didn't throw.
+            return json.dumps({'success': True})
+        except FileNotFoundError:
+            pass
+        except Exception as e:
+            sys.stderr.write(f'[clipboard] wl-copy error: {e}\n')
+
+    # X11 fallback (xclip / xsel) — these exit after writing, so run() is fine
+    for cmd in (['xclip', '-selection', 'clipboard'], ['xsel', '--clipboard', '--input']):
+        try:
+            subprocess.run(cmd, input=text.encode('utf-8'), check=True,
+                           capture_output=True, timeout=3)
+            return json.dumps({'success': True})
+        except (FileNotFoundError, subprocess.CalledProcessError,
+                subprocess.TimeoutExpired):
+            continue
+
+    return json.dumps({'success': False, 'error': 'no clipboard tool available'})
 
 @route('/api/start', method='POST')
 def api_start():
@@ -2110,10 +2223,18 @@ def api_get_logs():
         return {"success": False, "error": str(e)}
 
 # ----------------------------------------------------
+# Bitcoin Price & Portfolio Routes (Phase 4.1 + 4.2)
+# ----------------------------------------------------
+from bottle import default_app as _bottle_default_app
+setup_price_routes(_bottle_default_app())
+_portfolio_manager = PortfolioManager(run_bitcoin_cli, get_node_context)
+setup_portfolio_routes(_bottle_default_app(), _portfolio_manager)
+
+# ----------------------------------------------------
 # Main Program Launch & Threading
 # ----------------------------------------------------
 def start_bottle_server(port):
-    run(host='127.0.0.1', port=port, quiet=True)
+    run(host='127.0.0.1', port=port, quiet=True, server='wsgiref')
 
 def main():
     dashboard_port = find_available_port(8080)
@@ -2121,7 +2242,11 @@ def main():
     # Start Bottle server in background thread
     server_thread = threading.Thread(target=start_bottle_server, args=(dashboard_port,), daemon=True)
     server_thread.start()
-    
+
+    # Start portfolio daily snapshot scheduler
+    snapshot_thread = threading.Thread(target=_portfolio_manager.start_daily_scheduler, daemon=True)
+    snapshot_thread.start()
+
     time.sleep(0.5)
     
     try:
