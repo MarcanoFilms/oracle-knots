@@ -18,18 +18,25 @@ class PortfolioDashboard {
         this.refreshIntervalMs = 60000;
         this._refreshTimer = null;
         this._initialized = false;
+        this._active = false;
 
-        this.CURRENCIES = ['usd', 'eur', 'gbp', 'jpy', 'cad', 'aud'];
-        this.CURRENCY_SYMBOLS = { usd: '$', eur: '€', gbp: '£', jpy: '¥', cad: 'C$', aud: 'A$' };
-        this.CURRENCY_LABELS = { usd: 'USD', eur: 'EUR', gbp: 'GBP', jpy: 'JPY', cad: 'CAD', aud: 'AUD' };
+        this.CURRENCIES = ['usd', 'eur', 'gbp', 'jpy', 'cad', 'aud', 'btc'];
+        this.CURRENCY_SYMBOLS = { usd: '$', eur: '€', gbp: '£', jpy: '¥', cad: 'C$', aud: 'A$', btc: '₿' };
+        this.CURRENCY_LABELS = { usd: 'USD', eur: 'EUR', gbp: 'GBP', jpy: 'JPY', cad: 'CAD', aud: 'AUD', btc: 'BTC' };
+        if (!this.CURRENCIES.includes(this.selectedCurrency)) {
+            this.selectedCurrency = 'usd';
+        }
     }
 
     async init() {
         if (this._initialized) return;
         this._initialized = true;
+        this._active = true;
         this._render();
         await this.fetchData();
-        this._startAutoRefresh();
+        if (this._active) {
+            this._startAutoRefresh();
+        }
     }
 
     destroy() {
@@ -420,11 +427,13 @@ class PortfolioDashboard {
     // ──────────────────────────────────────────────────────────
 
     _startAutoRefresh() {
-        this._stopAutoRefresh();
+        this._active = true;
+        if (this._refreshTimer) clearInterval(this._refreshTimer);
         this._refreshTimer = setInterval(() => this.fetchData(), this.refreshIntervalMs);
     }
 
     _stopAutoRefresh() {
+        this._active = false;
         if (this._refreshTimer) {
             clearInterval(this._refreshTimer);
             this._refreshTimer = null;

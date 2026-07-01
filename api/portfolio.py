@@ -23,7 +23,7 @@ from api.bitcoin_price import BitcoinPriceService
 
 DB_PATH = os.path.expanduser("~/.oracle-knots/portfolio.db")
 
-SUPPORTED_CURRENCIES = ['usd', 'eur', 'gbp', 'jpy', 'cad', 'aud']
+SUPPORTED_CURRENCIES = ['usd', 'eur', 'gbp', 'jpy', 'cad', 'aud', 'btc']
 
 
 class PortfolioManager:
@@ -118,15 +118,22 @@ class PortfolioManager:
             wallet_details.append({'name': name, 'btc': bal, 'unconfirmed': unconf})
 
         # Fetch price (uses 60-second cache — no extra API calls during normal polling)
+        price_available = True
         try:
             price_data = self.price_service.current_price
-            price_in_currency = float(price_data.get(currency, price_data.get('usd', 0)))
-            price_usd = float(price_data.get('usd', 0))
-            change_24h = float(price_data.get(f'{currency}_24h_change', price_data.get('usd_24h_change', 0)))
+            if currency == 'btc':
+                price_in_currency = 1.0
+                price_usd = float(price_data.get('usd', 0))
+                change_24h = float(price_data.get('usd_24h_change', 0))
+            else:
+                price_in_currency = float(price_data.get(currency, price_data.get('usd', 0)))
+                price_usd = float(price_data.get('usd', 0))
+                change_24h = float(price_data.get(f'{currency}_24h_change', price_data.get('usd_24h_change', 0)))
         except Exception:
             price_in_currency = 0.0
             price_usd = 0.0
             change_24h = 0.0
+            price_available = False
 
         total_value = total_btc * price_in_currency
 
@@ -146,6 +153,7 @@ class PortfolioManager:
             'wallet_count': len(wallet_names),
             'wallets': wallet_details,
             'updated_at': time.time(),
+            'price_available': price_available,
         }
 
     def record_daily_snapshot(self) -> bool:
@@ -156,7 +164,7 @@ class PortfolioManager:
         Returns True if a new row was inserted, False if today's row already existed.
         """
         snap = self.get_portfolio_snapshot('usd')
-        if not snap.get('success'):
+        if not snap.get('success') or not snap.get('price_available', True):
             return False
 
         today = datetime.now().strftime('%Y-%m-%d')
@@ -320,7 +328,7 @@ class PortfolioManager:
             'today': {'value': today_value, 'btc': today_btc, 'date': today},
             'yesterday': {'value': yest_value, 'btc': yest_btc, 'date': yesterday},
             'change': {'value': change_value, 'pct': change_pct, 'btc': change_btc},
-            'direction': 'up' if change_value >= 0 else 'down',
+            'direction': 'up' if change_value > 0 else ('down' if change_value < 0 else 'neutral'),
             'days_tracked': days_tracked,
         }
 
