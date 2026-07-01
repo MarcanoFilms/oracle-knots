@@ -2,3 +2,4 @@
 bottle>=0.13.0
 pywebview>=5.0
 proxy_tools>=0.1.0
+requests>=2.28.0

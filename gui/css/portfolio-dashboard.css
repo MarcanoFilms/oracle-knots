@@ -1,0 +1,468 @@
+/* Oracle Knots - Portfolio Dashboard Styles
+   Phase 4.2: Portfolio Value Dashboard
+   Uses design tokens from design-tokens.css — no hardcoded colors.
+*/
+
+/* ============================================================
+   CONTAINER & HEADER
+   ============================================================ */
+.portfolio-dashboard {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 16px;
+    max-width: 1100px;
+}
+
+.portfolio-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 2px;
+}
+
+.portfolio-title {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text-primary);
+    letter-spacing: 0.3px;
+}
+
+.portfolio-header-controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.portfolio-currency-select {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    color: var(--text-primary);
+    font-size: 12px;
+    padding: 5px 8px;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+}
+
+.portfolio-currency-select:focus {
+    outline: none;
+    border-color: var(--accent-cyan);
+}
+
+.portfolio-export-btn {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 12px;
+    background: transparent;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    color: var(--text-secondary);
+    font-size: 12px;
+    cursor: pointer;
+    transition: border-color 0.2s, color 0.2s;
+}
+
+.portfolio-export-btn:hover {
+    border-color: var(--accent-cyan);
+    color: var(--accent-cyan);
+}
+
+/* ============================================================
+   HERO METRICS ROW
+   ============================================================ */
+.portfolio-hero {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 12px;
+}
+
+.portfolio-hero-tile {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius, 8px);
+    padding: 18px 16px;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+}
+
+.portfolio-hero-tile::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 2px;
+    background: linear-gradient(90deg, var(--accent-cyan, #00d4ff), var(--accent-purple, #7c3aed));
+}
+
+.portfolio-hero-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    color: var(--text-secondary);
+    margin-bottom: 8px;
+}
+
+.portfolio-hero-value {
+    font-size: 26px;
+    font-weight: 700;
+    color: var(--text-primary);
+    line-height: 1.1;
+    word-break: break-all;
+}
+
+.portfolio-hero-value.change-up {
+    color: var(--status-green, #22c55e);
+}
+
+.portfolio-hero-value.change-down {
+    color: var(--status-red, #ef4444);
+}
+
+.portfolio-hero-sub {
+    font-size: 11px;
+    color: var(--text-secondary);
+    margin-top: 4px;
+}
+
+/* ============================================================
+   HISTORY CHART
+   ============================================================ */
+.portfolio-chart-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius, 8px);
+    overflow: hidden;
+}
+
+.portfolio-chart-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.portfolio-chart-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+}
+
+.portfolio-days-toggle {
+    display: flex;
+    gap: 4px;
+}
+
+.portfolio-days-btn {
+    padding: 4px 10px;
+    border-radius: 5px;
+    font-size: 11px;
+    border: 1px solid var(--border-color);
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.portfolio-days-btn:hover {
+    border-color: var(--accent-cyan);
+    color: var(--accent-cyan);
+}
+
+.portfolio-days-btn.active {
+    background: var(--accent-cyan, #00d4ff);
+    color: var(--bg-darkest, #05070e);
+    border-color: var(--accent-cyan, #00d4ff);
+    font-weight: 600;
+}
+
+.portfolio-chart-body {
+    padding: 14px;
+}
+
+.portfolio-chart-svg-wrap {
+    width: 100%;
+    height: 180px;
+    overflow: hidden;
+}
+
+.portfolio-chart-svg-wrap svg {
+    width: 100%;
+    height: 100%;
+}
+
+/* ============================================================
+   EMPTY / ONBOARDING STATE
+   ============================================================ */
+.portfolio-empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 36px 20px;
+    text-align: center;
+    color: var(--text-secondary);
+}
+
+.portfolio-empty-icon {
+    font-size: 44px;
+    margin-bottom: 12px;
+    opacity: 0.7;
+}
+
+.portfolio-empty-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 6px;
+}
+
+.portfolio-empty-text {
+    font-size: 12px;
+    color: var(--text-secondary);
+    max-width: 300px;
+    line-height: 1.6;
+}
+
+.portfolio-empty-progress {
+    margin-top: 14px;
+    font-size: 11px;
+    color: var(--accent-cyan);
+}
+
+/* ============================================================
+   WALLET BREAKDOWN GRID
+   ============================================================ */
+.portfolio-wallets-section {
+    /* only shown when multiple wallets */
+}
+
+.portfolio-wallets-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-secondary);
+    margin-bottom: 8px;
+    font-weight: 600;
+}
+
+.portfolio-wallets-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 10px;
+}
+
+.portfolio-wallet-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius, 8px);
+    padding: 12px 12px 14px;
+    position: relative;
+    overflow: hidden;
+}
+
+.portfolio-wallet-name {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-bottom: 6px;
+    text-overflow: ellipsis;
+    overflow: hidden;
+    white-space: nowrap;
+}
+
+.portfolio-wallet-btc {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: 2px;
+}
+
+.portfolio-wallet-value {
+    font-size: 11px;
+    color: var(--text-secondary);
+    margin-bottom: 8px;
+}
+
+.portfolio-wallet-share-bar-track {
+    position: absolute;
+    bottom: 0; left: 0;
+    width: 100%; height: 2px;
+    background: var(--border-color);
+}
+
+.portfolio-wallet-share-bar-fill {
+    height: 100%;
+    background: var(--accent-cyan, #00d4ff);
+    transition: width 0.6s ease;
+}
+
+/* ============================================================
+   P&L CARD
+   ============================================================ */
+.portfolio-pl-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-left-width: 3px;
+    border-radius: var(--border-radius, 8px);
+    padding: 14px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.portfolio-pl-card.direction-up {
+    border-left-color: var(--status-green, #22c55e);
+}
+
+.portfolio-pl-card.direction-down {
+    border-left-color: var(--status-red, #ef4444);
+}
+
+.portfolio-pl-card.direction-neutral {
+    border-left-color: var(--border-color);
+}
+
+.portfolio-pl-text {
+    font-size: 13px;
+    color: var(--text-primary);
+    flex: 1;
+    min-width: 200px;
+}
+
+.portfolio-pl-value {
+    font-size: 15px;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.portfolio-pl-value.positive {
+    color: var(--status-green, #22c55e);
+}
+
+.portfolio-pl-value.negative {
+    color: var(--status-red, #ef4444);
+}
+
+.portfolio-pl-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 600;
+    margin-left: 6px;
+}
+
+.portfolio-pl-badge.up {
+    background: rgba(34, 197, 94, 0.12);
+    color: var(--status-green, #22c55e);
+}
+
+.portfolio-pl-badge.down {
+    background: rgba(239, 68, 68, 0.12);
+    color: var(--status-red, #ef4444);
+}
+
+/* ============================================================
+   FOOTER
+   ============================================================ */
+.portfolio-footer {
+    font-size: 10px;
+    color: var(--text-secondary);
+    text-align: right;
+    opacity: 0.7;
+}
+
+/* ============================================================
+   LOADING STATE
+   ============================================================ */
+.portfolio-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 60px 20px;
+    color: var(--text-secondary);
+    gap: 10px;
+    font-size: 13px;
+}
+
+.portfolio-spinner {
+    width: 18px;
+    height: 18px;
+    border: 2px solid var(--border-color);
+    border-top-color: var(--accent-cyan, #00d4ff);
+    border-radius: 50%;
+    animation: portfolio-spin 0.8s linear infinite;
+}
+
+@keyframes portfolio-spin {
+    to { transform: rotate(360deg); }
+}
+
+/* ============================================================
+   ERROR STATE
+   ============================================================ */
+.portfolio-error {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius, 8px);
+    padding: 20px;
+    text-align: center;
+    color: var(--status-red, #ef4444);
+    font-size: 13px;
+}
+
+.portfolio-error-hint {
+    color: var(--text-secondary);
+    font-size: 11px;
+    margin-top: 6px;
+}
+
+/* ============================================================
+   RESPONSIVE
+   ============================================================ */
+@media (max-width: 768px) {
+    .portfolio-hero {
+        grid-template-columns: 1fr;
+    }
+
+    .portfolio-hero-value {
+        font-size: 22px;
+    }
+
+    .portfolio-header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .portfolio-chart-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+    }
+
+    .portfolio-pl-card {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+}
+
+@media (max-width: 480px) {
+    .portfolio-dashboard {
+        padding: 10px;
+    }
+
+    .portfolio-wallets-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+}

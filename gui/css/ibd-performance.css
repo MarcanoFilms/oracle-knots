@@ -1,0 +1,88 @@
+/* Oracle Knots - IBD Performance Mode
+   Applied via body.ibd-mode when blockchain sync < 100%.
+   Reduces GPU/CPU load on old hardware (pre-2015 Macs, etc.)
+   during Initial Block Download when the node is resource-intensive.
+*/
+
+/* ============================================================
+   KILL ALL TRANSITIONS & ANIMATIONS
+   Keep only the sync progress bar (it's meaningful feedback).
+   ============================================================ */
+body.ibd-mode *,
+body.ibd-mode *::before,
+body.ibd-mode *::after {
+    transition-property: none !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    will-change: auto !important;
+}
+
+/* Keep progress bar width transition — user needs to see sync moving */
+body.ibd-mode .progress-bar {
+    transition-property: width !important;
+    transition-duration: 1s !important;
+    transition-timing-function: linear !important;
+}
+
+/* ============================================================
+   DISABLE GPU-EXPENSIVE EFFECTS
+   backdrop-filter, filter, and complex box-shadow are very
+   costly on Intel HD 4000 (2013 MacBook Pro GPU).
+   ============================================================ */
+body.ibd-mode .sidebar,
+body.ibd-mode .panel,
+body.ibd-mode .modal,
+body.ibd-mode .balance-card,
+body.ibd-mode .stat-card,
+body.ibd-mode .modal-overlay {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    filter: none !important;
+}
+
+/* Flatten box-shadows to single-layer for faster paint */
+body.ibd-mode .stat-card,
+body.ibd-mode .panel,
+body.ibd-mode .balance-card,
+body.ibd-mode .wallet-card {
+    box-shadow: 0 1px 0 var(--border-color) !important;
+}
+
+/* ============================================================
+   HIDE COSMETIC-ONLY ELEMENTS DURING IBD
+   Chain strip updates every ~10 min during IBD — not useful.
+   Animations on pulse indicators churn CPU for no value.
+   ============================================================ */
+body.ibd-mode .chain-strip-panel {
+    display: none !important;
+}
+
+body.ibd-mode .pulse-indicator::before,
+body.ibd-mode .pulse-indicator::after {
+    display: none !important;
+}
+
+/* ============================================================
+   IBD BANNER — contextual notice
+   Shown in the dashboard top strip when ibd-mode is active.
+   ============================================================ */
+body.ibd-mode .ibd-hint-banner {
+    display: flex !important;
+}
+
+.ibd-hint-banner {
+    display: none;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    background: rgba(0, 212, 255, 0.07);
+    border: 1px solid rgba(0, 212, 255, 0.2);
+    border-radius: 6px;
+    font-size: 11px;
+    color: var(--text-secondary);
+    margin-bottom: 10px;
+}
+
+.ibd-hint-banner strong {
+    color: var(--accent-cyan);
+}
