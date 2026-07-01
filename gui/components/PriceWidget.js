@@ -20,14 +20,15 @@ class PriceWidget {
         this.priceData = null;
         this.historyData = null;
         this.refreshInterval = 60000; // 60 seconds
-        this.currencies = ['usd', 'eur', 'gbp', 'jpy', 'cad', 'aud'];
+        this.currencies = ['usd', 'eur', 'gbp', 'jpy', 'cad', 'aud', 'btc'];
         this.currencySymbols = {
             'usd': '$',
             'eur': '€',
             'gbp': '£',
             'jpy': '¥',
             'cad': 'C$',
-            'aud': 'A$'
+            'aud': 'A$',
+            'btc': '₿'
         };
         this.selectedCurrency = localStorage.getItem('preferred_currency') || 'usd';
         this.autoRefreshTimer = null;
@@ -69,6 +70,28 @@ class PriceWidget {
      */
     updateUI() {
         if (!this.priceData || !this.priceData.success) return;
+
+        // BTC-in-BTC mode: philosophical display
+        if (this.selectedCurrency === 'btc') {
+            const priceEl = document.getElementById('btc-price');
+            if (priceEl) priceEl.textContent = '1 ₿ = 1 ₿';
+            const changeEl = document.getElementById('btc-change');
+            if (changeEl) {
+                changeEl.textContent = '∞ %';
+                changeEl.className = 'change-percent positive';
+            }
+            const sparkEl = document.getElementById('price-sparkline');
+            if (sparkEl) sparkEl.innerHTML = '';
+            const mcEl = document.getElementById('market-cap');
+            if (mcEl) mcEl.textContent = '21M max';
+            const volEl = document.getElementById('volume-24h');
+            if (volEl) volEl.textContent = '—';
+            const supplyEl = document.getElementById('circulating-supply');
+            if (supplyEl) supplyEl.textContent = '~19.7M BTC';
+            const updEl = document.getElementById('price-updated');
+            if (updEl) updEl.textContent = '1 Bitcoin is always 1 Bitcoin';
+            return;
+        }
 
         const price = this.priceData.price;
         const selectedPrice = price[this.selectedCurrency];
@@ -115,39 +138,38 @@ class PriceWidget {
         const max = Math.max(...prices);
         const range = max - min || 1;
 
-        // Create SVG points for polyline
-        const points = prices.map((p, i) => {
+        // Y scale corrected to fit viewBox height of 40, with 2px margin top/bottom
+        const H = 36;
+        const pts = prices.map((p, i) => {
             const x = (i / (prices.length - 1)) * 100;
-            const y = 100 - ((p - min) / range) * 100;
-            return `${x},${y}`;
-        }).join(' ');
+            const y = 2 + H - ((p - min) / range) * H;
+            return [x, y];
+        });
 
-        // Determine color based on change
-        const startPrice = prices[0];
-        const endPrice = prices[prices.length - 1];
-        const isPositive = endPrice >= startPrice;
-        const lineColor = isPositive ? '#22c55e' : '#ef4444';
+        const linePts = pts.map(([x, y]) => `${x.toFixed(2)},${y.toFixed(2)}`).join(' ');
 
-        const svg = `
-            <svg class="price-sparkline" viewBox="0 0 100 40" xmlns="http://www.w3.org/2000/svg">
-                <defs>
-                    <linearGradient id="sparkline-gradient" x1="0%" y1="0%" x2="0%" y2="100%">
-                        <stop offset="0%" style="stop-color:${lineColor};stop-opacity:0.3" />
-                        <stop offset="100%" style="stop-color:${lineColor};stop-opacity:0.01" />
-                    </linearGradient>
-                </defs>
-                <polyline
-                    points="${points}"
-                    fill="none"
-                    stroke="${lineColor}"
-                    stroke-width="1.5"
-                />
-                <polyline
-                    points="${points}"
-                    fill="url(#sparkline-gradient)"
-                />
-            </svg>
-        `;
+        // Closed polygon for gradient fill area (corners: last→bottom-right→bottom-left)
+        const lastX = pts[pts.length - 1][0];
+        const fillPts = [
+            ...pts.map(([x, y]) => `${x.toFixed(2)},${y.toFixed(2)}`),
+            `${lastX.toFixed(2)},40`,
+            '0,40'
+        ].join(' ');
+
+        // Use cyan for negative (neutral), green for positive — red is too alarming in a compact strip
+        const isPositive = prices[prices.length - 1] >= prices[0];
+        const lineColor = isPositive ? 'var(--status-green, #22c55e)' : 'var(--accent-cyan, #00d4ff)';
+
+        const svg = `<svg class="price-sparkline" viewBox="0 0 100 40" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+                <linearGradient id="sg" x1="0%" y1="0%" x2="0%" y2="100%">
+                    <stop offset="0%" stop-color="${lineColor}" stop-opacity="0.25"/>
+                    <stop offset="100%" stop-color="${lineColor}" stop-opacity="0"/>
+                </linearGradient>
+            </defs>
+            <polygon points="${fillPts}" fill="url(#sg)"/>
+            <polyline points="${linePts}" fill="none" stroke="${lineColor}" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>`;
 
         const container = document.getElementById('price-sparkline');
         if (container) {
@@ -177,10 +199,9 @@ class PriceWidget {
 
         // Circulating supply
         const supplyEl = document.getElementById('circulating-supply');
-        if (supplyEl && this.priceData.supply) {
-            supplyEl.textContent = this.formatNumber(
-                this.priceData.supply.circulating
-            ) + ' BTC';
+        if (supplyEl) {
+            const supply = this.priceData.supply?.circulating;
+            supplyEl.textContent = supply ? this.formatNumber(supply, 0) + ' BTC' : '—';
         }
     }
 
@@ -263,7 +284,7 @@ class PriceWidget {
                         <select id="currency-selector" class="currency-dropdown">
                             ${this.currencies.map(c => `
                                 <option value="${c}" ${c === this.selectedCurrency ? 'selected' : ''}>
-                                    ${c.toUpperCase()}
+                                    ${c === 'btc' ? '₿ BTC — 1 ₿ = 1 ₿' : c.toUpperCase()}
                                 </option>
                             `).join('')}
                         </select>

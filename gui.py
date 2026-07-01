@@ -275,6 +275,8 @@ POLICY_PRESETS = {
 GUI_STATE_DIR = os.path.expanduser("~/.oracle-knots-gui")
 _dashboard_cache = {"ts": 0.0, "data": None}
 DASHBOARD_CACHE_TTL = 2.0
+_mempool_txs_cache = {"ts": 0.0, "key": None, "data": []}
+MEMPOOL_TXS_CACHE_TTL = 15.0
 _chain_strip_cache = {"ts": 0.0, "tip_height": None, "data": None}
 CHAIN_STRIP_CACHE_TTL = 30.0
 CHAIN_STRIP_BLOCK_COUNT = 12
@@ -726,6 +728,16 @@ def _fetch_datum_status():
 
 def _fetch_top_mempool_txs(datadir, network, n=5):
     """Return top N mempool transactions sorted by fee rate (sat/vB)."""
+    global _mempool_txs_cache
+    now = time.time()
+    cache_key = (datadir, network, n)
+    if (
+        _mempool_txs_cache["data"]
+        and _mempool_txs_cache["key"] == cache_key
+        and (now - _mempool_txs_cache["ts"]) < MEMPOOL_TXS_CACHE_TTL
+    ):
+        return _mempool_txs_cache["data"]
+
     raw = _rpc_json("getrawmempool", datadir, network, ["true"])
     if not raw or not isinstance(raw, dict):
         return []
@@ -740,7 +752,9 @@ def _fetch_top_mempool_txs(datadir, network, n=5):
         except Exception:
             continue
     txs.sort(key=lambda x: x["fee_rate"], reverse=True)
-    return txs[:n]
+    result = txs[:n]
+    _mempool_txs_cache = {"ts": now, "key": cache_key, "data": result}
+    return result
 
 
 # ----------------------------------------------------

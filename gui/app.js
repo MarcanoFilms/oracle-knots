@@ -2313,8 +2313,8 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    pillWalletReceive.addEventListener('click', () => switchWalletSubTab(pillWalletReceive, walletSubReceive));
     const stopPortfolioRefresh = () => { if (portfolioDashboard) portfolioDashboard._stopAutoRefresh(); };
+    pillWalletReceive.addEventListener('click', () => { stopPortfolioRefresh(); switchWalletSubTab(pillWalletReceive, walletSubReceive); });
     pillWalletSend.addEventListener('click', () => { stopPortfolioRefresh(); switchWalletSubTab(pillWalletSend, walletSubSend); });
     pillWalletUtxos.addEventListener('click', () => { stopPortfolioRefresh(); switchWalletSubTab(pillWalletUtxos, walletSubUtxos); });
     pillWalletHistory.addEventListener('click', () => { stopPortfolioRefresh(); switchWalletSubTab(pillWalletHistory, walletSubHistory); });
@@ -2328,6 +2328,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 portfolioDashboard.init();
             } else {
                 portfolioDashboard.fetchData();
+                portfolioDashboard._startAutoRefresh();
             }
         });
     }

@@ -7,6 +7,16 @@
    WALLET LAYOUT & STRUCTURE
    ============================================================================ */
 
+/* Price widget strip sits above the two-column layout */
+.wallet-price-widget-wrap {
+  padding: 0 16px 0;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.wallet-price-widget-wrap:empty {
+  display: none;
+}
+
 .wallet-layout {
   display: grid;
   grid-template-columns: 1fr 2fr;

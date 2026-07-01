@@ -1,56 +1,63 @@
 /**
  * Oracle Knots - Bitcoin Price Widget Styles
  *
- * Responsive, dark-mode ready widget for Bitcoin price display.
- * Includes sparkline chart, market data, and currency selector.
+ * Compact strip design — integrates with Oracle Knots dark theme.
+ * Uses design tokens from design-tokens.css (no hardcoded colors).
+ * Target height: ≤90px total.
  */
 
 /* ============================================================
-   PRICE WIDGET - MAIN CONTAINER
+   PRICE WIDGET — MAIN CONTAINER
    ============================================================ */
 
 .price-widget {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
-    padding: 1.5rem;
-    border-radius: 12px;
-    margin-bottom: 1.5rem;
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-    transition: all 0.3s ease;
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 8px 56px 8px 12px; /* right padding reserves space for watermark */
+    position: relative;
+    overflow: hidden;
+    transition: border-color 0.2s;
 }
 
-.price-widget:hover {
-    box-shadow: 0 8px 12px rgba(0, 0, 0, 0.15);
-}
-
-/* Dark mode variant */
-:root.dark-mode .price-widget {
-    background: linear-gradient(135deg, #1f2937 0%, #111827 100%);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+/* Bitcoin Knots watermark — subtle respect for the community */
+.price-widget::after {
+    content: '';
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 44px;
+    height: 44px;
+    background: url('/static/assets/bitcoinknots-logo.svg') no-repeat center / contain;
+    opacity: 0.07;
+    pointer-events: none;
 }
 
 /* ============================================================
-   PRICE HEADER - TITLE & CONTROLS
+   PRICE HEADER — TITLE & CONTROLS
    ============================================================ */
 
 .price-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 1.5rem;
-    gap: 1rem;
+    margin-bottom: 4px;
+    gap: 0.5rem;
 }
 
 .price-title {
-    font-size: 1.25rem;
+    font-size: 9px;
     font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    color: var(--text-secondary);
     margin: 0;
-    flex: 1;
 }
 
 .price-controls {
     display: flex;
-    gap: 0.75rem;
+    gap: 4px;
     align-items: center;
 }
 
@@ -59,37 +66,29 @@
    ============================================================ */
 
 .currency-dropdown {
-    background: rgba(255, 255, 255, 0.2);
-    color: white;
-    border: 1px solid rgba(255, 255, 255, 0.3);
-    padding: 0.5rem 0.75rem;
-    border-radius: 6px;
-    font-size: 0.9rem;
+    background: var(--bg-secondary, var(--bg-card));
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    padding: 2px 5px;
+    border-radius: 5px;
+    font-size: 10px;
     font-weight: 500;
     cursor: pointer;
-    transition: all 0.2s ease;
-    min-width: 80px;
+    transition: border-color 0.15s;
 }
 
 .currency-dropdown:hover {
-    background: rgba(255, 255, 255, 0.3);
-    border-color: rgba(255, 255, 255, 0.5);
+    border-color: var(--accent-cyan, #00d4ff);
 }
 
 .currency-dropdown:focus {
     outline: none;
-    background: rgba(255, 255, 255, 0.3);
-    box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.2);
+    border-color: var(--accent-cyan, #00d4ff);
 }
 
 .currency-dropdown option {
-    background: #333;
-    color: white;
-}
-
-:root.dark-mode .currency-dropdown option {
-    background: #1f2937;
-    color: white;
+    background: var(--bg-darkest, #05070e);
+    color: var(--text-primary);
 }
 
 /* ============================================================
@@ -97,46 +96,46 @@
    ============================================================ */
 
 .btn-refresh {
-    background: rgba(255, 255, 255, 0.2);
-    color: white;
-    border: 1px solid rgba(255, 255, 255, 0.3);
-    padding: 0.5rem 0.75rem;
-    border-radius: 6px;
-    font-size: 1rem;
+    background: var(--bg-secondary, var(--bg-card));
+    color: var(--text-secondary);
+    border: 1px solid var(--border-color);
+    padding: 2px 5px;
+    border-radius: 5px;
+    font-size: 0.8rem;
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition: border-color 0.15s, color 0.15s;
     display: flex;
     align-items: center;
     justify-content: center;
-    min-width: 36px;
-    height: 36px;
+    min-width: 22px;
+    height: 22px;
 }
 
 .btn-refresh:hover {
-    background: rgba(255, 255, 255, 0.3);
-    transform: scale(1.05);
+    border-color: var(--accent-cyan, #00d4ff);
+    color: var(--accent-cyan, #00d4ff);
 }
 
 .btn-refresh.spinning {
-    animation: spin 1s linear infinite;
+    animation: pw-spin 1s linear infinite;
 }
 
-@keyframes spin {
+@keyframes pw-spin {
     from { transform: rotate(0deg); }
     to { transform: rotate(360deg); }
 }
 
 /* ============================================================
-   PRICE DISPLAY - CURRENT PRICE & CHANGE
+   PRICE DISPLAY — CURRENT PRICE & CHANGE
    ============================================================ */
 
 .price-display {
     display: flex;
     align-items: baseline;
-    gap: 2rem;
-    margin-bottom: 1.5rem;
-    padding-bottom: 1.5rem;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+    gap: 1rem;
+    margin-bottom: 4px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid var(--border-color);
 }
 
 .current-price {
@@ -144,36 +143,36 @@
 }
 
 .price-amount {
-    font-size: 2.5rem;
+    font-size: 1.4rem;
     font-weight: 700;
     display: block;
-    letter-spacing: -1px;
+    color: var(--text-primary);
+    line-height: 1.2;
 }
 
 .price-change {
     text-align: right;
-    min-width: 100px;
+    min-width: 80px;
 }
 
 .change-percent {
-    font-size: 1.75rem;
+    font-size: 1rem;
     font-weight: 600;
     display: block;
-    margin-bottom: 0.25rem;
-    transition: color 0.3s ease;
+    margin-bottom: 1px;
 }
 
 .change-percent.positive {
-    color: #4ade80;
+    color: var(--status-green, #22c55e);
 }
 
 .change-percent.negative {
-    color: #f87171;
+    color: var(--accent-cyan, #00d4ff);
 }
 
 .change-label {
-    font-size: 0.85rem;
-    opacity: 0.85;
+    font-size: 9px;
+    color: var(--text-secondary);
     text-transform: uppercase;
     letter-spacing: 0.5px;
     display: block;
@@ -184,9 +183,9 @@
    ============================================================ */
 
 .sparkline-container {
-    margin-bottom: 1.5rem;
-    height: 50px;
-    min-height: 50px;
+    margin-bottom: 4px;
+    height: 30px;
+    min-height: 30px;
 }
 
 .price-sparkline {
@@ -195,21 +194,16 @@
     display: block;
 }
 
-.price-sparkline line {
-    stroke-linecap: round;
-    stroke-linejoin: round;
-}
-
 /* ============================================================
-   MARKET DATA - GRID
+   MARKET DATA — COMPACT GRID
    ============================================================ */
 
 .market-data {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    gap: 1rem;
-    padding-top: 1rem;
-    border-top: 1px solid rgba(255, 255, 255, 0.2);
+    gap: 0.5rem;
+    padding-top: 4px;
+    border-top: 1px solid var(--border-color);
 }
 
 .market-item {
@@ -218,9 +212,9 @@
 
 .market-item label {
     display: block;
-    font-size: 0.75rem;
-    opacity: 0.8;
-    margin-bottom: 0.5rem;
+    font-size: 8px;
+    color: var(--text-secondary);
+    margin-bottom: 2px;
     text-transform: uppercase;
     letter-spacing: 0.5px;
     font-weight: 600;
@@ -228,184 +222,102 @@
 
 .market-value {
     display: block;
-    font-size: 0.95rem;
+    font-size: 11px;
     font-weight: 500;
+    color: var(--text-primary);
     word-break: break-word;
 }
 
 /* ============================================================
-   PRICE FOOTER - UPDATE TIME
+   PRICE FOOTER — UPDATE TIME
    ============================================================ */
 
 .price-footer {
-    margin-top: 1rem;
-    padding-top: 1rem;
-    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    margin-top: 2px;
+    padding-top: 2px;
+    border-top: 1px solid var(--border-color);
     text-align: center;
-    opacity: 0.7;
-    font-size: 0.8rem;
+    font-size: 9px;
+    color: var(--text-secondary);
+    opacity: 0.8;
 }
 
 /* ============================================================
-   RESPONSIVE DESIGN
+   RESPONSIVE
    ============================================================ */
 
-/* Tablet (768px and down) */
 @media (max-width: 768px) {
     .price-widget {
-        padding: 1.25rem;
-        margin-bottom: 1rem;
-    }
-
-    .price-header {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 0.75rem;
-        margin-bottom: 1rem;
-    }
-
-    .price-controls {
-        width: 100%;
-    }
-
-    .currency-dropdown {
-        flex: 1;
-    }
-
-    .price-display {
-        flex-direction: column;
-        gap: 1rem;
-        padding-bottom: 1rem;
+        padding: 6px 48px 6px 10px;
     }
 
     .price-amount {
-        font-size: 2rem;
+        font-size: 1.2rem;
     }
 
     .change-percent {
-        font-size: 1.25rem;
-    }
-
-    .price-change {
-        text-align: left;
-        min-width: auto;
-    }
-
-    .sparkline-container {
-        height: 40px;
-        margin-bottom: 1rem;
+        font-size: 0.9rem;
     }
 
     .market-data {
         grid-template-columns: 1fr;
-        gap: 0.75rem;
-    }
-}
-
-/* Mobile (480px and down) */
-@media (max-width: 480px) {
-    .price-widget {
-        padding: 1rem;
-        border-radius: 8px;
+        gap: 3px;
     }
 
-    .price-title {
-        font-size: 1.1rem;
-    }
-
-    .price-amount {
-        font-size: 1.75rem;
-    }
-
-    .change-percent {
-        font-size: 1rem;
-    }
-
-    .price-controls {
-        width: 100%;
-        gap: 0.5rem;
-    }
-
-    .currency-dropdown {
-        font-size: 0.85rem;
-        min-width: auto;
-        flex: 1;
-    }
-
-    .btn-refresh {
-        min-width: 32px;
-        height: 32px;
-        font-size: 0.9rem;
-    }
-
-    .sparkline-container {
-        height: 35px;
+    .market-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        text-align: left;
     }
 
     .market-item label {
-        font-size: 0.7rem;
+        margin-bottom: 0;
+    }
+}
+
+@media (max-width: 480px) {
+    .price-widget {
+        padding: 5px 44px 5px 8px;
+        border-radius: 6px;
     }
 
-    .market-value {
-        font-size: 0.85rem;
+    .price-header {
+        flex-direction: row;
+        gap: 4px;
+    }
+
+    .price-controls {
+        gap: 3px;
     }
 }
 
 /* ============================================================
-   ALERT STATES
+   ALERT STATE
    ============================================================ */
 
 .alert {
-    padding: 1rem;
-    border-radius: 8px;
-    margin-bottom: 1rem;
+    padding: 8px 10px;
+    border-radius: 6px;
+    font-size: 12px;
 }
 
 .alert-error {
-    background: rgba(239, 68, 68, 0.1);
-    border: 1px solid rgba(239, 68, 68, 0.3);
-    color: #fecaca;
+    background: rgba(239, 68, 68, 0.08);
+    border: 1px solid rgba(239, 68, 68, 0.25);
+    color: var(--status-red, #ef4444);
 }
 
 .alert-error strong {
-    color: #f87171;
-}
-
-:root.dark-mode .alert-error {
-    background: rgba(239, 68, 68, 0.15);
-    color: #fca5a5;
+    color: var(--status-red, #ef4444);
 }
 
 /* ============================================================
-   UTILITY CLASSES
+   IBD PERFORMANCE — disable transitions during sync
    ============================================================ */
 
-.card {
-    border-radius: 12px;
-    overflow: hidden;
-}
-
-.elevated {
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-}
-
-/* ============================================================
-   ANIMATIONS
-   ============================================================ */
-
-@keyframes fadeIn {
-    from {
-        opacity: 0;
-        transform: translateY(10px);
-    }
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
-}
-
-.price-widget {
-    animation: fadeIn 0.3s ease;
+body.ibd-mode .price-widget::after {
+    display: none; /* skip background-image paint on slow GPU */
 }
 
 /* ============================================================
@@ -418,6 +330,10 @@
         border: 1px solid #ccc;
         background: white;
         color: black;
+    }
+
+    .price-widget::after {
+        display: none;
     }
 
     .btn-refresh,
