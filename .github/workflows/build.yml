@@ -25,4 +25,4 @@ jobs:
       run: python test/smoke_gui.py
 
     - name: Run portfolio unit tests
-      run: python -m unittest test.test_portfolio -v
+      run: python test/test_portfolio.py -v
