@@ -116,6 +116,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const rejectionsEmptyView = document.getElementById('rejections-empty-view');
     const rejectionsList = document.getElementById('rejections-list');
     const dashRejectionsTotal = document.getElementById('dash-rejections-total');
+    const rejectionsUptimeValue = document.getElementById('rejections-uptime-value');
     const mempoolSparkline = document.getElementById('mempool-sparkline');
     const heroPeerPrivacy = document.getElementById('hero-peer-privacy');
     const heroPolicyTitle = document.getElementById('hero-policy-title');
@@ -470,7 +471,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // Update header title
         const niceTitle = tabId.charAt(0).toUpperCase() + tabId.slice(1);
         const titles = {
-            bip110: 'BIP-110 Status',
+            explorer: 'Mempool Explorer',
             config: 'Configuration',
             wallet: 'Wallet Manager',
             cli: 'Oracle CLI',
@@ -505,8 +506,13 @@ document.addEventListener('DOMContentLoaded', () => {
             fetchChainStrip(true);
         } else if (tabId === 'peers' && isNodeRunning) {
             fetchPeers();
-        } else if (tabId === 'bip110' && isNodeRunning) {
-            fetchBip110Status();
+        } else if (tabId === 'explorer') {
+            if (isNodeRunning) fetchBip110Status();
+            if (window.OracleExplorer) window.OracleExplorer.onTabShow(isNodeRunning);
+        }
+
+        if (tabId !== 'explorer' && window.OracleExplorer) {
+            window.OracleExplorer.onTabHide();
         }
 
     }
@@ -570,8 +576,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (currentActiveTab === 'peers') {
                     fetchPeers();
                 }
-                if (currentActiveTab === 'bip110') {
+                if (currentActiveTab === 'explorer') {
                     fetchBip110Status();
+                    if (window.OracleExplorer) window.OracleExplorer.refresh();
                 }
             } else {
                 nodeToggleBtn.textContent = 'Start Node';
@@ -730,6 +737,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (data.sync?.chain && infoChain) infoChain.textContent = data.sync.chain;
         if (infoUptime && data.metrics?.uptime) infoUptime.textContent = formatUptime(data.metrics.uptime);
+        if (rejectionsUptimeValue && data.metrics?.uptime) rejectionsUptimeValue.textContent = formatUptime(data.metrics.uptime);
         const ramModeEl = document.getElementById('info-ram-mode');
         if (ramModeEl) ramModeEl.textContent = `${maxMb} MB max mempool`;
 
@@ -1168,7 +1176,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (heroPolicyTitle) heroPolicyTitle.textContent = 'Policy: —';
         if (heroBip110Enforced) heroBip110Enforced.textContent = 'BIP-110: —';
         if (infoUptime) infoUptime.textContent = '—';
-        
+        if (rejectionsUptimeValue) rejectionsUptimeValue.textContent = '—';
+
         dashRejectionsTotal.textContent = '0 Rejected';
         dashRejectionsTotal.className = 'badge badge-outline';
         
@@ -3258,4 +3267,10 @@ document.addEventListener('DOMContentLoaded', () => {
     // ----------------------------------------------------
     renderChainStripPlaceholder('Latest blocks on chain');
     startMetricsPolling();
+
+    // Deep-link support: #explorer, #peers, etc. select the initial tab
+    const hashTab = (window.location.hash || '').replace('#', '');
+    if (hashTab && document.getElementById(`tab-${hashTab}`)) {
+        switchTab(hashTab);
+    }
 });

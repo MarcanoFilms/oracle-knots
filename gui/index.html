@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Oracle Knots Control Center</title>
-    <link rel="icon" type="image/svg+xml" href="/static/assets/oracle-owl.svg">
+    <link rel="icon" type="image/svg+xml" href="/static/assets/oracle-owl-epic.svg">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
@@ -31,7 +31,7 @@
         <aside class="sidebar collapsed" id="sidebar">
             <div class="sidebar-top">
                 <div class="brand">
-                    <img src="/static/assets/oracle-owl.svg" alt="Oracle Owl" class="brand-owl-logo" width="36" height="36">
+                    <img src="/static/assets/oracle-owl-epic.svg" alt="Oracle Owl" class="brand-owl-logo" width="36" height="36">
                     <div class="brand-text">
                         <h1>ORACLE KNOTS</h1>
                         <span>THE ORACLE WATCHES</span>
@@ -63,9 +63,9 @@
                     <svg class="nav-icon" viewBox="0 0 24 24"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z"/></svg>
                     <span class="nav-label">Policy Engine</span>
                 </button>
-                <button class="nav-item" data-tab="bip110" title="BIP-110 Status">
-                    <svg class="nav-icon" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>
-                    <span class="nav-label">BIP-110 Status</span>
+                <button class="nav-item" data-tab="explorer" title="Mempool Explorer">
+                    <svg class="nav-icon" viewBox="0 0 24 24"><path d="M12 2l9 4.9v10.2L12 22l-9-4.9V6.9L12 2zm0 2.3L5 8.1v7.8l7 3.8 7-3.8V8.1l-7-3.8zM12 7l4.5 2.4v5.2L12 17l-4.5-2.4V9.4L12 7z"/></svg>
+                    <span class="nav-label">Mempool Explorer</span>
                 </button>
                 <button class="nav-item" data-tab="peers" title="Node Peers">
                     <svg class="nav-icon" viewBox="0 0 24 24"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 8 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
@@ -100,7 +100,6 @@
             <!-- Unified App Header -->
             <header class="topbar unified-header">
                 <div class="header-brand">
-                    <img src="/static/assets/oracle-owl.svg" alt="Oracle Knots" class="header-logo" id="header-logo" width="48" height="48">
                     <div class="header-brand-text">
                         <span class="header-app-name">ORACLE KNOTS</span>
                         <div class="header-context">
@@ -114,7 +113,7 @@
 
                 <div class="header-actions">
                     <button class="btn btn-primary" id="node-toggle-btn">Start Node</button>
-                    <img src="/static/assets/oracle-owl.svg" alt="Oracle Knots" class="header-logo-right" width="44" height="44">
+                    <img src="/static/assets/oracle-owl-epic.svg" alt="Oracle Knots" class="header-logo-right" id="header-logo" width="48" height="48">
                 </div>
             </header>
 
@@ -196,6 +195,10 @@
                             </div>
                             <div class="rejections-bars hidden" id="rejections-list">
                                 <!-- Top 5 rejection bars -->
+                            </div>
+                            <div class="rejections-uptime-footer" id="rejections-uptime-footer">
+                                <span class="detail-label">Node uptime</span>
+                                <span class="detail-value font-mono" id="rejections-uptime-value">—</span>
                             </div>
                         </div>
                     </div>
@@ -754,11 +757,79 @@
                     </div>
                 </div>
 
-                <!-- Tab: BIP-110 Status -->
-                <div class="tab-pane" id="tab-bip110">
-                    <div class="panel panel-accent panel-compact">
+                <!-- Tab: Mempool Explorer -->
+                <div class="tab-pane" id="tab-explorer">
+
+                    <!-- Search bar -->
+                    <div class="explorer-search-wrap">
+                        <input type="text" id="explorer-search-input" class="explorer-search"
+                               placeholder="Search txid / block height / block hash / address…"
+                               autocomplete="off" spellcheck="false">
+                        <button class="btn btn-primary" id="explorer-search-btn">Search</button>
+                    </div>
+                    <div class="explorer-search-error hidden" id="explorer-search-error"></div>
+
+                    <!-- txindex banner -->
+                    <div class="explorer-txindex-banner hidden" id="explorer-txindex-banner">
+                        <span class="banner-icon">🔍</span>
+                        <div class="banner-text">
+                            <strong>Transaction lookup requires txindex.</strong>
+                            <span id="explorer-txindex-detail">Enabling it will reindex the chain (can take hours; the node stays online). Mempool and block exploration work without it.</span>
+                        </div>
+                        <button class="btn btn-secondary btn-sm" id="explorer-txindex-enable">Enable txindex</button>
+                    </div>
+
+                    <!-- 3D hero -->
+                    <div class="panel explorer-hero">
                         <div class="panel-header">
-                            <h3>BIP-110 temporary soft fork compliance</h3>
+                            <h3><img src="/static/assets/oracle-owl-epic.svg" alt="" width="20" height="20" class="explorer-owl-inline"> Oracle Mempool — Live 3D</h3>
+                            <div class="explorer-hud" id="explorer-hud">
+                                <span class="hud-stat" id="hud-tx-count">— txs</span>
+                                <span class="hud-stat" id="hud-vsize">— vB</span>
+                                <span class="hud-stat" id="hud-minfee">min — s/vB</span>
+                            </div>
+                        </div>
+                        <div class="explorer-canvas-wrap" id="explorer-canvas-wrap">
+                            <canvas id="mempool-3d"></canvas>
+                            <img src="/static/assets/oracle-owl-epic.svg" alt="" class="explorer-owl-watcher" width="52" height="52">
+                            <div class="explorer-tooltip hidden" id="explorer-tooltip"></div>
+                            <div class="fee-legend">
+                                <span>low fee</span>
+                                <div class="fee-legend-bar"></div>
+                                <span>high fee</span>
+                            </div>
+                            <div class="explorer-webgl-fallback hidden" id="explorer-webgl-fallback"></div>
+                        </div>
+                        <!-- Projected blocks strip -->
+                        <div class="projected-blocks-strip" id="projected-blocks-strip"></div>
+                    </div>
+
+                    <!-- Recent mined blocks -->
+                    <div class="panel panel-compact">
+                        <div class="panel-header">
+                            <h3>Recent Blocks</h3>
+                            <span class="badge badge-outline" id="explorer-tip-height">Tip: —</span>
+                        </div>
+                        <div class="panel-body">
+                            <div class="explorer-blocks-strip" id="explorer-blocks-strip">
+                                <p class="text-secondary text-center py-4">Start the node to explore recent blocks.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Detail drawer (tx / block / address) -->
+                    <div class="explorer-drawer hidden" id="explorer-drawer">
+                        <div class="explorer-drawer-header">
+                            <h3 id="explorer-drawer-title">Details</h3>
+                            <button class="drawer-close" id="explorer-drawer-close">&times;</button>
+                        </div>
+                        <div class="explorer-drawer-body" id="explorer-drawer-body"></div>
+                    </div>
+
+                    <!-- BIP-110 compliance (collapsible) -->
+                    <div class="panel panel-accent panel-compact explorer-bip110-collapsed" id="panel-bip110">
+                        <div class="panel-header explorer-bip110-toggle" id="explorer-bip110-toggle" style="cursor:pointer;">
+                            <h3>BIP-110 temporary soft fork compliance <span class="bip110-chevron" id="bip110-chevron">▾</span></h3>
                             <span class="badge badge-accent" id="bip110-compliance-status">Enforced: Unknown</span>
                         </div>
                         <div class="panel-body">
@@ -1618,9 +1689,9 @@
                 <button class="drawer-close" id="btn-close-drawer">&times;</button>
             </div>
             <div class="drawer-body">
-                <button class="drawer-item-btn" data-tab="bip110">
-                    <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg>
-                    BIP-110 Soft Fork Status
+                <button class="drawer-item-btn" data-tab="explorer">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M12 2l9 4.9v10.2L12 22l-9-4.9V6.9L12 2zm0 2.3L5 8.1v7.8l7 3.8 7-3.8V8.1l-7-3.8zM12 7l4.5 2.4v5.2L12 17l-4.5-2.4V9.4L12 7z"/></svg>
+                    Mempool Explorer
                 </button>
                 <button class="drawer-item-btn" data-tab="peers">
                     <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 8 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
@@ -1702,6 +1773,8 @@
     <script src="/static/components/PriceWidget.js"></script>
     <!-- Phase 4.2: Portfolio Dashboard Component -->
     <script src="/static/components/PortfolioDashboard.js"></script>
+    <script src="/static/three.min.js"></script>
+    <script src="/static/explorer.js"></script>
     <script src="/static/app.js"></script>
 </body>
 </html>

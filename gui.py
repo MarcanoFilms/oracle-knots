@@ -1200,12 +1200,505 @@ def api_rpc(method):
     safe_methods = [
         "getblockchaininfo", "getpeerinfo", "checkbip110status",
         "getnetworkinfo", "getmempoolinfo", "getdeploymentinfo",
+        "getindexinfo",
     ]
     if method not in safe_methods:
         return {"success": False, "output": f"RPC method {method} not allowed"}
         
     success, output = run_bitcoin_cli([method], datadir, network)
     return {"success": success, "output": output}
+
+# ----------------------------------------------------
+# Mempool Explorer API
+# ----------------------------------------------------
+
+EXPLORER_MAX_TXS = 2500
+EXPLORER_BLOCK_WEIGHT = 4_000_000
+EXPLORER_COINBASE_RESERVE_VB = 4_000
+EXPLORER_PROJECTED_BLOCKS = 3
+EXPLORER_FEE_BUCKETS = [1, 2, 3, 4, 5, 6, 8, 10, 12, 15, 20, 30, 40, 50, 70, 100, 150, 200, 300]
+
+_explorer_mempool_cache = {"ts": 0.0, "key": None, "data": None}
+EXPLORER_MEMPOOL_CACHE_TTL = 10.0
+_explorer_block_cache = {}   # (hash, page, per_page) -> {"ts", "data"}
+EXPLORER_BLOCK_CACHE_TTL = 60.0
+_explorer_tx_cache = {}      # txid -> {"ts", "ttl", "data"}
+_scan_job = {"address": None, "thread": None, "done": True, "result": None,
+             "error": None, "started_at": 0.0}
+_scan_results_cache = {}     # address -> {"ts", "data"}
+SCAN_RESULT_CACHE_TTL = 300.0
+
+
+def _fee_bucket_label(rate):
+    prev = 0
+    for b in EXPLORER_FEE_BUCKETS:
+        if rate < b:
+            return f"{prev}-{b}"
+        prev = b
+    return f"{EXPLORER_FEE_BUCKETS[-1]}+"
+
+
+def _build_explorer_mempool(datadir, network):
+    info = _rpc_json("getmempoolinfo", datadir, network) or {}
+    raw = _rpc_json("getrawmempool", datadir, network, ["true"], timeout=20.0)
+    if raw is None or not isinstance(raw, dict):
+        return {
+            "online": True,
+            "degraded": True,
+            "mempoolinfo": info,
+            "projected_blocks": [],
+            "histogram": [],
+            "updated_at": int(time.time()),
+        }
+
+    entries = []
+    for txid, e in raw.items():
+        try:
+            vsize = int(e.get("vsize") or e.get("size") or 1)
+            fee_btc = (e.get("fees") or {}).get("base")
+            if fee_btc is None:
+                fee_btc = e.get("fee", 0)
+            fee_sat = round(float(fee_btc) * 1e8)
+            rate = fee_sat / max(vsize, 1)
+            anc = int(e.get("ancestorcount") or 1)
+            entries.append((txid, vsize, rate, fee_sat, anc))
+        except Exception:
+            continue
+    entries.sort(key=lambda x: x[2], reverse=True)
+
+    block_cap_vb = (EXPLORER_BLOCK_WEIGHT // 4) - EXPLORER_COINBASE_RESERVE_VB
+    projected = []
+    cur = {"txs": [], "total_vsize": 0, "total_fees": 0, "rates": []}
+    emitted = 0
+    for txid, vsize, rate, fee_sat, anc in entries:
+        if emitted >= EXPLORER_MAX_TXS:
+            break
+        if cur["total_vsize"] + vsize > block_cap_vb and cur["txs"]:
+            projected.append(cur)
+            if len(projected) >= EXPLORER_PROJECTED_BLOCKS:
+                cur = None
+                break
+            cur = {"txs": [], "total_vsize": 0, "total_fees": 0, "rates": []}
+        cur["txs"].append([txid, vsize, round(rate, 1), anc])
+        cur["total_vsize"] += vsize
+        cur["total_fees"] += fee_sat
+        cur["rates"].append(rate)
+        emitted += 1
+    if cur and cur["txs"]:
+        projected.append(cur)
+
+    blocks_out = []
+    for b in projected:
+        rates = sorted(b["rates"])
+        median = rates[len(rates) // 2] if rates else 0
+        blocks_out.append({
+            "txs": b["txs"],
+            "tx_count": len(b["txs"]),
+            "total_vsize": b["total_vsize"],
+            "total_fees_sat": b["total_fees"],
+            "median_feerate": round(median, 1),
+            "min_feerate": round(rates[0], 1) if rates else 0,
+            "max_feerate": round(rates[-1], 1) if rates else 0,
+            "fill_pct": round(min(100.0, b["total_vsize"] / block_cap_vb * 100), 1),
+        })
+
+    # Tail histogram: everything not emitted individually
+    hist = {}
+    tail_vsize = 0
+    for txid, vsize, rate, fee_sat, anc in entries[emitted:]:
+        label = _fee_bucket_label(rate)
+        h = hist.setdefault(label, {"bucket": label, "count": 0, "total_vsize": 0})
+        h["count"] += 1
+        h["total_vsize"] += vsize
+        tail_vsize += vsize
+    # keep bucket order high→low fee
+    ordered_labels = [f"{EXPLORER_FEE_BUCKETS[-1]}+"] + [
+        f"{a}-{b}" for a, b in zip([0] + EXPLORER_FEE_BUCKETS, EXPLORER_FEE_BUCKETS)
+    ][::-1]
+    histogram = [hist[l] for l in ordered_labels if l in hist]
+
+    return {
+        "online": True,
+        "degraded": False,
+        "mempoolinfo": {
+            "size": info.get("size"),
+            "bytes": info.get("bytes"),
+            "usage": info.get("usage"),
+            "mempoolminfee": info.get("mempoolminfee"),
+        },
+        "projected_blocks": blocks_out,
+        "histogram": histogram,
+        "tail_tx_count": max(0, len(entries) - emitted),
+        "tail_vsize": tail_vsize,
+        "tail_full_blocks": round(tail_vsize / block_cap_vb, 1) if tail_vsize else 0,
+        "updated_at": int(time.time()),
+    }
+
+
+@route('/api/explorer/mempool')
+def api_explorer_mempool():
+    global _explorer_mempool_cache
+    running, datadir, network = get_node_context()
+    if not running:
+        return {"online": False}
+    now = time.time()
+    key = (datadir, network)
+    if (
+        _explorer_mempool_cache["data"] is not None
+        and _explorer_mempool_cache["key"] == key
+        and (now - _explorer_mempool_cache["ts"]) < EXPLORER_MEMPOOL_CACHE_TTL
+    ):
+        return _explorer_mempool_cache["data"]
+    data = _build_explorer_mempool(datadir, network)
+    _explorer_mempool_cache = {"ts": now, "key": key, "data": data}
+    return data
+
+
+@route('/api/explorer/capabilities')
+def api_explorer_capabilities():
+    running, datadir, network = get_node_context()
+    if not running:
+        return {"online": False}
+    idx = _rpc_json("getindexinfo", datadir, network) or {}
+    chain = _rpc_json("getblockchaininfo", datadir, network) or {}
+    tip = int(chain.get("blocks") or 0)
+    tx = idx.get("txindex")
+    if tx is None:
+        txinfo = {"available": False, "synced": False, "progress": 0}
+    else:
+        best = int(tx.get("best_block_height") or 0)
+        synced = bool(tx.get("synced"))
+        progress = 100.0 if synced else round(best / tip * 100, 1) if tip else 0
+        txinfo = {"available": True, "synced": synced, "progress": progress}
+    return {"online": True, "txindex": txinfo, "tip_height": tip}
+
+
+def _explorer_tx_summary(tx):
+    """Compact per-tx summary for block page listings."""
+    total_out = sum(float(o.get("value") or 0) for o in tx.get("vout", []))
+    return {
+        "txid": tx.get("txid"),
+        "vsize": tx.get("vsize"),
+        "n_in": len(tx.get("vin", [])),
+        "n_out": len(tx.get("vout", [])),
+        "total_out_btc": round(total_out, 8),
+        "is_coinbase": any("coinbase" in vin for vin in tx.get("vin", [])),
+    }
+
+
+@route('/api/explorer/block/<query>')
+def api_explorer_block(query):
+    running, datadir, network = get_node_context()
+    if not running:
+        return {"success": False, "error": "Node is offline"}
+    try:
+        page = max(0, int(request.query.get("page", "0")))
+        per_page = min(100, max(5, int(request.query.get("per_page", "25"))))
+    except ValueError:
+        page, per_page = 0, 25
+
+    block_hash = query
+    if query.isdigit():
+        ok, out = run_bitcoin_cli(["getblockhash", query], datadir, network)
+        if not ok:
+            return {"success": False, "error": f"Block height {query} not found"}
+        block_hash = out.strip()
+
+    now = time.time()
+    ck = (block_hash, page, per_page)
+    cached = _explorer_block_cache.get(ck)
+    if cached and (now - cached["ts"]) < EXPLORER_BLOCK_CACHE_TTL:
+        return cached["data"]
+
+    block = _rpc_json("getblock", datadir, network, [block_hash, "1"], timeout=15.0)
+    if not block:
+        return {"success": False, "error": "Block not found"}
+
+    txids = block.get("tx", [])
+    start = page * per_page
+    page_txids = txids[start:start + per_page]
+    page_txs = []
+    for txid in page_txids:
+        tx = _rpc_json("getrawtransaction", datadir, network,
+                       [txid, "true", block_hash], timeout=10.0)
+        page_txs.append(_explorer_tx_summary(tx) if tx else {"txid": txid})
+
+    # Merge policy audit when this block is in the recent audit window
+    policy = None
+    audit = _rpc_json("getrecentblockpolicyaudit", datadir, network, timeout=20.0)
+    if audit:
+        for b in audit.get("blocks", []):
+            if b.get("hash") == block_hash:
+                policy = _normalize_chain_block(b)
+                break
+
+    data = {
+        "success": True,
+        "block": {
+            "hash": block.get("hash"),
+            "height": block.get("height"),
+            "time": block.get("time"),
+            "n_tx": block.get("nTx") or len(txids),
+            "size": block.get("size"),
+            "weight": block.get("weight"),
+            "version_hex": block.get("versionHex"),
+            "merkleroot": block.get("merkleroot"),
+            "difficulty": block.get("difficulty"),
+            "previousblockhash": block.get("previousblockhash"),
+            "nextblockhash": block.get("nextblockhash"),
+            "confirmations": block.get("confirmations"),
+        },
+        "policy": policy,
+        "txs": page_txs,
+        "page": page,
+        "per_page": per_page,
+        "total_pages": (len(txids) + per_page - 1) // per_page,
+    }
+    _explorer_block_cache[ck] = {"ts": now, "data": data}
+    if len(_explorer_block_cache) > 64:
+        oldest = min(_explorer_block_cache, key=lambda k: _explorer_block_cache[k]["ts"])
+        _explorer_block_cache.pop(oldest, None)
+    return data
+
+
+@route('/api/explorer/tx/<txid>')
+def api_explorer_tx(txid):
+    running, datadir, network = get_node_context()
+    if not running:
+        return {"success": False, "error": "Node is offline"}
+    txid = txid.strip().lower()
+    if len(txid) != 64 or any(c not in "0123456789abcdef" for c in txid):
+        return {"success": False, "error": "Invalid txid"}
+
+    now = time.time()
+    cached = _explorer_tx_cache.get(txid)
+    if cached and (now - cached["ts"]) < cached["ttl"]:
+        return cached["data"]
+
+    blockhash_hint = request.query.get("blockhash", "").strip()
+    args = [txid, "true"] + ([blockhash_hint] if blockhash_hint else [])
+    tx = _rpc_json("getrawtransaction", datadir, network, args, timeout=10.0)
+    if not tx:
+        # Distinguish "needs txindex" from "not found"
+        idx = _rpc_json("getindexinfo", datadir, network) or {}
+        needs_txindex = "txindex" not in idx
+        return {
+            "success": False,
+            "error": ("Transaction not found. Confirmed transactions require txindex "
+                      "(not enabled on this node)." if needs_txindex
+                      else "Transaction not found."),
+            "needs_txindex": needs_txindex,
+        }
+
+    confirmed = bool(tx.get("blockhash"))
+    mempool_entry = None
+    if not confirmed:
+        mempool_entry = _rpc_json("getmempoolentry", datadir, network, [txid])
+
+    # Resolve input values/addresses (cap 25)
+    vins = tx.get("vin", [])
+    inputs = []
+    total_in = 0.0
+    resolved_all = True
+    for i, vin in enumerate(vins):
+        if "coinbase" in vin:
+            inputs.append({"coinbase": True})
+            continue
+        if i >= 25:
+            resolved_all = False
+            break
+        prev = _rpc_json("getrawtransaction", datadir, network,
+                         [vin.get("txid", ""), "true"], timeout=8.0)
+        entry = {"txid": vin.get("txid"), "vout": vin.get("vout")}
+        if prev:
+            try:
+                po = prev["vout"][vin["vout"]]
+                entry["value"] = po.get("value")
+                entry["address"] = (po.get("scriptPubKey") or {}).get("address")
+                total_in += float(po.get("value") or 0)
+            except (KeyError, IndexError, TypeError):
+                resolved_all = False
+        else:
+            resolved_all = False
+        inputs.append(entry)
+
+    outputs = []
+    total_out = 0.0
+    for o in tx.get("vout", []):
+        spk = o.get("scriptPubKey") or {}
+        outputs.append({
+            "n": o.get("n"),
+            "value": o.get("value"),
+            "address": spk.get("address"),
+            "type": spk.get("type"),
+        })
+        total_out += float(o.get("value") or 0)
+
+    is_coinbase = any("coinbase" in v for v in vins)
+    fee_sat = None
+    if mempool_entry:
+        try:
+            fee_sat = round(float(mempool_entry["fees"]["base"]) * 1e8)
+        except (KeyError, TypeError):
+            pass
+    elif resolved_all and not is_coinbase:
+        fee_sat = round((total_in - total_out) * 1e8)
+
+    # Policy verdict for unconfirmed txs
+    policy_verdict = None
+    if not confirmed:
+        audit = _rpc_json("getmempoolpolicyaudit", datadir, network, ["500"])
+        if audit and isinstance(audit, dict):
+            for item in audit.get("transactions", audit.get("txs", []) or []):
+                if isinstance(item, dict) and item.get("txid") == txid:
+                    policy_verdict = item
+                    break
+
+    data = {
+        "success": True,
+        "tx": {
+            "txid": tx.get("txid"),
+            "confirmed": confirmed,
+            "blockhash": tx.get("blockhash"),
+            "confirmations": tx.get("confirmations", 0),
+            "blocktime": tx.get("blocktime"),
+            "vsize": tx.get("vsize"),
+            "weight": tx.get("weight"),
+            "size": tx.get("size"),
+            "version": tx.get("version"),
+            "locktime": tx.get("locktime"),
+            "is_coinbase": is_coinbase,
+            "inputs": inputs,
+            "inputs_truncated": len(vins) > 25,
+            "outputs": outputs,
+            "total_out_btc": round(total_out, 8),
+            "fee_sat": fee_sat,
+            "feerate_satvb": round(fee_sat / tx["vsize"], 1) if fee_sat and tx.get("vsize") else None,
+            "mempool_entry": {
+                "time": mempool_entry.get("time"),
+                "ancestorcount": mempool_entry.get("ancestorcount"),
+                "descendantcount": mempool_entry.get("descendantcount"),
+            } if mempool_entry else None,
+            "policy_verdict": policy_verdict,
+        },
+    }
+    ttl = 300.0 if confirmed else 10.0
+    _explorer_tx_cache[txid] = {"ts": now, "ttl": ttl, "data": data}
+    if len(_explorer_tx_cache) > 128:
+        oldest = min(_explorer_tx_cache, key=lambda k: _explorer_tx_cache[k]["ts"])
+        _explorer_tx_cache.pop(oldest, None)
+    return data
+
+
+def _run_address_scan(address, datadir, network):
+    global _scan_job
+    descriptor = json.dumps([f"addr({address})"])
+    result = _rpc_json("scantxoutset", datadir, network,
+                       ["start", descriptor], timeout=300.0)
+    if result and result.get("success"):
+        utxos = [{
+            "txid": u.get("txid"),
+            "vout": u.get("vout"),
+            "amount": u.get("amount"),
+            "height": u.get("height"),
+        } for u in result.get("unspents", [])]
+        data = {
+            "done": True, "success": True, "address": address,
+            "utxos": utxos,
+            "utxo_count": len(utxos),
+            "total_amount": result.get("total_amount"),
+            "height": result.get("height"),
+        }
+        _scan_results_cache[address] = {"ts": time.time(), "data": data}
+        _scan_job["result"] = data
+    else:
+        _scan_job["error"] = "Scan failed or was aborted"
+    _scan_job["done"] = True
+
+
+@route('/api/explorer/address/scan', method='POST')
+def api_explorer_address_scan():
+    global _scan_job
+    running, datadir, network = get_node_context()
+    if not running:
+        return {"success": False, "error": "Node is offline"}
+    body = request.json or {}
+    address = (body.get("address") or "").strip()
+    if not address:
+        return {"success": False, "error": "Address missing"}
+
+    cached = _scan_results_cache.get(address)
+    if cached and (time.time() - cached["ts"]) < SCAN_RESULT_CACHE_TTL:
+        return {"success": True, "cached": True, "result": cached["data"]}
+
+    valid = _rpc_json("validateaddress", datadir, network, [address])
+    if not valid or not valid.get("isvalid"):
+        return {"success": False, "error": "Invalid address for this network"}
+
+    if not _scan_job["done"]:
+        response.status = 409
+        return {"success": False, "error": "A scan is already running",
+                "in_flight": _scan_job["address"]}
+
+    _scan_job = {"address": address, "thread": None, "done": False,
+                 "result": None, "error": None, "started_at": time.time()}
+    t = threading.Thread(target=_run_address_scan,
+                         args=(address, datadir, network), daemon=True)
+    _scan_job["thread"] = t
+    t.start()
+    return {"success": True, "started": True, "address": address}
+
+
+@route('/api/explorer/address/status')
+def api_explorer_address_status():
+    running, datadir, network = get_node_context()
+    if not running:
+        return {"success": False, "error": "Node is offline"}
+    if _scan_job["address"] is None:
+        return {"success": True, "idle": True}
+    if not _scan_job["done"]:
+        st = _rpc_json("scantxoutset", datadir, network, ["status"]) or {}
+        return {"success": True, "done": False, "address": _scan_job["address"],
+                "progress": st.get("progress", 0)}
+    if _scan_job["error"]:
+        return {"success": False, "done": True, "error": _scan_job["error"]}
+    return {"success": True, "done": True, "result": _scan_job["result"]}
+
+
+@route('/api/explorer/address/abort', method='POST')
+def api_explorer_address_abort():
+    running, datadir, network = get_node_context()
+    if not running:
+        return {"success": False, "error": "Node is offline"}
+    run_bitcoin_cli(["scantxoutset", "abort"], datadir, network)
+    return {"success": True}
+
+
+@route('/api/explorer/search')
+def api_explorer_search():
+    running, datadir, network = get_node_context()
+    if not running:
+        return {"success": False, "error": "Node is offline"}
+    q = (request.query.get("q") or "").strip()
+    if not q:
+        return {"success": False, "error": "Empty query"}
+
+    if q.isdigit() and len(q) <= 9:
+        return {"success": True, "type": "block", "target": q}
+
+    ql = q.lower()
+    if len(ql) == 64 and all(c in "0123456789abcdef" for c in ql):
+        ok, _ = run_bitcoin_cli(["getblockheader", ql], datadir, network)
+        if ok:
+            return {"success": True, "type": "block", "target": ql}
+        return {"success": True, "type": "tx", "target": ql}
+
+    valid = _rpc_json("validateaddress", datadir, network, [q])
+    if valid and valid.get("isvalid"):
+        return {"success": True, "type": "address", "target": q}
+
+    return {"success": False, "error": "Not a valid txid, block, or address"}
+
 
 @route('/api/rpc/set-policy', method='POST')
 def api_rpc_set_policy():
