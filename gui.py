@@ -17,6 +17,15 @@ from api.routes_bitcoin_price import setup_price_routes
 # Portfolio Dashboard (Phase 4.2)
 from api.portfolio import PortfolioManager
 from api.routes_portfolio import setup_portfolio_routes
+from api.explorer_mempool import (
+    EXPLORER_FEE_BUCKETS,
+    EXPLORER_MEMPOOL_SCAN_LIMIT,
+    EXPLORER_PROJECTED_BLOCKS,
+    EXPLORER_SAMPLE_TXS_PER_BLOCK,
+    block_cap_vbytes,
+    fee_bucket_label,
+    pack_mempool_blocks,
+)
 
 # Define paths (portable — relative to this script)
 ORACLE_KNOTS_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -1212,12 +1221,6 @@ def api_rpc(method):
 # Mempool Explorer API
 # ----------------------------------------------------
 
-EXPLORER_MAX_TXS = 2500
-EXPLORER_BLOCK_WEIGHT = 4_000_000
-EXPLORER_COINBASE_RESERVE_VB = 4_000
-EXPLORER_PROJECTED_BLOCKS = 3
-EXPLORER_FEE_BUCKETS = [1, 2, 3, 4, 5, 6, 8, 10, 12, 15, 20, 30, 40, 50, 70, 100, 150, 200, 300]
-
 _explorer_mempool_cache = {"ts": 0.0, "key": None, "data": None}
 EXPLORER_MEMPOOL_CACHE_TTL = 10.0
 _explorer_block_cache = {}   # (hash, page, per_page) -> {"ts", "data"}
@@ -1227,15 +1230,6 @@ _scan_job = {"address": None, "thread": None, "done": True, "result": None,
              "error": None, "started_at": 0.0}
 _scan_results_cache = {}     # address -> {"ts", "data"}
 SCAN_RESULT_CACHE_TTL = 300.0
-
-
-def _fee_bucket_label(rate):
-    prev = 0
-    for b in EXPLORER_FEE_BUCKETS:
-        if rate < b:
-            return f"{prev}-{b}"
-        prev = b
-    return f"{EXPLORER_FEE_BUCKETS[-1]}+"
 
 
 def _build_explorer_mempool(datadir, network):
@@ -1266,47 +1260,20 @@ def _build_explorer_mempool(datadir, network):
             continue
     entries.sort(key=lambda x: x[2], reverse=True)
 
-    block_cap_vb = (EXPLORER_BLOCK_WEIGHT // 4) - EXPLORER_COINBASE_RESERVE_VB
-    projected = []
-    cur = {"txs": [], "total_vsize": 0, "total_fees": 0, "rates": []}
-    emitted = 0
-    for txid, vsize, rate, fee_sat, anc in entries:
-        if emitted >= EXPLORER_MAX_TXS:
-            break
-        if cur["total_vsize"] + vsize > block_cap_vb and cur["txs"]:
-            projected.append(cur)
-            if len(projected) >= EXPLORER_PROJECTED_BLOCKS:
-                cur = None
-                break
-            cur = {"txs": [], "total_vsize": 0, "total_fees": 0, "rates": []}
-        cur["txs"].append([txid, vsize, round(rate, 1), anc])
-        cur["total_vsize"] += vsize
-        cur["total_fees"] += fee_sat
-        cur["rates"].append(rate)
-        emitted += 1
-    if cur and cur["txs"]:
-        projected.append(cur)
+    cap_vb = block_cap_vbytes()
+    blocks_out, tail_entries = pack_mempool_blocks(
+        entries,
+        cap_vb,
+        EXPLORER_PROJECTED_BLOCKS,
+        EXPLORER_SAMPLE_TXS_PER_BLOCK,
+        EXPLORER_MEMPOOL_SCAN_LIMIT,
+    )
 
-    blocks_out = []
-    for b in projected:
-        rates = sorted(b["rates"])
-        median = rates[len(rates) // 2] if rates else 0
-        blocks_out.append({
-            "txs": b["txs"],
-            "tx_count": len(b["txs"]),
-            "total_vsize": b["total_vsize"],
-            "total_fees_sat": b["total_fees"],
-            "median_feerate": round(median, 1),
-            "min_feerate": round(rates[0], 1) if rates else 0,
-            "max_feerate": round(rates[-1], 1) if rates else 0,
-            "fill_pct": round(min(100.0, b["total_vsize"] / block_cap_vb * 100), 1),
-        })
-
-    # Tail histogram: everything not emitted individually
+    # Tail histogram: mempool beyond the projected block window
     hist = {}
     tail_vsize = 0
-    for txid, vsize, rate, fee_sat, anc in entries[emitted:]:
-        label = _fee_bucket_label(rate)
+    for txid, vsize, rate, fee_sat, anc in tail_entries:
+        label = fee_bucket_label(rate)
         h = hist.setdefault(label, {"bucket": label, "count": 0, "total_vsize": 0})
         h["count"] += 1
         h["total_vsize"] += vsize
@@ -1328,9 +1295,9 @@ def _build_explorer_mempool(datadir, network):
         },
         "projected_blocks": blocks_out,
         "histogram": histogram,
-        "tail_tx_count": max(0, len(entries) - emitted),
+        "tail_tx_count": len(tail_entries),
         "tail_vsize": tail_vsize,
-        "tail_full_blocks": round(tail_vsize / block_cap_vb, 1) if tail_vsize else 0,
+        "tail_full_blocks": round(tail_vsize / cap_vb, 1) if tail_vsize else 0,
         "updated_at": int(time.time()),
     }
 

@@ -6,9 +6,10 @@
     'use strict';
 
     const POLL_MS = 10000;
-    const PROJECTED_BLOCKS = 3;
+    const PROJECTED_BLOCKS = 4;
     const MAX_VISIBLE_TX_PER_BLOCK = 400;
-    const MAX_INSTANCES = MAX_VISIBLE_TX_PER_BLOCK * (PROJECTED_BLOCKS + 1);
+    const MAX_INSTANCES = MAX_VISIBLE_TX_PER_BLOCK * PROJECTED_BLOCKS;
+    const MINE_ANIM_MS = 800;
     const BLOCK_BOX_SIZE = 10;
     const BLOCK_SPACING = 14;
     const TEMPLATE_INDEX = 0;   // right-most in scene: index 0 (next block being built)
@@ -65,6 +66,9 @@
     let freeSlots = [];
     let lastSnapshot = null;
     let hoverInstance = -1;
+    let lastTipHeight = null;
+    let miningAnimUntil = 0;
+    let mineFlashLabel = null;
 
     const _dummy = { obj: null };
 
@@ -116,7 +120,7 @@
         grid.position.y = -6;
         scene.add(grid);
 
-        // Chain of wireframe cages: index 0 = template (rightmost), 1..N = +1, +2, +3 blocks
+        // Chain of wireframe cages: index 0 = template (rightmost), 1..3 = +1..+3 blocks
         buildChainCages();
 
         bindOrbitControls();
@@ -130,7 +134,7 @@
         const boxGeo = new THREE.BoxGeometry(BLOCK_BOX_SIZE, BLOCK_BOX_SIZE, BLOCK_BOX_SIZE);
         const edgesGeo = new THREE.EdgesGeometry(boxGeo);
 
-        for (let bi = 0; bi <= PROJECTED_BLOCKS; bi++) {
+        for (let bi = 0; bi < PROJECTED_BLOCKS; bi++) {
             const isTemplate = (bi === TEMPLATE_INDEX);
             const group = new THREE.Group();
             const o = blockOrigin(bi);
@@ -145,17 +149,17 @@
             const edges = new THREE.LineSegments(edgesGeo, edgeMat);
             group.add(edges);
 
-            // Fill-level slab for the template only (proportional to fill_pct)
-            let fill = null;
-            if (isTemplate) {
-                const fillGeo = new THREE.BoxGeometry(BLOCK_BOX_SIZE * 0.94, 1, BLOCK_BOX_SIZE * 0.94);
-                const fillMat = new THREE.MeshBasicMaterial({
-                    color: 0x00f0ff, transparent: true, opacity: 0.06, depthWrite: false,
-                });
-                fill = new THREE.Mesh(fillGeo, fillMat);
-                fill.position.y = -BLOCK_BOX_SIZE / 2 + 0.5;
-                group.add(fill);
-            }
+            // Fill-level slab (proportional to fill_pct) — all cages, dimmer toward +N
+            const fillGeo = new THREE.BoxGeometry(BLOCK_BOX_SIZE * 0.94, 1, BLOCK_BOX_SIZE * 0.94);
+            const fillMat = new THREE.MeshBasicMaterial({
+                color: isTemplate ? 0x00f0ff : 0x7a5cff,
+                transparent: true,
+                opacity: isTemplate ? 0.06 : Math.max(0.02, 0.05 - bi * 0.01),
+                depthWrite: false,
+            });
+            const fill = new THREE.Mesh(fillGeo, fillMat);
+            fill.position.y = -BLOCK_BOX_SIZE / 2 + 0.5;
+            group.add(fill);
 
             scene.add(group);
             const label = document.createElement('div');
@@ -311,10 +315,12 @@
         const hidden = new Array(cages.length).fill(0);
         (data.projected_blocks || []).forEach((b, bi) => {
             if (bi >= cages.length) return;
+            const total = b.tx_count != null ? b.tx_count : b.txs.length;
             b.txs.forEach((t, ti) => {
-                if (ti >= MAX_VISIBLE_TX_PER_BLOCK) { hidden[bi]++; return; }
+                if (ti >= MAX_VISIBLE_TX_PER_BLOCK) return;
                 incoming.set(t[0], { vsize: t[1], feerate: t[2], block: bi, posInBlock: ti });
             });
+            hidden[bi] = Math.max(0, total - Math.min(b.txs.length, MAX_VISIBLE_TX_PER_BLOCK));
         });
         for (let bi = 0; bi < cages.length; bi++) cages[bi].hidden = hidden[bi];
 
@@ -386,19 +392,50 @@
     function updateCagesFrame() {
         if (!lastSnapshot) return;
         const projected = lastSnapshot.projected_blocks || [];
+        const mining = performance.now() < miningAnimUntil;
         for (let bi = 0; bi < cages.length; bi++) {
             const cage = cages[bi];
             const b = projected[bi];
+            if (cage.fill && b) {
+                const h = Math.max(0.15, (b.fill_pct / 100) * BLOCK_BOX_SIZE);
+                cage.fill.scale.y = h;
+                cage.fill.position.y = -BLOCK_BOX_SIZE / 2 + h / 2;
+            }
             if (cage.isTemplate) {
-                const pulse = 1 + Math.sin(clockT * 2.4) * 0.02;
+                const pulse = mining
+                    ? 1 + Math.sin(clockT * 8) * 0.06
+                    : 1 + Math.sin(clockT * 2.4) * 0.02;
                 cage.group.scale.setScalar(pulse);
                 if (cage.fill && b) {
-                    const h = Math.max(0.4, (b.fill_pct / 100) * BLOCK_BOX_SIZE);
-                    cage.fill.scale.y = h;
-                    cage.fill.position.y = -BLOCK_BOX_SIZE / 2 + h / 2;
-                    cage.fill.material.opacity = 0.06 + Math.sin(clockT * 2.4) * 0.03;
+                    const base = mining ? 0.14 : 0.06;
+                    cage.fill.material.opacity = base + Math.sin(clockT * (mining ? 8 : 2.4)) * 0.04;
+                }
+                if (cage.edges && cage.edges.material) {
+                    cage.edges.material.opacity = mining ? 1 : 0.9;
                 }
             }
+        }
+    }
+
+    function triggerMineAnimation() {
+        miningAnimUntil = performance.now() + MINE_ANIM_MS;
+        for (const [, i] of txSlot) {
+            const s = slots[i];
+            if (s && s.block === TEMPLATE_INDEX && !s.dying) {
+                s.dying = true;
+                s.targetScale = 0;
+                s.target.y += 4;
+            }
+        }
+        if (!mineFlashLabel && canvasWrap) {
+            mineFlashLabel = document.createElement('div');
+            mineFlashLabel.className = 'explorer-block-label explorer-block-label--template';
+            mineFlashLabel.style.pointerEvents = 'none';
+            canvasWrap.appendChild(mineFlashLabel);
+        }
+        if (mineFlashLabel) {
+            mineFlashLabel.innerHTML = '<div class="ebl-title">BLOCK MINED</div>';
+            mineFlashLabel.style.display = '';
         }
     }
 
@@ -429,7 +466,20 @@
             const extra = cage.hidden > 0 ? ` · +${fmtNum(cage.hidden)} hidden` : '';
             cage.label.innerHTML = `<div class="ebl-title">${title}</div>` +
                 `<div class="ebl-fee">~${b.median_feerate} sat/vB</div>` +
-                `<div class="ebl-meta">${fmtNum(b.tx_count)} txs${extra}</div>`;
+                `<div class="ebl-meta">${fmtNum(b.tx_count)} txs · ${b.fill_pct}%${extra}</div>`;
+        }
+        if (mineFlashLabel) {
+            if (performance.now() < miningAnimUntil) {
+                _labelVec.v.set(blockOrigin(TEMPLATE_INDEX).x, BLOCK_BOX_SIZE / 2 + 3.2, 0);
+                _labelVec.v.project(camera);
+                const x = (_labelVec.v.x * 0.5 + 0.5) * rect.width;
+                const y = (-_labelVec.v.y * 0.5 + 0.5) * rect.height;
+                mineFlashLabel.style.left = `${x}px`;
+                mineFlashLabel.style.top = `${y}px`;
+                mineFlashLabel.style.display = '';
+            } else {
+                mineFlashLabel.style.display = 'none';
+            }
         }
     }
 
@@ -481,13 +531,22 @@
     function renderProjectedStrip(data) {
         const blocks = data.projected_blocks || [];
         // Cards mirror the scene: index 0 is the live template (rightmost); rest are +1, +2, +3.
-        const html = blocks.map((b, i) => `
+        let html = blocks.map((b, i) => `
             <div class="projected-block-card ${i === 0 ? 'pbc-template' : ''}" data-block="${i}">
                 <div class="pbc-title">${i === 0 ? 'Next block · live' : `+${i}`}</div>
                 <div class="pbc-fee font-mono">~${b.median_feerate} sat/vB</div>
                 <div class="pbc-meta">${fmtNum(b.tx_count)} txs · ${(b.total_fees_sat / 1e8).toFixed(4)} BTC fees</div>
                 <div class="pbc-fill-track"><div class="pbc-fill" style="width:${b.fill_pct}%"></div></div>
             </div>`).join('');
+        if (data.tail_tx_count > 0) {
+            html += `
+            <div class="projected-block-card pbc-tail">
+                <div class="pbc-title">Queue</div>
+                <div class="pbc-fee font-mono">~${data.tail_full_blocks || 0} blocks</div>
+                <div class="pbc-meta">${fmtNum(data.tail_tx_count)} txs waiting</div>
+                <div class="pbc-fill-track"><div class="pbc-fill" style="width:100%"></div></div>
+            </div>`;
+        }
         projectedStrip.innerHTML = html;
         projectedStrip.querySelectorAll('[data-block]').forEach(el => {
             el.addEventListener('click', () => {
@@ -517,7 +576,12 @@
             const res = await fetch('/api/chain-strip');
             const data = await res.json();
             if (!data.online) return;
-            tipBadge.textContent = `Tip: ${fmtNum(data.tip_height)}`;
+            const tip = data.tip_height;
+            if (lastTipHeight != null && tip != null && tip > lastTipHeight && sceneReady) {
+                triggerMineAnimation();
+            }
+            if (tip != null) lastTipHeight = tip;
+            tipBadge.textContent = `Tip: ${fmtNum(tip)}`;
             const blocks = (data.blocks || []).slice().sort((a, b) => b.height - a.height);
             blocksStrip.innerHTML = blocks.map(b => `
                 <div class="explorer-block-card" data-hash="${esc(b.hash)}">
