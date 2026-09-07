@@ -162,11 +162,7 @@ bool BlockTreeDB::LoadBlockIndexGuts(const Consensus::Params& consensusParams, s
                 pindexNew->nFile          = diskindex.nFile;
                 pindexNew->nDataPos       = diskindex.nDataPos;
                 pindexNew->nUndoPos       = diskindex.nUndoPos;
-                pindexNew->nVersion       = diskindex.nVersion;
-                pindexNew->hashMerkleRoot = diskindex.hashMerkleRoot;
-                pindexNew->nTime          = diskindex.nTime;
-                pindexNew->nBits          = diskindex.nBits;
-                pindexNew->nNonce         = diskindex.nNonce;
+                static_cast<CompressedHeader&>(*pindexNew) = diskindex;
                 pindexNew->nStatus        = diskindex.nStatus;
                 pindexNew->nTx            = diskindex.nTx;
 
@@ -278,6 +274,18 @@ CBlockIndex* BlockManager::AddToBlockIndex(const CBlockHeader& block, CBlockInde
     m_dirty_blockindex.insert(pindexNew);
 
     return pindexNew;
+}
+
+void BlockManager::AddUnlinkedBlock(CBlockIndex* block)
+{
+    AssertLockHeld(cs_main);
+    Assume(block != nullptr);
+    Assume(block->nStatus & BLOCK_HAVE_DATA);
+    auto range = m_blocks_unlinked.equal_range(block->pprev);
+    for (auto it = range.first; it != range.second; ++it) {
+        if (it->second == block) return;  // don't insert duplicates
+    }
+    m_blocks_unlinked.emplace(block->pprev, block);
 }
 
 void BlockManager::PruneOneBlockFile(const int fileNumber)
@@ -574,7 +582,9 @@ bool BlockManager::LoadBlockIndex(const std::optional<uint256>& snapshot_blockha
                     pindex->m_chain_tx_count = pindex->pprev->m_chain_tx_count + pindex->nTx;
                 } else {
                     pindex->m_chain_tx_count = 0;
-                    m_blocks_unlinked.insert(std::make_pair(pindex->pprev, pindex));
+                    if (pindex->nStatus & BLOCK_HAVE_DATA) {
+                        AddUnlinkedBlock(pindex);
+                    }
                 }
             } else {
                 pindex->m_chain_tx_count = pindex->nTx;

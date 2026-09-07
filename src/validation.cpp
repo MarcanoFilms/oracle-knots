@@ -116,6 +116,13 @@ const std::vector<std::string> CHECKLEVEL_DOC {
     "each level includes the checks of the previous levels",
 };
 
+// Return whether the completed full flush should compact chainstate
+static bool ShouldCompactChainstate(bool in_ibd)
+{
+    static constexpr uint32_t flush_ratio{320}; // Roughly every 2 weeks with hourly flushes
+    return !in_ibd && FastRandomContext().randrange(flush_ratio) == 0;
+}
+
 SpkReuseModes SpkReuseMode;
 
 TRACEPOINT_SEMAPHORE(validation, block_connected);
@@ -1452,16 +1459,13 @@ unsigned int PolicyScriptVerifyFlags(const ignore_rejects_type& ignore_rejects)
         return STANDARD_SCRIPT_VERIFY_FLAGS;
     }
     if (ignore_rejects.count("non-mandatory-script-verify-flag")) {
-        return MANDATORY_SCRIPT_VERIFY_FLAGS;
+        return MANDATORY_SCRIPT_VERIFY_FLAGS | REDUCED_DATA_MANDATORY_VERIFY_FLAGS;
     }
 
     unsigned int flags = STANDARD_SCRIPT_VERIFY_FLAGS;
     if (ignore_rejects.count("non-mandatory-script-verify-flag-upgradable")) {
         constexpr unsigned int upgradable_policy_flags =
             SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_NOPS |
-            SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM |
-            SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_TAPROOT_VERSION |
-            SCRIPT_VERIFY_DISCOURAGE_OP_SUCCESS |
             SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_PUBKEYTYPE;
         flags &= ~upgradable_policy_flags;
     } else {
@@ -1504,7 +1508,7 @@ unsigned int PolicyScriptVerifyFlags(const ignore_rejects_type& ignore_rejects)
     if (ignore_rejects.count("non-mandatory-script-verify-flag-const_scriptcode")) {
         flags &= ~SCRIPT_VERIFY_CONST_SCRIPTCODE;
     }
-    flags |= MANDATORY_SCRIPT_VERIFY_FLAGS;  // for safety
+    flags |= MANDATORY_SCRIPT_VERIFY_FLAGS | REDUCED_DATA_MANDATORY_VERIFY_FLAGS;  // for safety
     return flags;
 }
 
@@ -2928,23 +2932,26 @@ bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, 
     std::vector<PrecomputedTransactionData> txsdata(block.vtx.size());
     CCheckQueueControl<CScriptCheck> control(fScriptChecks && parallel_script_checks ? &m_chainman.GetCheckQueue() : nullptr);
 
-    // For BIP9 deployments, get the activation height dynamically
-    bool bip110_chk_active = false;
-    int reduced_data_start_height = std::numeric_limits<int>::max();
+    // For BIP9 deployments, get the activation height dynamically. When RDTS is
+    // inactive the start height is 0, so no input is treated as pre-activation and
+    // flags_per_input stays empty (keeping the script-execution cache enabled).
+    // Oracle Knots: -bip110=always|never overrides the deployment (auto = deployment).
+    bool reduced_data_active;
+    int reduced_data_start_height;
     if (OraclePolicy::g_bip110_mode == "always") {
-        bip110_chk_active = true;
+        reduced_data_active = true;
         reduced_data_start_height = 0;
     } else if (OraclePolicy::g_bip110_mode == "never") {
-        bip110_chk_active = false;
-        reduced_data_start_height = std::numeric_limits<int>::max();
+        reduced_data_active = false;
+        reduced_data_start_height = 0;
     } else {
-        bip110_chk_active = DeploymentActiveAt(*pindex, m_chainman, Consensus::DEPLOYMENT_REDUCED_DATA);
-        reduced_data_start_height = bip110_chk_active
+        reduced_data_active = DeploymentActiveAt(*pindex, m_chainman, Consensus::DEPLOYMENT_REDUCED_DATA);
+        reduced_data_start_height = reduced_data_active
             ? m_chainman.m_versionbitscache.StateSinceHeight(pindex->pprev, params.GetConsensus(), Consensus::DEPLOYMENT_REDUCED_DATA)
-            : std::numeric_limits<int>::max();
+            : 0;
     }
 
-    const CheckTxInputsRules chk_input_rules{bip110_chk_active ? CheckTxInputsRules::OutputSizeLimit : CheckTxInputsRules::None};
+    const CheckTxInputsRules chk_input_rules{reduced_data_active ? CheckTxInputsRules::OutputSizeLimit : CheckTxInputsRules::None};
 
     // Check generation tx output sizes if REDUCED_DATA is active
     if (chk_input_rules.test(CheckTxInputsRules::OutputSizeLimit)) {
@@ -3269,9 +3276,20 @@ bool Chainstate::FlushStateToDisk(
             m_next_write = FastRandomContext().rand_uniform_delay(NodeClock::now() + DATABASE_WRITE_INTERVAL_MIN, range);
         }
     }
-    if (full_flush_completed && m_chainman.m_options.signals) {
-        // Update best block in wallet (so we can detect restored wallets).
-        m_chainman.m_options.signals->ChainStateFlushed(this->GetRole(), m_chain.GetLocator());
+
+    if (full_flush_completed) {
+        if (m_chainman.m_options.signals) {
+            // Update best block in wallet (so we can detect restored wallets).
+            m_chainman.m_options.signals->ChainStateFlushed(this->GetRole(), m_chain.GetLocator());
+        }
+
+        if (!m_chainman.m_interrupt && ShouldCompactChainstate(m_chainman.IsInitialBlockDownload())) {
+            try {
+                CoinsDB().CompactFull();
+            } catch (const std::exception& e) {
+                LogWarning("Failed to start chainstate compaction (%s)", e.what());
+            }
+        }
     }
     } catch (const std::runtime_error& e) {
         return FatalError(m_chainman.GetNotifications(), state, strprintf(_("System error while flushing: %s"), e.what()));
@@ -3310,7 +3328,7 @@ static void UpdateTipLog(
     // Disable rate limiting in LogPrintLevel_ so this source location may log during IBD.
     LogPrintLevel_(BCLog::LogFlags::ALL, BCLog::Level::Info, /*should_ratelimit=*/false, "%s%s: new best=%s height=%d version=0x%08x log2_work=%f tx=%lu date='%s' progress=%f cache=%.1fMiB(%utxo)%s\n",
                    prefix, func_name,
-                   tip->GetBlockHash().ToString(), tip->nHeight, tip->nVersion,
+                   tip->GetBlockHash().ToString(), tip->nHeight, tip->GetCompleteVersion(),
                    log(tip->nChainWork.getdouble()) / log(2.0), tip->m_chain_tx_count,
                    FormatISO8601DateTime(tip->GetBlockTime()),
                    chainman.GuessVerificationProgress(tip),
@@ -3698,8 +3716,11 @@ CBlockIndex* Chainstate::FindMostWorkChain()
                         // If we're missing data, then add back to m_blocks_unlinked,
                         // so that if the block arrives in the future we can try adding
                         // to setBlockIndexCandidates again.
-                        m_blockman.m_blocks_unlinked.insert(
-                            std::make_pair(pindexFailed->pprev, pindexFailed));
+                        // Avoid duplicate entries in m_blocks_unlinked. If the same entry is
+                        // processed twice in ReceivedBlockTransactions(), it may be re-added to
+                        // setBlockIndexCandidates with a modified nSequenceId, breaking ordering
+                        // guarantees and leading to undefined behavior.
+                        m_blockman.AddUnlinkedBlock(pindexFailed);
                     }
                     setBlockIndexCandidates.erase(pindexFailed);
                     pindexFailed = pindexFailed->pprev;
@@ -4334,13 +4355,29 @@ void ChainstateManager::ReceivedBlockTransactions(const CBlock& block, CBlockInd
         }
     } else {
         if (pindexNew->pprev && pindexNew->pprev->IsValid(BLOCK_VALID_TREE)) {
-            m_blockman.m_blocks_unlinked.insert(std::make_pair(pindexNew->pprev, pindexNew));
+            m_blockman.AddUnlinkedBlock(pindexNew);
         }
     }
 }
 
 static bool CheckBlockHeader(const CBlockHeader& block, BlockValidationState& state, const Consensus::Params& consensusParams, bool fCheckPOW = true)
 {
+    if (block.m_header_v2) {
+        if (!consensusParams.IsBlake2bHeight(block.m_height)) {
+            return state.Invalid(BlockValidationResult::BLOCK_INVALID_HEADER, "bad-version-sha256d", strprintf("Blocks require SHA256d PoW until height %s", consensusParams.DeploymentHeight(Consensus::DEPLOYMENT_BLAKE2B)));
+        }
+
+        // The top two bits of flags are reserved for future hardforks (serving the same purpose as nVersion's top bit did for BLAKE2b)
+        if (block.m_flags & 0xc0) {
+            return state.Invalid(BlockValidationResult::BLOCK_INVALID_HEADER, "bad-flags-highbits", "High flag bits are set");
+        }
+    } else if (!block.AreHeaderV2FieldsNull()) {
+        return state.Invalid(
+            /*result=*/BlockValidationResult::BLOCK_MUTATED,
+            /*reject_reason=*/"error-headerv1-with-v2-fields",
+            /*debug_message=*/"THIS SHOULD BE IMPOSSIBLE, PLEASE REPORT IT");
+    }
+
     // Check proof of work matches claimed amount
     if (fCheckPOW && !CheckProofOfWork(block.GetHash(), block.nBits, consensusParams))
         return state.Invalid(BlockValidationResult::BLOCK_INVALID_HEADER, "high-hash", "proof of work failed");
@@ -4351,6 +4388,13 @@ static bool CheckBlockHeader(const CBlockHeader& block, BlockValidationState& st
 static bool CheckMerkleRoot(const CBlock& block, BlockValidationState& state)
 {
     if (block.m_checked_merkle_root) return true;
+
+    if (block.m_txcount != (block.m_header_v2 ? block.vtx.size() : 0)) {
+        return state.Invalid(
+            /*result=*/BlockValidationResult::BLOCK_MUTATED,
+            /*reject_reason=*/"bad-txnlist-size",
+            /*debug_message=*/"Transaction list size doesn't match header");
+    }
 
     bool mutated;
     uint256 merkle_root = BlockMerkleRoot(block, &mutated);
@@ -4429,6 +4473,8 @@ static bool CheckWitnessMalleation(const CBlock& block, bool expect_witness_comm
     return true;
 }
 
+std::vector<unsigned char> blake2b_headline;
+
 bool CheckBlock(const CBlock& block, BlockValidationState& state, const Consensus::Params& consensusParams, bool fCheckPOW, bool fCheckMerkleRoot)
 {
     // These are checks that are independent of context.
@@ -4467,6 +4513,16 @@ bool CheckBlock(const CBlock& block, BlockValidationState& state, const Consensu
     for (unsigned int i = 1; i < block.vtx.size(); i++)
         if (block.vtx[i]->IsCoinBase())
             return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-cb-multiple", "more than one coinbase");
+
+    if (block.m_height == consensusParams.DeploymentHeight(Consensus::DEPLOYMENT_BLAKE2B)) {
+        const auto& coinbase = block.vtx[0]->vin[0].scriptSig;
+        if (std::search(coinbase.begin(), coinbase.end(), blake2b_headline.begin(), blake2b_headline.end()) == coinbase.end()) {
+            return state.Invalid(
+                /*result=*/BlockValidationResult::BLOCK_MUTATED,
+                /*reject_reason=*/"bad-headline",
+                /*debug_message=*/"Headline is wrong");
+        }
+    }
 
     // Check transactions
     // Must check for duplicate inputs (see CVE-2018-17144)
@@ -4672,6 +4728,17 @@ static bool ContextualCheckBlockHeader(const CBlockHeader& block, BlockValidatio
 static bool ContextualCheckBlockHeaderVolatile(const CBlockHeader& block, BlockValidationState& state, const ChainstateManager& chainman, const CBlockIndex* pindexPrev) EXCLUSIVE_LOCKS_REQUIRED(::cs_main)
 {
     const Consensus::Params& consensusParams = chainman.GetConsensus();
+    const auto height{pindexPrev ? (pindexPrev->nHeight + 1) : 0};
+
+    if (block.m_header_v2) {
+        if (block.m_height != height) {
+            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-header-height", "Height in block header does not match prevblock height+1");
+        }
+    } else {
+        if (consensusParams.IsBlake2bHeight(height)) {
+            return state.Invalid(BlockValidationResult::BLOCK_INVALID_HEADER, "bad-version-blake2b", "New blocks require BLAKE2b PoW");
+        }
+    }
 
     // Mandatory signaling for deployments approaching max_activation_height
     for (int i = 0; i < (int)Consensus::MAX_VERSION_BITS_DEPLOYMENTS; i++) {
@@ -5928,13 +5995,12 @@ void ChainstateManager::CheckBlockIndex()
         // Check whether this block is in m_blocks_unlinked.
         std::pair<std::multimap<CBlockIndex*,CBlockIndex*>::iterator,std::multimap<CBlockIndex*,CBlockIndex*>::iterator> rangeUnlinked = m_blockman.m_blocks_unlinked.equal_range(pindex->pprev);
         bool foundInUnlinked = false;
-        while (rangeUnlinked.first != rangeUnlinked.second) {
-            assert(rangeUnlinked.first->first == pindex->pprev);
-            if (rangeUnlinked.first->second == pindex) {
+        for (auto it = rangeUnlinked.first; it != rangeUnlinked.second; ++it) {
+            assert(it->first == pindex->pprev);
+            if (it->second == pindex) {
+                assert(!foundInUnlinked); // No duplicates in m_blocks_unlinked
                 foundInUnlinked = true;
-                break;
             }
-            rangeUnlinked.first++;
         }
         if (pindex->pprev && (pindex->nStatus & BLOCK_HAVE_DATA) && pindexFirstNeverProcessed != nullptr && pindexFirstInvalid == nullptr) {
             // If this block has block data available, some parent was never received, and has no invalid parents, it must be in m_blocks_unlinked.

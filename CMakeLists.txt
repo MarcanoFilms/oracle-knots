@@ -28,7 +28,7 @@ get_directory_property(precious_variables CACHE_VARIABLES)
 #=============================
 set(CLIENT_NAME "Oracle Knots")
 set(CLIENT_VERSION_MAJOR 29)
-set(CLIENT_VERSION_MINOR 3)
+set(CLIENT_VERSION_MINOR 4)
 set(CLIENT_VERSION_BUILD 0)
 set(CLIENT_VERSION_RC 0)
 set(CLIENT_VERSION_IS_RELEASE "true")
@@ -165,8 +165,12 @@ if(WITH_SQLITE)
   if(VCPKG_TARGET_TRIPLET)
     # Use of the `unofficial::` namespace is a vcpkg package manager convention.
     find_package(unofficial-sqlite3 CONFIG REQUIRED)
+    add_library(SQLite3::SQLite3 ALIAS unofficial::sqlite3::sqlite3)
   else()
     find_package(SQLite3 3.7.17 REQUIRED)
+    if(NOT TARGET SQLite3::SQLite3) # CMake < 4.3
+      add_library(SQLite3::SQLite3 ALIAS SQLite::SQLite3)
+    endif()
   endif()
   set(USE_SQLITE ON)
 endif()
@@ -277,7 +281,7 @@ string(APPEND CMAKE_CXX_LINK_EXECUTABLE " ${APPEND_LDFLAGS}")
 set(configure_warnings)
 
 include(CheckLinkerSupportsPIE)
-check_linker_supports_pie(configure_warnings)
+check_linker_supports_pie(configure_warnings CXX)
 
 # The core_interface library aims to encapsulate common build flags.
 # It is a usage requirement for all targets except for secp256k1, which
