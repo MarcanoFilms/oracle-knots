@@ -17,6 +17,14 @@ ORACLE_KNOTS_DIR = os.path.dirname(os.path.abspath(__file__))
 GUI_DIR = os.path.join(ORACLE_KNOTS_DIR, "gui")
 
 def _resolve_binary(name: str) -> str:
+    # ORACLE_BITCOIN_BIN apunta a un build externo. Hace falta para la cadena
+    # BLAKE2b: sus binarios viven fuera de este arbol, y el build local (Knots
+    # 29.3.0) no entiende el fork.
+    override = os.environ.get("ORACLE_BITCOIN_BIN")
+    if override:
+        path = os.path.join(os.path.expanduser(override), name)
+        if os.path.isfile(path):
+            return path
     for subpath in ("build/bin", "build/src"):
         path = os.path.join(ORACLE_KNOTS_DIR, subpath, name)
         if os.path.isfile(path):
@@ -39,15 +47,46 @@ def find_available_port(start_port: int = 8080) -> int:
 # ----------------------------------------------------
 # Node Process Management Utilities
 # ----------------------------------------------------
+NETWORK_FLAGS = ("-testnet", "-testnet3", "-testnet4", "-regtest", "-signet")
+
+
+def _pid_cmdline(pid):
+    try:
+        with open(f"/proc/{pid}/cmdline", "rb") as f:
+            return f.read().decode().split('\x00')
+    except Exception:
+        return []
+
+
 def check_node_running():
+    """Localiza el bitcoind que debe gobernar la GUI.
+
+    Puede haber varios a la vez (mainnet de produccion, testnet4, regtest); el
+    primer PID que devuelve pgrep es arbitrario y en la practica es el mas bajo,
+    que suele ser un experimento. Se prefiere el de mainnet, que es el unico sin
+    bandera de red. ORACLE_NODE_DATADIR fuerza uno concreto.
+    """
     try:
         pgrep = subprocess.run(["pgrep", "-x", "bitcoind"], capture_output=True, text=True)
-        if pgrep.returncode == 0:
-            pid = int(pgrep.stdout.strip().split('\n')[0])
-            return True, pid
+        if pgrep.returncode != 0:
+            return False, None
+        pids = [int(p) for p in pgrep.stdout.split() if p.strip()]
     except Exception:
-        pass
-    return False, None
+        return False, None
+    if not pids:
+        return False, None
+
+    want = os.environ.get("ORACLE_NODE_DATADIR")
+    if want:
+        want = os.path.abspath(os.path.expanduser(want))
+        for pid in pids:
+            if os.path.abspath(get_node_datadir(pid)) == want:
+                return True, pid
+
+    for pid in pids:
+        if not any(a in NETWORK_FLAGS for a in _pid_cmdline(pid)):
+            return True, pid
+    return True, pids[0]
 
 def get_node_datadir(pid):
     try:
@@ -62,19 +101,15 @@ def get_node_datadir(pid):
     return os.path.expanduser("~/.bitcoin")
 
 def get_node_network(pid):
-    try:
-        with open(f"/proc/{pid}/cmdline", "rb") as f:
-            cmdline_bytes = f.read()
-        args = cmdline_bytes.decode().split('\x00')
-        for arg in args:
-            if arg == "-testnet" or arg == "-testnet3":
-                return "testnet"
-            elif arg == "-regtest":
-                return "regtest"
-            elif arg == "-signet":
-                return "signet"
-    except Exception:
-        pass
+    for arg in _pid_cmdline(pid):
+        if arg == "-testnet" or arg == "-testnet3":
+            return "testnet"
+        elif arg == "-testnet4":
+            return "testnet4"
+        elif arg == "-regtest":
+            return "regtest"
+        elif arg == "-signet":
+            return "signet"
     return "mainnet"
 
 def get_prometheus_port(pid):
@@ -95,6 +130,8 @@ def run_bitcoin_cli(args_list, datadir=None, network="mainnet", wallet_name=None
         cmd.append(f"-datadir={datadir}")
     if network == "testnet":
         cmd.append("-testnet")
+    elif network == "testnet4":
+        cmd.append("-testnet4")
     elif network == "regtest":
         cmd.append("-regtest")
     elif network == "signet":
@@ -115,6 +152,8 @@ def get_network_dir(datadir, network):
     root_datadir = os.path.abspath(datadir)
     if network == "testnet":
         return os.path.join(root_datadir, "testnet3")
+    if network == "testnet4":
+        return os.path.join(root_datadir, "testnet4")
     if network == "regtest":
         return os.path.join(root_datadir, "regtest")
     if network == "signet":
@@ -271,8 +310,66 @@ _dashboard_cache = {"ts": 0.0, "data": None}
 DASHBOARD_CACHE_TTL = 2.0
 _chain_strip_cache = {"ts": 0.0, "tip_height": None, "data": None}
 CHAIN_STRIP_CACHE_TTL = 30.0
+# Precio del fork BLAKE2b (XBT). Neoxa es por ahora el unico exchange con el par
+# BTCB2_USDC. Ticker publico, sin credenciales. Se cachea porque el frontend
+# refresca seguido y el exchange es lento/inestable.
+_price_cache = {"ts": 0.0, "data": None}
+PRICE_CACHE_TTL = 60.0
+NEOXA_TICKER_URL = "https://neoxa.exchange/api/exchange/ticker/BTCB2_USDC"
 CHAIN_STRIP_BLOCK_COUNT = 12
 
+
+def _build_chain_strip_standard(datadir, network, count):
+    """Recent-blocks strip usando solo RPC estandar (sin la RPC Oracle de policy audit).
+    Poblamos altura/hash/tiempo/n_tx + subsidy/fees/reward via getblockstats."""
+    chain = _rpc_json("getblockchaininfo", datadir, network) or {}
+    tip = int(chain.get("blocks") or 0)
+    if tip <= 0:
+        return {"online": True, "blocks": [], "tip_height": 0,
+                "active_policy_profile": None, "rpc_unavailable": True}
+    blocks = []
+    lowest = max(1, tip - count + 1)
+    for height in range(tip, lowest - 1, -1):
+        # getblockhash devuelve un string hex crudo (no JSON), por eso run_bitcoin_cli.
+        ok, bh = run_bitcoin_cli(["getblockhash", str(height)], datadir, network, timeout=8.0)
+        bh = bh.strip() if ok else None
+        if not bh:
+            continue
+        blk = _rpc_json("getblock", datadir, network, [bh, 1], timeout=8.0) or {}
+        stats = _rpc_json(
+            "getblockstats", datadir, network,
+            [height, '["height","subsidy","totalfee","txs"]'], timeout=8.0,
+        ) or {}
+        subsidy_sats = stats.get("subsidy")
+        totalfee_sats = stats.get("totalfee")
+        n_tx = int(blk.get("nTx") or stats.get("txs") or 0)
+        reward = None
+        if subsidy_sats is not None:
+            reward = round((subsidy_sats + (totalfee_sats or 0)) / 1e8, 8)
+        blocks.append({
+            "height": height,
+            "hash": bh,
+            "time": int(blk.get("time") or 0),
+            "n_tx": n_tx,
+            "available": True,
+            "bip110_compliant": None,
+            "policy_pass": 0,
+            "policy_fail": 0,
+            "policy_clean": None,
+            "policy_fail_pct": 0.0,
+            "subsidy": round(subsidy_sats / 1e8, 8) if subsidy_sats is not None else None,
+            "fees": round(totalfee_sats / 1e8, 8) if totalfee_sats is not None else None,
+            "coinbase_reward": reward,
+            "fees_sats": int(totalfee_sats) if totalfee_sats is not None else None,
+            "miner_tag": None,
+        })
+    return {
+        "online": True,
+        "blocks": blocks,
+        "tip_height": tip,
+        "active_policy_profile": None,
+        "standard_rpc": True,
+    }
 
 def _normalize_chain_block(raw):
     """Normalize one block entry from getrecentblockpolicyaudit for the GUI."""
@@ -317,15 +414,9 @@ def _build_chain_strip(running, pid, count=CHAIN_STRIP_BLOCK_COUNT):
     network = get_node_network(pid)
     audit = _rpc_json("getrecentblockpolicyaudit", datadir, network, timeout=45.0)
     if not audit:
-        chain = _rpc_json("getblockchaininfo", datadir, network) or {}
-        tip = int(chain.get("blocks") or 0)
-        return {
-            "online": True,
-            "blocks": [],
-            "tip_height": tip,
-            "active_policy_profile": None,
-            "rpc_unavailable": True,
-        }
+        # El build BLAKE2b es Knots estandar + blake2b: no trae la RPC de policy audit.
+        # Degradamos a RPC estandar para mostrar los bloques recientes igual.
+        return _build_chain_strip_standard(datadir, network, count)
     blocks = [
         b for b in (_normalize_chain_block(x) for x in (audit.get("blocks") or []))
         if b is not None
@@ -365,38 +456,142 @@ def _summarize_peers(peerinfo):
             summary["clearnet"] += 1
     return summary
 
+# ----------------------------------------------------
+# BLAKE2b Fork Status (post-activation, from standard RPCs)
+# ----------------------------------------------------
+# El nodo del fork es Knots estandar + blake2b: NO trae las RPC personalizadas de
+# Oracle (checkbip110status, getsovereigntemplatestats...). Todo lo del fork se
+# deriva de RPC estandar: getdeploymentinfo, getblockchaininfo, getblockheader.
+
+def _build_fork_status(datadir, network, bitcoin_conf=None):
+    """Estado del hardfork BLAKE2b leido solo de RPC estandar.
+
+    Devuelve el estado real post-activacion (activo desde 961640), no la vieja
+    narrativa de señalizacion. Todos los campos degradan a valores seguros si el
+    nodo no responde.
+    """
+    dep = _rpc_json("getdeploymentinfo", datadir, network) or {}
+    chain = _rpc_json("getblockchaininfo", datadir, network) or {}
+    deployments = dep.get("deployments", {})
+
+    def _norm(d):
+        d = d or {}
+        return {
+            "active": bool(d.get("active", False)),
+            "type": d.get("type", "unknown"),
+            "height": d.get("height"),
+        }
+
+    # blake2b es clave de PRIMER NIVEL en getdeploymentinfo (no en deployments);
+    # reduced_data (RDTS) si esta en deployments como flag-day.
+    blake2b = _norm(dep.get("blake2b"))
+    rdts = _norm(deployments.get("reduced_data"))
+
+    tip_hash = chain.get("bestblockhash")
+    header_version = None
+    if tip_hash:
+        hdr = _rpc_json("getblockheader", datadir, network, [tip_hash]) or {}
+        header_version = hdr.get("header_version")
+
+    height = chain.get("blocks", 0)
+    act = blake2b.get("height")
+    blocks_since = (height - act) if (isinstance(act, int) and isinstance(height, int)) else None
+
+    # El headline canonico es un valor de consenso. En rc4 se aplica via
+    # blake2b_headline en bitcoin.conf (fuente autoritativa). En rc5+ pasa a estar
+    # hardcodeado en el binario y esa opcion es solo-regtest, asi que si el usuario
+    # la quita del conf hay que caer al valor canonico de mainnet.
+    CANONICAL_MAINNET_HEADLINE = "8-30 NYPost Deride And Conquer"
+    if bitcoin_conf is None:
+        conf_path, _ = get_config_paths(datadir, network)
+        bitcoin_conf = parse_bitcoin_conf(conf_path)
+    headline = bitcoin_conf.get("blake2b_headline")
+    if not headline and chain.get("chain") == "main":
+        headline = CANONICAL_MAINNET_HEADLINE
+
+    return {
+        "chain": chain.get("chain", network),
+        "height": height,
+        "activation_height": act,
+        "blocks_since_activation": blocks_since,
+        "blake2b": blake2b,
+        "rdts": rdts,
+        # header v2 (0xa0000000) = seguimos la cadena BLAKE2b y rechazamos SHA256d.
+        "header_version": header_version,
+        "sovereign": header_version == 2 and blake2b.get("active", False),
+        "headline": headline,
+        "difficulty": chain.get("difficulty"),
+        "warnings": [w for w in (chain.get("warnings") or []) if w],
+    }
+
+
+def _build_policy_stock(datadir, network, bitcoin_conf):
+    """Politica antispam real desde bitcoin.conf + getmempoolinfo (Knots estandar).
+
+    Reemplaza el viejo checkbip110status (RPC inexistente en el fork). Refleja lo
+    que el nodo hace de verdad: filtrado de datos, RBF, TRUC, dust.
+    """
+    mp = _rpc_json("getmempoolinfo", datadir, network) or {}
+
+    def _conf(key, default=None):
+        v = bitcoin_conf.get(key, default)
+        return v
+
+    # datacarriersize=0 => almacenamiento de datos OP_RETURN DESACTIVADO.
+    dcs_raw = _conf("datacarriersize")
+    datacarrier_size = None
+    if dcs_raw is not None:
+        try:
+            datacarrier_size = int(dcs_raw)
+        except (TypeError, ValueError):
+            datacarrier_size = None
+
+    consensusrules = str(_conf("consensusrules", "") or "")
+    return {
+        "datacarrier_size": datacarrier_size,
+        "op_return_data": (
+            "blocked" if datacarrier_size == 0
+            else ("limited" if datacarrier_size else "default")
+        ),
+        "permit_bare_multisig": str(_conf("permitbaremultisig", "")).lower() in ("1", "true"),
+        "rdts_consensus": "rdts" in consensusrules.lower(),
+        "rbf_policy": mp.get("rbf_policy"),
+        "fullrbf": mp.get("fullrbf"),
+        "truc_policy": mp.get("truc_policy"),
+        "dust_relay_fee": mp.get("dustrelayfee"),
+        "dust_dynamic": mp.get("dustdynamic"),
+        "min_relay_fee": mp.get("minrelaytxfee"),
+        "mempool_min_fee": mp.get("mempoolminfee"),
+    }
+
+
 def _parse_rdts_deployment(deployment_info):
+    """RDTS (reduced_data) en la cadena BLAKE2b: ya activado por flag-day.
+
+    Antes se leia de softforks.reduced_data.bip9 con % de señalizacion. Post-fork
+    esta en deployments.reduced_data como flag-day activo (sin señalizacion), asi
+    que el estado real es 'active desde <altura>', no un porcentaje.
+    """
     result = {
-        "status": "unknown",
+        "status": "inactive",
+        "active": False,
+        "type": "unknown",
+        "activation_height": None,
+        # Compatibilidad con el frontend viejo mientras se migra:
         "signaling_pct": 0.0,
         "blocks_signaling": 0,
         "period": 0,
         "threshold": 0,
-        "active": False,
     }
     if not deployment_info:
         return result
-    softforks = deployment_info.get("softforks", {})
-    rdts = softforks.get("reduced_data", {})
+    rdts = (deployment_info.get("deployments", {}) or {}).get("reduced_data", {})
     if not rdts:
         return result
-    bip9 = rdts.get("bip9", {})
-    result["status"] = bip9.get("status", "unknown")
-    result["active"] = rdts.get("active", False)
-    stats = bip9.get("statistics", {})
-    if stats:
-        period = stats.get("period") or 0
-        count = stats.get("count") or 0
-        threshold = stats.get("threshold") or 0
-        result["blocks_signaling"] = count
-        result["period"] = period
-        result["threshold"] = threshold
-        if period > 0:
-            result["signaling_pct"] = round((count / period) * 100, 1)
-        if threshold > 0:
-            result["threshold_pct"] = round((threshold / period) * 100, 1) if period else 0
-            result["progress_to_lockin_pct"] = round(min(100.0, (count / threshold) * 100), 1)
-            result["blocks_to_threshold"] = max(0, threshold - count)
+    result["active"] = bool(rdts.get("active", False))
+    result["type"] = rdts.get("type", "unknown")
+    result["activation_height"] = rdts.get("height")
+    result["status"] = "active" if result["active"] else "defined"
     return result
 
 def _top_rejections(rejections, limit=5):
@@ -595,7 +790,9 @@ def _build_dashboard(running, pid):
     metrics = fetch_prometheus_metrics(prom_port) or {}
     prom_rejections = metrics.get("rejections", {})
 
-    policy = _rpc_json("checkbip110status", datadir, network) or {}
+    # checkbip110status no existe en el nodo del fork (Knots estandar + blake2b);
+    # la politica real se deriva de bitcoin.conf + getmempoolinfo mas abajo.
+    policy = {}
     mempool = _rpc_json("getmempoolinfo", datadir, network) or {}
     peers_raw = _rpc_json("getpeerinfo", datadir, network) or []
     deployment = _rpc_json("getdeploymentinfo", datadir, network) or {}
@@ -624,20 +821,28 @@ def _build_dashboard(running, pid):
     usage = mempool.get("usage", metrics.get("mempool_usage", 0))
     usage_pct = round((usage / max_mempool) * 100, 1) if max_mempool else 0.0
 
-    active_profile = policy.get("active_policy_profile", metrics.get("policy_profile", "unknown"))
+    # Politica real del nodo del fork (bitcoin.conf + getmempoolinfo), no la vieja
+    # RPC checkbip110status. El "perfil" sale del policy.toml si existe, si no del
+    # estado efectivo de los filtros.
+    policy_stock = _build_policy_stock(datadir, network, bitcoin_conf)
+    active_profile = parsed_policy.get("profile") or conf_profile or (
+        "sovereign" if policy_stock.get("op_return_data") == "blocked" else "default"
+    )
     return {
         "online": True,
+        "fork": _build_fork_status(datadir, network, bitcoin_conf),
         "policy": {
             "profile": active_profile,
             "active_policy_profile": active_profile,
-            "bip110_mode": policy.get("bip110_mode", metrics.get("bip110_mode", "unknown")),
-            "bip110_enforced": policy.get("bip110_enforced", False),
-            "reject_inscriptions": policy.get("reject_inscriptions"),
-            "max_op_return_outputs": policy.get("max_op_return_outputs"),
-            "reject_tokens": parsed_policy.get("custom_rules.reject_tokens"),
-            "datacarrier_size": parsed_policy.get("custom_rules.datacarrier_size"),
-            "dust_relay_fee": parsed_policy.get("custom_rules.dust_relay_fee"),
-            "permit_bare_multisig": parsed_policy.get("custom_rules.permit_bare_multisig"),
+            "op_return_data": policy_stock["op_return_data"],
+            "datacarrier_size": policy_stock["datacarrier_size"],
+            "permit_bare_multisig": policy_stock["permit_bare_multisig"],
+            "rdts_consensus": policy_stock["rdts_consensus"],
+            "rbf_policy": policy_stock["rbf_policy"],
+            "fullrbf": policy_stock["fullrbf"],
+            "truc_policy": policy_stock["truc_policy"],
+            "dust_relay_fee": policy_stock["dust_relay_fee"],
+            "dust_dynamic": policy_stock["dust_dynamic"],
             "reject_parasites": parsed_policy.get("custom_rules.reject_parasites"),
             "rejections_by_reason": rejections_by_reason,
         },
@@ -674,9 +879,14 @@ def _build_dashboard(running, pid):
             "prometheus_port": prom_port,
         },
         "conflict": conflict,
-        "mining": _rpc_json("getsovereigntemplatestats", datadir, network) or {},
-        "mempool_audit": _rpc_json("getmempoolpolicyaudit", datadir, network, ["200"]) or {},
-        "recent_rejections": _rpc_json("getrecentpolicyrejections", datadir, network, ["25"]) or [],
+        # getmininginfo es estandar y trae dificultad/hashrate/template reales.
+        # getsovereigntemplatestats/getmempoolpolicyaudit/getrecentpolicyrejections
+        # eran RPC de Oracle que este binario del fork no tiene -> marcados como
+        # no disponibles en vez de fingir ceros.
+        "mining": _rpc_json("getmininginfo", datadir, network) or {},
+        "mempool_audit": {"available": False, "reason": "requires Oracle-patched node"},
+        "recent_rejections": [],
+        "rejections_available": False,
         "preflight": _build_preflight(True, datadir, network),
     }
 
@@ -926,6 +1136,8 @@ def api_start():
     cmd = [BITCOIND_PATH, "-daemon", "-prometheus=1", "-prometheusport=9332"]
     if network == "testnet":
         cmd.append("-testnet")
+    elif network == "testnet4":
+        cmd.append("-testnet4")
     elif network == "regtest":
         cmd.append("-regtest")
     elif network == "signet":
@@ -1021,6 +1233,65 @@ def api_mempool_audit():
         return {"success": False, "error": "getmempoolpolicyaudit unavailable — rebuild bitcoind"}
     return {"success": True, "audit": audit}
 
+def _build_mempool_explorer(datadir, network, top_n=25):
+    """Explorador de mempool con RPC estandar (funciona en cualquier build)."""
+    info = _rpc_json("getmempoolinfo", datadir, network) or {}
+    verbose = _rpc_json("getrawmempool", datadir, network, ["true"], timeout=20.0)
+    txs = []
+    if isinstance(verbose, dict):
+        for txid, e in verbose.items():
+            vsize = e.get("vsize") or e.get("size") or 0
+            fees = e.get("fees") or {}
+            base = fees.get("base")
+            fee_sats = int(round(base * 1e8)) if base is not None else \
+                int(e.get("fee", 0) * 1e8) if e.get("fee") else 0
+            feerate = round(fee_sats / vsize, 2) if vsize else 0.0
+            txs.append({
+                "txid": txid,
+                "vsize": int(vsize),
+                "fee_sats": fee_sats,
+                "feerate": feerate,
+                "time": int(e.get("time") or 0),
+                "descendants": int(e.get("descendantcount") or 1),
+                "ancestors": int(e.get("ancestorcount") or 1),
+            })
+    # Histograma por fee-rate (sat/vB)
+    buckets = [(0, 1), (1, 2), (2, 5), (5, 10), (10, 20), (20, 50), (50, 100), (100, None)]
+    histogram = []
+    for lo, hi in buckets:
+        cnt = sum(1 for t in txs if t["feerate"] >= lo and (hi is None or t["feerate"] < hi))
+        label = f"{lo}+" if hi is None else f"{lo}–{hi}"
+        histogram.append({"label": label, "count": cnt})
+    txs.sort(key=lambda t: t["feerate"], reverse=True)
+    def _sat_vb(v):
+        # mempoolminfee viene en BTC/kvB -> sat/vB
+        try:
+            return round(float(v) * 1e8 / 1000.0, 3)
+        except (TypeError, ValueError):
+            return None
+    return {
+        "online": True,
+        "info": {
+            "size": int(info.get("size") or 0),
+            "bytes": int(info.get("bytes") or 0),
+            "usage": int(info.get("usage") or 0),
+            "maxmempool": int(info.get("maxmempool") or 0),
+            "mempoolminfee_satvb": _sat_vb(info.get("mempoolminfee")),
+            "minrelaytxfee_satvb": _sat_vb(info.get("minrelaytxfee")),
+            "total_fee_btc": info.get("total_fee"),
+        },
+        "histogram": histogram,
+        "top_txs": txs[:top_n],
+        "counted": len(txs),
+    }
+
+@route('/api/mempool/explorer')
+def api_mempool_explorer():
+    running, pid = check_node_running()
+    if not running:
+        return {"online": False, "error": "Node is offline"}
+    return _build_mempool_explorer(get_node_datadir(pid), get_node_network(pid))
+
 @route('/api/chain-strip')
 def api_chain_strip():
     global _chain_strip_cache
@@ -1060,6 +1331,489 @@ def api_dashboard():
     data = _build_dashboard(running, pid)
     _dashboard_cache = {"ts": now, "data": data}
     return data
+
+@route('/api/fork-status')
+def api_fork_status():
+    """Estado del hardfork BLAKE2b + politica antispam real (RPC estandar)."""
+    running, pid = check_node_running()
+    if not running:
+        return {"online": False}
+    datadir = get_node_datadir(pid)
+    network = get_node_network(pid)
+    bitcoin_conf_path, _ = get_config_paths(datadir, network)
+    bitcoin_conf = parse_bitcoin_conf(bitcoin_conf_path)
+    return {
+        "online": True,
+        "fork": _build_fork_status(datadir, network, bitcoin_conf),
+        "policy": _build_policy_stock(datadir, network, bitcoin_conf),
+    }
+
+def _fetch_neoxa_price():
+    """Lee el ticker BTCB2_USDC de Neoxa. Devuelve dict normalizado o None."""
+    try:
+        req = urllib.request.Request(
+            NEOXA_TICKER_URL,
+            headers={"Accept": "application/json", "User-Agent": "OracleKnots/2.0"},
+        )
+        with urllib.request.urlopen(req, timeout=8.0) as resp:
+            payload = json.loads(resp.read().decode("utf-8", "replace"))
+    except Exception:
+        return None
+    if not isinstance(payload, dict) or not payload.get("success"):
+        return None
+    t = payload.get("ticker") or {}
+    def _num(key):
+        try:
+            return float(t.get(key))
+        except (TypeError, ValueError):
+            return None
+    last = _num("lastPrice")
+    if last is None:
+        return None
+    return {
+        "ticker": "XBT",
+        "pair": "BTCB2_USDC",
+        "exchange": "Neoxa",
+        "last": last,
+        "bid": _num("bestBid"),
+        "ask": _num("bestAsk"),
+        "spread": _num("spread"),
+        "change_pct_24h": _num("changePercent"),
+        "high_24h": _num("high24h"),
+        "low_24h": _num("low24h"),
+        "volume_24h": _num("volume24h"),
+        "quote_volume_24h": _num("quoteVolume24h"),
+        "trades_24h": t.get("trades24h"),
+    }
+
+@route('/api/price')
+def api_price():
+    """Precio del fork BLAKE2b (XBT) desde Neoxa. Cacheado; degrada limpio."""
+    global _price_cache
+    now = time.time()
+    cached = _price_cache.get("data")
+    if cached is not None and (now - _price_cache.get("ts", 0.0)) < PRICE_CACHE_TTL:
+        return {"success": True, "price": cached, "cached": True, "stale": False}
+    fresh = _fetch_neoxa_price()
+    if fresh is not None:
+        _price_cache = {"ts": now, "data": fresh}
+        return {"success": True, "price": fresh, "cached": False, "stale": False}
+    # Fetch fallo: si hay un valor viejo, lo servimos marcado como stale.
+    if cached is not None:
+        return {"success": True, "price": cached, "cached": True, "stale": True}
+    return {"success": False, "error": "Neoxa unreachable", "price": None}
+
+def _find_datum_process():
+    """Busca un datum_gateway (CONVOY) corriendo. Devuelve (pid, config_path) o (None, None)."""
+    try:
+        for entry in os.listdir("/proc"):
+            if not entry.isdigit():
+                continue
+            try:
+                with open(f"/proc/{entry}/cmdline", "rb") as f:
+                    parts = f.read().split(b"\x00")
+            except (FileNotFoundError, ProcessLookupError, PermissionError):
+                continue
+            if not parts or b"datum_gateway" not in (parts[0] or b""):
+                # tambien aceptar si aparece en cualquier arg (ruta absoluta)
+                if not any(b"datum_gateway" in p for p in parts):
+                    continue
+            config_path = None
+            for i, p in enumerate(parts):
+                if p == b"--config" and i + 1 < len(parts):
+                    config_path = parts[i + 1].decode("utf-8", "replace")
+                    break
+            return int(entry), config_path
+    except FileNotFoundError:
+        pass
+    return None, None
+
+def _datum_api_base(config_path):
+    """Deriva la URL base de la API web del gateway desde su config (o env/default)."""
+    override = os.environ.get("ORACLE_DATUM_API")
+    if override:
+        return override.rstrip("/")
+    addr, port = "127.0.0.1", "7158"
+    if config_path and os.path.isfile(config_path):
+        try:
+            with open(config_path, "r") as f:
+                conf = json.load(f)
+            api = conf.get("api", {}) or {}
+            addr = api.get("listen_addr") or addr
+            port = str(api.get("listen_port") or port)
+        except (ValueError, OSError):
+            pass
+    if addr in ("0.0.0.0", ""):
+        addr = "127.0.0.1"
+    return f"http://{addr}:{port}"
+
+def _parse_datum_home(text):
+    """Extrae stats del dashboard HTML del gateway (texto aplanado, sin tags)."""
+    import re
+    flat = re.sub(r"<[^>]+>", " ", text)
+    flat = re.sub(r"\s+", " ", flat)
+    def grab(label, pattern=r"([^A-Z]*?)(?=[A-Z][a-z]|$)"):
+        m = re.search(re.escape(label) + r"\s*:?\s*" + pattern, flat)
+        return m.group(1).strip() if m else None
+    def num(label):
+        m = re.search(re.escape(label) + r"\s*:?\s*([\d,.]+)", flat)
+        if not m:
+            return None
+        try:
+            return float(m.group(1).replace(",", ""))
+        except ValueError:
+            return None
+    def shares(label):
+        m = re.search(re.escape(label) + r"\s*:?\s*([\d,]+)", flat)
+        try:
+            return int(m.group(1).replace(",", "")) if m else None
+        except ValueError:
+            return None
+    status = None
+    m = re.search(r"Status\s*:?\s*(Connected[^A-Z]*|[A-Za-z ]+?)(?=Pool|Process|$)", flat)
+    if m:
+        status = m.group(1).strip()
+    hr = None
+    m = re.search(r"Estimated Hashrate\s*:?\s*([\d.]+)\s*([TGMKtgmk]?h)/sec", flat, re.I)
+    if m:
+        hr = {"value": float(m.group(1)), "unit": m.group(2)}
+    return {
+        "shares_local_accepted": shares("Local Shares Accepted"),
+        "shares_local_rejected": shares("Local Shares Rejected"),
+        "shares_pool_accepted": shares("Pool Shares Accepted"),
+        "shares_pool_rejected": shares("Pool Shares Rejected"),
+        "status": status,
+        "pool_host": grab("Pool Host", r"([^\s]+)"),
+        "pool_tag": grab("Pool Tag", r'"([^"]*)"'),
+        "miner_tag": grab("Secondary/Miner Tag", r'"([^"]*)"'),
+        "active_threads": shares("Active Threads"),
+        "connections": shares("Total Connections"),
+        "subscriptions": shares("Total Work Subscriptions"),
+        "hashrate": hr,
+        "job_block_height": shares("Block Height"),
+        "job_block_value": num("Block Value"),
+    }
+
+@route('/api/datum/status')
+def api_datum_status():
+    """Estado del DATUM Gateway (CONVOY) para el panel Sovereign Mining. Solo lectura."""
+    pid, config_path = _find_datum_process()
+    base = _datum_api_base(config_path)
+    if pid is None:
+        return {"running": False, "api": base}
+    owned = (_read_datum_pidfile() == pid)
+    try:
+        with urllib.request.urlopen(base + "/", timeout=4.0) as resp:
+            html = resp.read().decode("utf-8", "replace")
+        stats = _parse_datum_home(html)
+        return {"running": True, "pid": pid, "owned": owned, "api": base,
+                "config": config_path, "stats": stats}
+    except Exception as e:
+        # El proceso existe pero su API no respondio (arrancando o sin api web).
+        return {"running": True, "pid": pid, "owned": owned, "api": base,
+                "config": config_path, "stats": None, "error": str(e)}
+
+_GUI_STATE_DIR = os.path.expanduser("~/.oracle-knots-gui")
+_DATUM_PIDFILE = os.path.join(_GUI_STATE_DIR, "datum.pid")
+
+def _datum_binary():
+    override = os.environ.get("ORACLE_DATUM_BIN")
+    candidates = [override] if override else []
+    candidates += [
+        os.path.join(ORACLE_KNOTS_DIR, "mining", "datum-convoy", "build", "datum_gateway"),
+        os.path.join(ORACLE_KNOTS_DIR, "mining", "datum-convoy", "datum_gateway"),
+        os.path.expanduser("~/experiments/datum-convoy/datum_gateway"),
+    ]
+    for c in candidates:
+        if c and os.path.isfile(c) and os.access(c, os.X_OK):
+            return c
+    return None
+
+def _datum_config_path_for_launch():
+    override = os.environ.get("ORACLE_DATUM_CONFIG")
+    if override:
+        return override
+    user_cfg = os.path.join(_GUI_STATE_DIR, "oracle-datum.conf.json")
+    if os.path.isfile(user_cfg):
+        return user_cfg
+    return None
+
+def _read_datum_pidfile():
+    try:
+        with open(_DATUM_PIDFILE) as f:
+            return int(f.read().strip())
+    except (OSError, ValueError):
+        return None
+
+@route('/api/datum/start', method='POST')
+def api_datum_start():
+    """Lanza la instancia de DATUM gestionada por la GUI. Nunca duplica un gateway ya activo."""
+    running_pid, running_cfg = _find_datum_process()
+    if running_pid is not None:
+        # Ya hay un gateway (posiblemente externo/produccion): NO arrancar otro,
+        # colisionaria en los puertos Stratum/API.
+        return {"success": False,
+                "error": f"A DATUM Gateway is already running (pid {running_pid}). "
+                         "Stop it first, or manage it externally.",
+                "already_running": True, "config": running_cfg}
+    binary = _datum_binary()
+    if not binary:
+        return {"success": False, "error": "datum_gateway binary not found. Build CONVOY first."}
+    config = _datum_config_path_for_launch()
+    if not config:
+        return {"success": False,
+                "error": "No DATUM config. Copy contrib/datum/oracle-datum.example.json to "
+                         "~/.oracle-knots-gui/oracle-datum.conf.json and fill it in."}
+    try:
+        os.makedirs(_GUI_STATE_DIR, exist_ok=True)
+        proc = subprocess.Popen([binary, "--config", config],
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        with open(_DATUM_PIDFILE, "w") as f:
+            f.write(str(proc.pid))
+        return {"success": True, "pid": proc.pid, "config": config}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+@route('/api/datum/stop', method='POST')
+def api_datum_stop():
+    """Detiene SOLO el gateway que lanzo la GUI (por pidfile). Protege instancias externas."""
+    running_pid, running_cfg = _find_datum_process()
+    if running_pid is None:
+        return {"success": False, "error": "No DATUM Gateway is running."}
+    owned_pid = _read_datum_pidfile()
+    if owned_pid != running_pid:
+        # El gateway activo NO fue lanzado por la GUI (ej. tu minero de produccion).
+        return {"success": False, "external": True, "pid": running_pid, "config": running_cfg,
+                "error": f"The running DATUM Gateway (pid {running_pid}) was not started by "
+                         "Oracle Knots. It is managed externally and will not be stopped from here."}
+    try:
+        os.kill(running_pid, signal.SIGTERM)
+        for _ in range(20):
+            try:
+                os.kill(running_pid, 0)
+            except ProcessLookupError:
+                break
+            time.sleep(0.2)
+        try:
+            os.remove(_DATUM_PIDFILE)
+        except OSError:
+            pass
+        return {"success": True}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+def _datum_example_path():
+    return os.path.join(ORACLE_KNOTS_DIR, "contrib", "datum", "oracle-datum.example.json")
+
+def _datum_user_config_path():
+    return os.environ.get("ORACLE_DATUM_CONFIG") or \
+        os.path.join(_GUI_STATE_DIR, "oracle-datum.conf.json")
+
+# Campos secretos que NO se envian al navegador (protege modo --lan).
+_DATUM_SECRET_FIELDS = [("bitcoind", "rpcpassword"), ("api", "admin_password")]
+
+def _load_datum_config_raw():
+    path = _datum_user_config_path()
+    if os.path.isfile(path):
+        try:
+            with open(path) as f:
+                return json.load(f), True
+        except (ValueError, OSError):
+            pass
+    try:
+        with open(_datum_example_path()) as f:
+            return json.load(f), False
+    except (ValueError, OSError):
+        return {}, False
+
+def _mask_datum_config(conf):
+    masked = json.loads(json.dumps(conf))  # deep copy
+    flags = {}
+    for section, key in _DATUM_SECRET_FIELDS:
+        val = (masked.get(section) or {}).get(key)
+        placeholder = isinstance(val, str) and val.startswith("REPLACE_")
+        flags[f"{section}.{key}"] = bool(val) and not placeholder
+        if section in masked and key in masked[section]:
+            masked[section][key] = ""
+    masked.pop("_comment", None)
+    return masked, flags
+
+@route('/api/datum/config')
+def api_datum_config_get():
+    conf, has_config = _load_datum_config_raw()
+    masked, secret_flags = _mask_datum_config(conf)
+    # Detectar credenciales RPC del nodo para ofrecer autocompletado.
+    running, datadir, network = get_node_context()
+    bconf_path, _ = get_config_paths(datadir, network)
+    bconf = parse_bitcoin_conf(bconf_path) or {}
+    return {
+        "has_config": has_config,
+        "config": masked,
+        "secret_set": secret_flags,
+        "node_rpc": {
+            "rpcuser": bconf.get("rpcuser") or "",
+            "has_rpcpassword": bool(bconf.get("rpcpassword")),
+            "rpcport": bconf.get("rpcport") or "8332",
+        },
+        "config_path": _datum_user_config_path(),
+    }
+
+@route('/api/datum/config', method='POST')
+def api_datum_config_save():
+    incoming = request.json
+    if not isinstance(incoming, dict):
+        return {"success": False, "error": "Invalid config payload"}
+    # Merge profundo sobre el config existente: el form manda solo un subconjunto,
+    # asi preservamos rpcuser/rpcurl/notify_fallback/flags que no estan en el form.
+    merged, _ = _load_datum_config_raw()
+    merged.pop("_comment", None)
+    for section, values in incoming.items():
+        if isinstance(values, dict):
+            merged.setdefault(section, {})
+            if isinstance(merged[section], dict):
+                merged[section].update(values)
+            else:
+                merged[section] = values
+        else:
+            merged[section] = values
+    # Preservar secretos si llegan vacios (el navegador nunca los recibio).
+    existing, _ = _load_datum_config_raw()
+    for section, key in _DATUM_SECRET_FIELDS:
+        newv = (incoming.get(section) or {}).get(key, "")
+        if not newv:
+            old = (existing.get(section) or {}).get(key)
+            if old and not (isinstance(old, str) and old.startswith("REPLACE_")):
+                merged.setdefault(section, {})[key] = old
+            elif section in merged and key in merged[section] and not merged[section][key]:
+                merged[section].pop(key, None)
+    path = _datum_user_config_path()
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as f:
+            json.dump(merged, f, indent=2)
+        return {"success": True, "config_path": path}
+    except OSError as e:
+        return {"success": False, "error": str(e)}
+
+@route('/api/datum/init-config', method='POST')
+def api_datum_init_config():
+    """Bootstrap: parte del ejemplo e inyecta rpcuser/rpcpassword/rpcurl del nodo."""
+    path = _datum_user_config_path()
+    if os.path.isfile(path) and not (request.json or {}).get("force"):
+        return {"success": False, "error": "Config already exists.", "exists": True,
+                "config_path": path}
+    try:
+        with open(_datum_example_path()) as f:
+            conf = json.load(f)
+    except (ValueError, OSError) as e:
+        return {"success": False, "error": f"Example config unreadable: {e}"}
+    conf.pop("_comment", None)
+    running, datadir, network = get_node_context()
+    bconf_path, _ = get_config_paths(datadir, network)
+    bconf = parse_bitcoin_conf(bconf_path) or {}
+    conf.setdefault("bitcoind", {})
+    if bconf.get("rpcuser"):
+        conf["bitcoind"]["rpcuser"] = bconf["rpcuser"]
+    if bconf.get("rpcpassword"):
+        conf["bitcoind"]["rpcpassword"] = bconf["rpcpassword"]
+    conf["bitcoind"]["rpcurl"] = f"http://127.0.0.1:{bconf.get('rpcport') or '8332'}"
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as f:
+            json.dump(conf, f, indent=2)
+    except OSError as e:
+        return {"success": False, "error": str(e)}
+    injected = bool(bconf.get("rpcuser") and bconf.get("rpcpassword"))
+    return {"success": True, "config_path": path, "rpc_injected": injected,
+            "needs": ["mining.pool_address", "api.admin_password"]}
+
+_SHRIKE_CONFIG = os.path.expanduser("~/.shrike/config")
+
+def _oracle_wallet_binary():
+    from shutil import which
+    override = os.environ.get("ORACLE_WALLET_BIN")
+    for c in [override, os.path.expanduser("~/.local/bin/shrike"),
+              os.path.expanduser("~/.local/opt/Shrike/bin/Shrike")]:
+        if c and os.path.isfile(c) and os.access(c, os.X_OK):
+            return c
+    return which("shrike")
+
+def _oracle_wallet_configured():
+    try:
+        with open(_SHRIKE_CONFIG) as f:
+            conf = json.load(f)
+    except (OSError, ValueError):
+        return False, None
+    ok = (conf.get("serverType") == "BITCOIN_CORE"
+          and bool(conf.get("coreServer")) and bool(conf.get("coreAuth")))
+    return ok, conf.get("coreServer")
+
+@route('/api/wallet/oracle-wallet')
+def api_oracle_wallet_status():
+    binary = _oracle_wallet_binary()
+    configured, server = _oracle_wallet_configured()
+    running, _ = check_node_running()
+    return {"installed": bool(binary), "configured": configured,
+            "server": server, "node_running": running}
+
+@route('/api/wallet/oracle-wallet/launch', method='POST')
+def api_oracle_wallet_launch():
+    binary = _oracle_wallet_binary()
+    if not binary:
+        return {"success": False,
+                "error": "Oracle Wallet (Shrike) not installed. See docs/WALLET.md"}
+    try:
+        subprocess.Popen([binary], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return {"success": True}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+def _write_oracle_wallet_config(datadir, bconf, target=None):
+    """Escribe la config de conexión de Oracle Wallet (merge + backup). Retorna (ok, err)."""
+    target = target or _SHRIKE_CONFIG
+    rpcuser, rpcpass = bconf.get("rpcuser"), bconf.get("rpcpassword")
+    if not (rpcuser and rpcpass):
+        return False, "Node RPC credentials not found in bitcoin.conf (rpcuser/rpcpassword)."
+    rpcport = bconf.get("rpcport") or "8332"
+    conf = {}
+    if os.path.isfile(target):
+        try:
+            with open(target) as f:
+                conf = json.load(f)
+        except ValueError:
+            conf = {}
+        try:
+            import shutil
+            shutil.copy2(target, target + ".oracle-bak")
+        except OSError:
+            pass
+    conf.update({
+        "mode": "ONLINE",
+        "serverType": "BITCOIN_CORE",
+        "coreServer": f"http://127.0.0.1:{rpcport}",
+        "coreAuthType": "USERPASS",
+        "coreAuth": f"{rpcuser}:{rpcpass}",
+        "coreDataDir": os.path.abspath(datadir),
+    })
+    try:
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        with open(target, "w") as f:
+            json.dump(conf, f, indent=2)
+        return True, None
+    except OSError as e:
+        return False, str(e)
+
+@route('/api/wallet/oracle-wallet/setup', method='POST')
+def api_oracle_wallet_setup():
+    """Preconfigura la conexion de Oracle Wallet al nodo (server type, RPC del bitcoin.conf)."""
+    running, datadir, network = get_node_context()
+    bconf_path, _ = get_config_paths(datadir, network)
+    bconf = parse_bitcoin_conf(bconf_path) or {}
+    ok, err = _write_oracle_wallet_config(datadir, bconf)
+    if ok:
+        return {"success": True, "note": "Close Oracle Wallet before configuring; "
+                "it overwrites its config on exit."}
+    return {"success": False, "error": err}
 
 @route('/api/rpc/<method>')
 def api_rpc(method):

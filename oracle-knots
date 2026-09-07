@@ -1,0 +1,131 @@
+#!/usr/bin/env bash
+# Oracle Knots — launcher todo-en-uno.
+#
+# Un solo comando levanta el stack soberano BLAKE2b:
+#   - nodo (bitcoind BLAKE2b)      : verificación de la cadena + templates
+#   - Control Center (GUI)         : dashboard, wallet, minería, config
+#   - DATUM Gateway (CONVOY)        : minería soberana (opcional, --with-datum)
+#   - Oracle Wallet (Shrike)        : firmar/gastar XBT (--wallet)
+#
+# Es IDEMPOTENTE: detecta lo que ya está corriendo y no lo duplica. Nunca mata
+# procesos que no lanzó él mismo.
+#
+# Uso:
+#   oracle-knots                 # asegura nodo + abre la GUI de escritorio
+#   oracle-knots --serve [port]  # GUI web en localhost (por SSH/túnel)
+#   oracle-knots --lan   [port]  # GUI web en la LAN (watch-only)
+#   oracle-knots --with-datum    # además arranca el DATUM Gateway
+#   oracle-knots --wallet        # además abre Oracle Wallet (Shrike)
+#   oracle-knots --no-node       # no gestiona el nodo (usa el que haya)
+#   oracle-knots status          # reporta estado de cada componente (no arranca nada)
+#   oracle-knots --help
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "$0")" && pwd)"
+
+# --- Resolución de componentes (env override -> bundle en repo -> ubicación conocida) ---
+NODE_BIN="${ORACLE_BITCOIN_BIN:-}"
+for c in "$NODE_BIN" \
+         "$REPO_ROOT/build-wallet/bin" "$REPO_ROOT/build/bin" \
+         "$HOME/experiments/blake2b-final/build-wallet-final/bin"; do
+    [ -n "$c" ] && [ -x "$c/bitcoind" ] && { NODE_BIN="$c"; break; }
+done
+export ORACLE_BITCOIN_BIN="${NODE_BIN:-}"
+export ORACLE_NODE_DATADIR="${ORACLE_NODE_DATADIR:-$HOME/.bitcoin}"
+
+DATUM_BIN="${ORACLE_DATUM_BIN:-}"
+for c in "$DATUM_BIN" \
+         "$REPO_ROOT/mining/datum-convoy/build/datum_gateway" \
+         "$REPO_ROOT/mining/datum-convoy/datum_gateway" \
+         "$HOME/experiments/datum-convoy/datum_gateway"; do
+    [ -n "$c" ] && [ -x "$c" ] && { DATUM_BIN="$c"; break; }
+done
+DATUM_CONFIG="${ORACLE_DATUM_CONFIG:-$HOME/.oracle-knots-gui/oracle-datum.conf.json}"
+
+SHRIKE_BIN=""
+if command -v shrike >/dev/null 2>&1; then SHRIKE_BIN="$(command -v shrike)"
+elif [ -x "$HOME/.local/opt/Shrike/bin/Shrike" ]; then SHRIKE_BIN="$HOME/.local/opt/Shrike/bin/Shrike"; fi
+
+# --- Detección de procesos (idempotencia) ---
+node_running()  { pgrep -x bitcoind >/dev/null 2>&1; }
+datum_running() { pgrep -f 'datum_gateway' >/dev/null 2>&1; }
+
+log() { printf '  %s\n' "$*"; }
+
+ensure_node() {
+    if node_running; then
+        log "Nodo: ya está corriendo ✓ (no se toca)"
+        return 0
+    fi
+    if [ -z "$ORACLE_BITCOIN_BIN" ] || [ ! -x "$ORACLE_BITCOIN_BIN/bitcoind" ]; then
+        log "Nodo: binario no encontrado — compílalo (./build.sh) o define ORACLE_BITCOIN_BIN" >&2
+        return 1
+    fi
+    log "Nodo: arrancando bitcoind (datadir $ORACLE_NODE_DATADIR)…"
+    "$ORACLE_BITCOIN_BIN/bitcoind" -daemon -datadir="$ORACLE_NODE_DATADIR" >/dev/null 2>&1 || {
+        log "Nodo: no pudo arrancar (¿ya hay uno con otro datadir?)" >&2; return 1; }
+}
+
+ensure_datum() {
+    if datum_running; then
+        log "DATUM: ya está corriendo ✓ (no se toca)"
+        return 0
+    fi
+    if [ -z "$DATUM_BIN" ]; then
+        log "DATUM: binario no encontrado — vendoriza/compila CONVOY (mining/datum-convoy)" >&2
+        return 1
+    fi
+    if [ ! -f "$DATUM_CONFIG" ]; then
+        log "DATUM: sin config en $DATUM_CONFIG — configúralo en la GUI (pestaña Mining) primero" >&2
+        return 1
+    fi
+    log "DATUM: arrancando gateway con $DATUM_CONFIG…"
+    "$DATUM_BIN" --config "$DATUM_CONFIG" >/dev/null 2>&1 &
+}
+
+open_wallet() {
+    if [ -z "$SHRIKE_BIN" ]; then
+        log "Oracle Wallet: Shrike no instalado (ver docs/WALLET.md)" >&2
+        return 1
+    fi
+    log "Oracle Wallet: abriendo Shrike…"
+    "$SHRIKE_BIN" >/dev/null 2>&1 &
+}
+
+print_status() {
+    echo "Oracle Knots — estado del stack"
+    node_running  && echo "  nodo         : RUNNING" || echo "  nodo         : stopped"
+    datum_running && echo "  datum        : RUNNING" || echo "  datum        : stopped"
+    echo "  node bin     : ${ORACLE_BITCOIN_BIN:-<no encontrado>}"
+    echo "  datum bin    : ${DATUM_BIN:-<no encontrado>}"
+    echo "  datum config : $([ -f "$DATUM_CONFIG" ] && echo "$DATUM_CONFIG" || echo '<no existe — configúralo en la GUI>')"
+    echo "  wallet       : ${SHRIKE_BIN:-<Shrike no instalado>}"
+    echo "  datadir      : $ORACLE_NODE_DATADIR"
+}
+
+# --- Parse de argumentos ---
+WITH_DATUM=0; WITH_WALLET=0; MANAGE_NODE=1; GUI_MODE="desktop"; GUI_PORT=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        status)        print_status; exit 0 ;;
+        --help|-h)     sed -n '2,30p' "$0"; exit 0 ;;
+        --with-datum)  WITH_DATUM=1; shift ;;
+        --wallet)      WITH_WALLET=1; shift ;;
+        --no-node)     MANAGE_NODE=0; shift ;;
+        --serve)       GUI_MODE="serve"; shift; [[ "${1:-}" =~ ^[0-9]+$ ]] && { GUI_PORT="$1"; shift; } ;;
+        --lan)         GUI_MODE="lan"; shift; [[ "${1:-}" =~ ^[0-9]+$ ]] && { GUI_PORT="$1"; shift; } ;;
+        *) echo "Opción desconocida: $1 (usa --help)" >&2; exit 2 ;;
+    esac
+done
+
+echo "▶ Oracle Knots — stack soberano BLAKE2b"
+[ "$MANAGE_NODE" = 1 ] && ensure_node || log "Nodo: gestión omitida (--no-node)"
+[ "$WITH_DATUM" = 1 ] && ensure_datum || true
+[ "$WITH_WALLET" = 1 ] && open_wallet || true
+
+# La GUI es el orquestador principal: desde ahí se maneja wallet y minería.
+case "$GUI_MODE" in
+    serve) exec "$REPO_ROOT/launch-blake2b.sh" --serve ${GUI_PORT:+"$GUI_PORT"} ;;
+    lan)   exec "$REPO_ROOT/launch-blake2b.sh" --lan   ${GUI_PORT:+"$GUI_PORT"} ;;
+    *)     exec "$REPO_ROOT/launch-blake2b.sh" ;;
+esac

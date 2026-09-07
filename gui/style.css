@@ -3257,3 +3257,237 @@ body {
     }
 }
 
+
+/* ============================================================
+   Fork Status tab (BLAKE2b) — reemplaza el viejo BIP-110
+   ============================================================ */
+.fork-hero-panel { overflow: hidden; }
+.fork-hero {
+    display: flex;
+    gap: 20px;
+    align-items: flex-start;
+    padding: 8px 4px;
+}
+.fork-hero-mark {
+    font-size: 42px;
+    line-height: 1;
+    filter: drop-shadow(0 0 12px var(--accent-cyan-glow));
+    flex-shrink: 0;
+}
+.fork-hero-body { flex: 1; min-width: 0; }
+.fork-hero-line {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+.fork-hero-line h3 {
+    font-size: 22px;
+    margin: 0;
+    letter-spacing: 0.5px;
+}
+.fork-hero-sub {
+    color: var(--text-secondary);
+    margin: 6px 0 16px;
+    font-size: 13px;
+}
+.fork-hero-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    gap: 12px;
+}
+.fork-stat {
+    background: var(--bg-darker);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    padding: 12px 14px;
+}
+.fork-stat-label {
+    display: block;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-muted);
+    margin-bottom: 6px;
+}
+.fork-stat-val {
+    font-family: var(--font-mono);
+    font-size: 20px;
+    color: var(--accent-cyan);
+    font-weight: 600;
+}
+
+.fork-headline-panel .fork-headline {
+    font-family: var(--font-mono);
+    font-size: 18px;
+    color: var(--status-green);
+    background: rgba(0, 255, 170, 0.06);
+    border-left: 3px solid var(--status-green);
+    border-radius: 0 8px 8px 0;
+    padding: 14px 18px;
+    margin: 0;
+    letter-spacing: 0.5px;
+}
+
+.fork-deploy-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 14px;
+    margin-top: 14px;
+}
+.fork-deploy-card { display: flex; flex-direction: column; gap: 8px; }
+.fork-deploy-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+.fork-deploy-head h4 { margin: 0; font-size: 14px; }
+.fork-deploy-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--text-muted);
+    flex-shrink: 0;
+}
+.fork-deploy-dot.dot-active {
+    background: var(--status-green);
+    box-shadow: 0 0 10px var(--status-green-glow);
+}
+.fork-deploy-dot.dot-inactive {
+    background: var(--status-red);
+    box-shadow: 0 0 10px var(--status-red-glow);
+}
+.fork-deploy-meta {
+    margin-top: auto;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-secondary);
+    padding-top: 8px;
+    border-top: 1px solid var(--border-color);
+}
+
+/* Fork consensus chips (dashboard sovereign panel) */
+.fork-inline-chips { display: flex; gap: 8px; flex-wrap: wrap; }
+.fork-chip {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-darker);
+    color: var(--text-secondary);
+}
+.fork-chip.chip-on {
+    color: var(--status-green);
+    border-color: var(--status-green);
+    background: rgba(0, 255, 170, 0.08);
+}
+.fork-chip.chip-off {
+    color: var(--status-red);
+    border-color: var(--status-red);
+    background: rgba(255, 67, 101, 0.08);
+}
+
+/* ---- XBT price card (Neoxa / BTCB2) ---- */
+.stat-card-price .stat-value {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+.price-change {
+    font-size: 0.85rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+}
+.price-change.up   { color: var(--status-green); }
+.price-change.down { color: var(--status-red); }
+.price-warn {
+    color: var(--status-orange);
+    font-weight: 600;
+    cursor: help;
+    white-space: nowrap;
+}
+.stat-card-price.price-stale { opacity: 0.7; }
+.stat-card-price.price-stale .price-change::after { content: ' (stale)'; opacity: 0.6; font-weight: 400; }
+.stat-card-price.price-offline .stat-value { color: var(--text-muted, #8a94a6); }
+
+/* ---- Sovereign Mining (DATUM) tab ---- */
+.mining-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    margin-top: 0.75rem;
+}
+.mining-meta {
+    font-family: 'Fira Code', monospace;
+    font-size: 0.8rem;
+    color: var(--text-secondary, #9aa4b2);
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 6px;
+    padding: 0.25rem 0.6rem;
+}
+.mining-toolbar .btn-sm { margin-left: auto; }
+.mining-offline-hint { margin-top: 1rem; }
+.mining-notice {
+    margin-top: 0.85rem;
+    padding: 0.6rem 0.85rem;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    line-height: 1.4;
+}
+.mining-notice.warn {
+    color: var(--status-orange);
+    background: var(--status-orange-glow, rgba(255,176,0,0.12));
+    border: 1px solid rgba(255,176,0,0.25);
+}
+.mining-notice.info {
+    color: var(--text-secondary, #9aa4b2);
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.06);
+}
+
+/* ---- DATUM mining config form ---- */
+#datum-config-panel { margin-top: 1rem; }
+.datum-config-notice {
+    font-size: 0.82rem;
+    color: var(--text-secondary, #9aa4b2);
+    margin-bottom: 0.9rem;
+}
+.config-form-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 0.85rem 1rem;
+}
+.config-form-grid .form-field { display: flex; flex-direction: column; gap: 0.3rem; }
+.config-form-grid .form-field-wide { grid-column: 1 / -1; }
+.config-form-grid .form-field > span {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-secondary, #9aa4b2);
+}
+.config-form-grid .form-field input {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.10);
+    border-radius: 6px;
+    padding: 0.5rem 0.6rem;
+    color: var(--text-primary, #e8edf4);
+    font-family: 'Fira Code', monospace;
+    font-size: 0.82rem;
+}
+.config-form-grid .form-field input:focus {
+    outline: none;
+    border-color: var(--accent-cyan);
+    box-shadow: 0 0 0 2px var(--accent-cyan-glow);
+}
+
+/* ---- Mempool explorer ---- */
+.mx-histogram { display: flex; flex-direction: column; gap: 0.35rem; }
+.mx-histo-row { display: flex; align-items: center; gap: 0.6rem; font-size: 0.78rem; }
+.mx-histo-label { width: 64px; color: var(--text-secondary, #9aa4b2); font-family: 'Fira Code', monospace; text-align: right; }
+.mx-histo-bar { flex: 1; height: 12px; background: rgba(255,255,255,0.05); border-radius: 6px; overflow: hidden; }
+.mx-histo-bar > span { display: block; height: 100%; background: linear-gradient(90deg, var(--accent-cyan), var(--accent-purple)); border-radius: 6px; }
+.mx-histo-count { width: 42px; text-align: left; font-family: 'Fira Code', monospace; color: var(--text-primary, #e8edf4); }

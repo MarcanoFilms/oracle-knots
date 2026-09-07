@@ -264,6 +264,8 @@ document.addEventListener('DOMContentLoaded', () => {
     let updateIntervalId = null;
     let logIntervalId = null;
     let walletIntervalId = null;
+    let priceIntervalId = null;
+    let datumIntervalId = null;
     
     let activeWalletName = '';
     let loadedWallets = [];
@@ -280,6 +282,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const CHAIN_STRIP_PLACEHOLDER_COUNT = 12;
     const MEMPOOL_HISTORY_MAX = 40;
     let btcPriceUsd = 93500;
+    // Precio del fork BLAKE2b (XBT) en USD, desde Neoxa. null = desconocido.
+    // Las monedas de esta cadena son XBT, NO BTC: nunca valuar el saldo con btcPriceUsd.
+    let xbtPriceUsd = null;
     let lastPolicyStatus = null;
     let logFilterMode = 'all';
 
@@ -297,7 +302,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const POLICY_PRESETS = {
         'maximalist': { reject_tokens: true, reject_inscriptions: true, datacarrier_size: 0, max_op_return_outputs: 0, dust_relay_fee: 3000, permit_bare_multisig: false, reject_parasites: true },
-        'bip110-strict': { reject_tokens: true, reject_inscriptions: true, datacarrier_size: 83, max_op_return_outputs: 1, dust_relay_fee: 3000, permit_bare_multisig: false, reject_parasites: true },
+        'sovereign': { reject_tokens: true, reject_inscriptions: true, datacarrier_size: 0, max_op_return_outputs: 0, dust_relay_fee: 3000, permit_bare_multisig: false, reject_parasites: true },
         'monetary-only': { reject_tokens: true, reject_inscriptions: true, datacarrier_size: 0, max_op_return_outputs: 0, dust_relay_fee: 3000, permit_bare_multisig: false, reject_parasites: true },
         'default-knots': { reject_tokens: false, reject_inscriptions: false, datacarrier_size: 83, max_op_return_outputs: 1, dust_relay_fee: 3000, permit_bare_multisig: false, reject_parasites: true },
     };
@@ -386,7 +391,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const selected = cachedUtxos.filter(u => selectedUtxoKeys.has(utxoKey(u)));
         const total = selected.reduce((sum, u) => sum + u.amount, 0);
         if (sendSelectedCount) sendSelectedCount.textContent = `${selected.length} UTXO${selected.length !== 1 ? 's' : ''} selected`;
-        if (sendSelectedTotal) sendSelectedTotal.textContent = `${total.toFixed(8)} BTC`;
+        if (sendSelectedTotal) sendSelectedTotal.textContent = `${total.toFixed(8)} XBT`;
     }
     
     // ----------------------------------------------------
@@ -424,11 +429,12 @@ document.addEventListener('DOMContentLoaded', () => {
         // Update header title
         const niceTitle = tabId.charAt(0).toUpperCase() + tabId.slice(1);
         const titles = {
-            bip110: 'BIP-110 Status',
+            bip110: 'Fork Status — BLAKE2b',
             config: 'Configuration',
             wallet: 'Wallet Manager',
             cli: 'Oracle CLI',
             logs: 'Console Logs',
+            mining: 'Sovereign Mining',
         };
         currentTabTitle.textContent = titles[tabId] || niceTitle;
         
@@ -445,6 +451,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (tabId === 'wallet') {
             startWalletPolling();
+            loadOracleWalletStatus();
         } else {
             stopWalletPolling();
         }
@@ -452,6 +459,14 @@ document.addEventListener('DOMContentLoaded', () => {
         if (tabId === 'cli') {
             populateCliWalletSelect();
             if (cliInput) cliInput.focus();
+        }
+
+        if (tabId === 'mining') {
+            fetchDatumStatus();
+            loadDatumConfig();
+            startDatumPolling();
+        } else {
+            stopDatumPolling();
         }
 
         if (tabId === 'dashboard' && isNodeRunning) {
@@ -484,8 +499,11 @@ document.addEventListener('DOMContentLoaded', () => {
     function startMetricsPolling() {
         updateNodeInfo();
         fetchBtcPrice();
+        fetchPrice();
         if (updateIntervalId) clearInterval(updateIntervalId);
         updateIntervalId = setInterval(updateNodeInfo, 2000);
+        if (priceIntervalId) clearInterval(priceIntervalId);
+        priceIntervalId = setInterval(fetchPrice, 60000);
     }
     
     async function updateNodeInfo() {
@@ -567,9 +585,17 @@ document.addEventListener('DOMContentLoaded', () => {
             fetchChainStrip(true);
         }
 
+        const subversion = data.network?.subversion;
         const uacommentPreview = document.getElementById('uacomment-preview');
-        if (uacommentPreview && data.network?.subversion) {
-            uacommentPreview.textContent = `Current subversion: ${data.network.subversion}`;
+        if (uacommentPreview && subversion) {
+            uacommentPreview.textContent = `Current subversion: ${subversion}`;
+        }
+        // Footer: reflejar la versión REAL del nodo (no la hardcodeada 29.3.0).
+        const sidebarVersion = document.getElementById('sidebar-version');
+        if (sidebarVersion && subversion) {
+            const vm = subversion.match(/:(\d+\.\d+\.\d+)/);
+            sidebarVersion.textContent = vm ? `Oracle Knots v${vm[1]}` : 'Oracle Knots';
+            sidebarVersion.title = subversion;
         }
 
         const policy = data.policy || {};
@@ -607,7 +633,13 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         dashPolicyVal.textContent = profile;
-        dashBip110Badge.textContent = `BIP-110: ${bip110Mode}`;
+        // Badge del header: estado del fork en vez del viejo modo BIP-110.
+        if (dashBip110Badge) {
+            const fk = data.fork || {};
+            const on = !!(fk.blake2b && fk.blake2b.active);
+            dashBip110Badge.textContent = on ? 'BLAKE2b: Active' : 'BLAKE2b: Inactive';
+            dashBip110Badge.className = 'badge ' + (on ? 'badge-success' : 'badge-outline');
+        }
         policyActiveIndicator.innerHTML = `Current profile: <strong style="color: var(--accent-cyan)">${profile}</strong>`;
         highlightActiveProfileCard(profile);
 
@@ -634,10 +666,15 @@ document.addEventListener('DOMContentLoaded', () => {
         if (dashMinFee) dashMinFee.textContent = mempool.mempoolminfee != null ? String(mempool.mempoolminfee) : '—';
         if (dashMempoolLoaded) dashMempoolLoaded.textContent = mempool.loaded ? 'Yes' : 'No';
 
-        const rdts = data.rdts || {};
-        if (dashRdtsPct) dashRdtsPct.textContent = `${rdts.signaling_pct ?? 0}%`;
-        if (dashRdtsStatus) dashRdtsStatus.textContent = `Status: ${rdts.status || 'unknown'}`;
-        if (dashRdtsBlocks) dashRdtsBlocks.textContent = `${rdts.blocks_signaling || 0} / ${rdts.period || 0} blocks signaling`;
+        // Tarjeta BLAKE2b Fork: estado real (activo), no señalizacion.
+        const fork = data.fork || {};
+        const forkActive = !!(fork.blake2b && fork.blake2b.active);
+        const setF = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
+        setF('dash-fork-state', forkActive ? 'ACTIVE' : 'INACTIVE');
+        const stateEl = document.getElementById('dash-fork-state');
+        if (stateEl) stateEl.style.color = forkActive ? 'var(--status-green)' : 'var(--status-red)';
+        setF('dash-fork-since', fork.activation_height != null ? `Activated at #${fork.activation_height.toLocaleString()}` : 'Activated at —');
+        setF('dash-fork-sub', fork.sovereign ? 'Sovereign · rejecting SHA256d' : 'Header not v2');
 
         updateRejectionsPanel(rej.top || [], stats.total || 0);
 
@@ -659,43 +696,58 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
-        renderSovereignMining(data.mining || {}, data.rdts || {});
+        renderSovereignMining(data.mining || {}, data.fork || {});
         renderPreflightStrip(data.preflight || {});
         renderMempoolAuditSummary(data.mempool_audit || {});
     }
 
-    function renderSovereignMining(mining, rdts) {
-        const profile = mining.profile || mining.active_policy_profile || '—';
-        const badge = document.getElementById('mining-profile-badge');
-        if (badge) badge.textContent = `Profile: ${profile}`;
-
+    // mining = getmininginfo (RPC estandar); fork = _build_fork_status.
+    // Los campos de "policy filtered / filter rate" necesitaban una RPC de Oracle
+    // que el nodo del fork no tiene, asi que el panel muestra metricas reales de
+    // mineria: txs, dificultad, hashrate de red, txs en cola.
+    function renderSovereignMining(mining, fork) {
         const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
-        set('mining-txs-included', mining.txs_included ?? mining.currentblocktx ?? '—');
-        set('mining-policy-filtered', mining.policy_filtered ?? '0');
-        const rate = mining.template_filter_rate_pct;
-        set('mining-filter-rate', rate != null ? `${Number(rate).toFixed(1)}%` : '—');
-        const fees = mining.fees ?? mining.currentblockfees;
-        set('mining-fees', fees != null ? `${fees} sats` : '—');
+        const badge = document.getElementById('mining-profile-badge');
+        if (badge) badge.textContent = fork.sovereign ? 'BLAKE2b · Sovereign' : 'Fork —';
 
-        const fill = document.getElementById('rdts-progress-fill');
-        const marker = document.getElementById('rdts-threshold-marker');
-        const desc = document.getElementById('rdts-progress-desc');
+        set('mining-txs-included', mining.currentblocktx != null ? mining.currentblocktx.toLocaleString() : '—');
+        const diff = mining.difficulty;
+        set('mining-policy-filtered', diff != null ? Number(diff).toLocaleString(undefined, {maximumFractionDigits: 0}) : '—');
+        const hps = mining.networkhashps;
+        set('mining-filter-rate', hps != null ? formatHashrate(hps) : '—');
+        set('mining-fees', mining.pooledtx != null ? mining.pooledtx.toLocaleString() : '—');
+
+        // Chips de consenso del fork (reemplazan la barra de señalizacion).
+        const chip = (id, label, active) => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.textContent = `${label} ${active ? '✓' : '✗'}`;
+            el.className = 'fork-chip ' + (active ? 'chip-on' : 'chip-off');
+        };
+        const b2bOn = !!(fork.blake2b && fork.blake2b.active);
+        const rdtsOn = !!(fork.rdts && fork.rdts.active);
+        chip('chip-blake2b', 'BLAKE2b', b2bOn);
+        chip('chip-rdts', 'RDTS', rdtsOn);
+        chip('chip-sovereign', 'Sovereign', !!fork.sovereign);
+
         const activeBadge = document.getElementById('rdts-active-badge');
-        const sigPct = rdts.signaling_pct ?? 0;
-        const threshPct = rdts.threshold_pct ?? 55;
-        if (fill) fill.style.width = `${Math.min(100, sigPct)}%`;
-        if (marker) marker.style.left = `${Math.min(100, threshPct)}%`;
         if (activeBadge) {
-            activeBadge.textContent = rdts.active ? 'ACTIVE' : (rdts.status || 'unknown').toUpperCase();
-            activeBadge.className = rdts.active ? 'badge badge-success' : 'badge badge-outline';
+            activeBadge.textContent = b2bOn ? 'ACTIVE' : 'INACTIVE';
+            activeBadge.className = 'badge ' + (b2bOn ? 'badge-success' : 'badge-outline');
         }
+        const desc = document.getElementById('rdts-progress-desc');
         if (desc) {
-            const blocks = rdts.blocks_signaling ?? 0;
-            const period = rdts.period ?? 0;
-            const threshold = rdts.threshold ?? 0;
-            const toGo = rdts.blocks_to_threshold ?? Math.max(0, threshold - blocks);
-            desc.textContent = `${blocks}/${period} blocks signaling (${sigPct}%) · need ${threshold} for lock-in · ${toGo} blocks to threshold · status: ${rdts.status || 'unknown'}`;
+            desc.textContent = fork.activation_height != null
+                ? `Activated at block #${fork.activation_height.toLocaleString()} · ${(fork.blocks_since_activation||0).toLocaleString()} blocks ago · headline "${fork.headline || '—'}"`
+                : 'Fork status unavailable';
         }
+    }
+
+    function formatHashrate(hps) {
+        const units = ['H/s', 'kH/s', 'MH/s', 'GH/s', 'TH/s', 'PH/s', 'EH/s'];
+        let i = 0, v = Number(hps);
+        while (v >= 1000 && i < units.length - 1) { v /= 1000; i++; }
+        return `${v.toFixed(2)} ${units[i]}`;
     }
 
     function getDismissedPreflight() {
@@ -761,7 +813,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function formatSatsCompact(sats) {
         if (sats == null || sats === 0) return '0 sats';
-        if (sats >= 1_000_000_000) return `${(sats / 1e8).toFixed(4)} BTC`;
+        if (sats >= 1_000_000_000) return `${(sats / 1e8).toFixed(4)} XBT`;
         if (sats >= 1_000_000) return `${(sats / 1e6).toFixed(2)}M sats`;
         if (sats >= 1_000) return `${(sats / 1e3).toFixed(1)}k sats`;
         return `${sats.toLocaleString()} sats`;
@@ -791,13 +843,13 @@ document.addEventListener('DOMContentLoaded', () => {
             ? escapeHtml(block.miner_tag)
             : 'Unknown miner';
         const feesLine = block.fees != null
-            ? `${block.fees} BTC fees (${formatSatsCompact(block.fees_sats)})`
+            ? `${block.fees} XBT fees (${formatSatsCompact(block.fees_sats)})`
             : '—';
         const rewardLine = block.coinbase_reward != null
-            ? `${block.coinbase_reward} BTC total coinbase`
+            ? `${block.coinbase_reward} XBT total coinbase`
             : '—';
         const subsidyLine = block.subsidy != null
-            ? `${block.subsidy} BTC block subsidy`
+            ? `${block.subsidy} XBT block subsidy`
             : '—';
         return `<span class="tooltip-label">Block</span> <strong>#${formatBlockHeightLabel(block.height)}</strong>`
             + `<span class="tooltip-row">${block.n_tx.toLocaleString()} transactions</span>`
@@ -870,9 +922,14 @@ document.addEventListener('DOMContentLoaded', () => {
         lastChainStripTip = tipHeight;
 
         if (chainStripMeta) {
-            const clean = blocks.filter(b => b.available && b.policy_clean && b.bip110_compliant !== false).length;
-            const profileLabel = profile ? ` · ${profile}` : '';
-            chainStripMeta.textContent = `Tip #${tipHeight.toLocaleString()} · ${clean}/${blocks.length} clean${profileLabel}`;
+            if (data.standard_rpc) {
+                // Sin la RPC Oracle de policy audit: mostramos los bloques sin veredicto de politica.
+                chainStripMeta.textContent = `Tip #${tipHeight.toLocaleString()} · last ${blocks.length} blocks`;
+            } else {
+                const clean = blocks.filter(b => b.available && b.policy_clean && b.bip110_compliant !== false).length;
+                const profileLabel = profile ? ` · ${profile}` : '';
+                chainStripMeta.textContent = `Tip #${tipHeight.toLocaleString()} · ${clean}/${blocks.length} clean${profileLabel}`;
+            }
         }
 
         chainStripTrack.innerHTML = '';
@@ -917,39 +974,62 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    function openMempoolPolicyModal() {
+    function fmtBytes(n) {
+        if (!n) return '0 B';
+        if (n >= 1e6) return `${(n / 1e6).toFixed(2)} MB`;
+        if (n >= 1e3) return `${(n / 1e3).toFixed(1)} KB`;
+        return `${n} B`;
+    }
+
+    async function openMempoolExplorer() {
         const modal = document.getElementById('mempool-policy-modal');
-        const audit = window._lastMempoolAudit;
         if (!modal) return;
         modal.classList.remove('hidden');
-
         const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
-        if (!audit || audit.scanned === undefined) {
-            set('audit-pass', '—');
-            set('audit-fail', '—');
-            set('audit-pass-rate', 'Start node / rebuild');
-            set('audit-scanned', '—');
+        const histo = document.getElementById('mx-histogram');
+        const topBody = document.getElementById('mx-toptxs');
+
+        set('mx-count', '…'); set('mx-size', '…'); set('mx-usage', '…'); set('mx-minfee', '…');
+        let data;
+        try {
+            const res = await fetch('/api/mempool/explorer');
+            data = await res.json();
+        } catch (e) { data = { online: false }; }
+
+        if (!data || !data.online) {
+            set('mx-count', '—'); set('mx-size', '—'); set('mx-usage', '—'); set('mx-minfee', '—');
+            if (histo) histo.innerHTML = '<p class="text-secondary text-sm">Node offline — start the node to inspect the mempool.</p>';
+            if (topBody) topBody.innerHTML = '<tr><td colspan="5" class="text-center text-secondary py-4">Node offline</td></tr>';
             return;
         }
-        set('audit-pass', audit.would_pass ?? 0);
-        set('audit-fail', audit.would_fail ?? 0);
-        set('audit-pass-rate', `${(audit.pass_rate_pct ?? 0).toFixed(1)}%`);
-        set('audit-scanned', `${audit.scanned} / ${audit.mempool_total ?? audit.scanned}`);
 
-        const failBox = document.getElementById('mempool-audit-failures');
-        if (failBox && audit.failures_by_reason) {
-            failBox.innerHTML = '<h4 class="text-sm mb-2">Failures by reason</h4>';
-            Object.entries(audit.failures_by_reason).sort((a, b) => b[1] - a[1]).forEach(([reason, count]) => {
-                const label = REJECTION_LABELS[reason] || reason;
-                failBox.innerHTML += `<div class="rejection-bar-row"><div class="rejection-bar-header"><span>${label}</span><span>${count}</span></div></div>`;
-            });
+        const info = data.info || {};
+        set('mx-count', (info.size ?? 0).toLocaleString());
+        set('mx-size', fmtBytes(info.bytes));
+        set('mx-usage', `${fmtBytes(info.usage)} / ${fmtBytes(info.maxmempool)}`);
+        set('mx-minfee', `${info.mempoolminfee_satvb ?? info.minrelaytxfee_satvb ?? '—'} sat/vB`);
+
+        if (histo) {
+            const hist = data.histogram || [];
+            const max = Math.max(1, ...hist.map(h => h.count));
+            histo.innerHTML = hist.map(h => `
+                <div class="mx-histo-row">
+                    <span class="mx-histo-label">${h.label}</span>
+                    <span class="mx-histo-bar"><span style="width:${(h.count / max) * 100}%"></span></span>
+                    <span class="mx-histo-count">${h.count}</span>
+                </div>`).join('');
         }
-        const sampleBox = document.getElementById('mempool-audit-samples');
-        if (sampleBox && audit.sample_failures) {
-            sampleBox.innerHTML = '<h4 class="text-sm mb-2 mt-3">Sample failures</h4>';
-            audit.sample_failures.forEach(s => {
-                sampleBox.innerHTML += `<p class="text-xs font-mono text-secondary">${s.message} · ${s.txid?.slice(0, 16)}…</p>`;
-            });
+        if (topBody) {
+            const txs = data.top_txs || [];
+            topBody.innerHTML = txs.length ? txs.map(t => `
+                <tr>
+                    <td class="font-mono">${t.txid.slice(0, 10)}…${t.txid.slice(-6)}</td>
+                    <td>${t.feerate} sat/vB</td>
+                    <td>${t.vsize.toLocaleString()} vB</td>
+                    <td>${t.fee_sats.toLocaleString()} sat</td>
+                    <td>${t.ancestors}/${t.descendants}</td>
+                </tr>`).join('')
+                : '<tr><td colspan="5" class="text-center text-secondary py-4">Mempool is empty</td></tr>';
         }
     }
 
@@ -993,48 +1073,68 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    // Pestaña Fork Status: estado real del hardfork BLAKE2b (activo), no la vieja
+    // narrativa de señalizacion. Fuente: /api/fork-status (RPC estandar).
+    function setForkDot(id, active) {
+        const dot = document.getElementById(id);
+        if (dot) dot.className = 'fork-deploy-dot ' + (active ? 'dot-active' : 'dot-inactive');
+    }
+
     async function fetchBip110Status() {
         try {
-            const res = await fetch('/api/rpc/checkbip110status');
+            const res = await fetch('/api/fork-status');
             const data = await res.json();
-            const logBox = document.getElementById('bip110-audit-log');
-            const complianceStatus = document.getElementById('bip110-compliance-status');
-            const modeTitle = document.getElementById('bip110-mode-title');
-            const profileLine = document.getElementById('bip110-profile-line');
-
-            if (!data.success) {
-                logBox.innerHTML = `<p class="text-danger">Failed to retrieve BIP-110 status: ${data.output}</p>`;
+            if (!data.online) {
+                const sub = document.getElementById('fork-hero-sub');
+                if (sub) sub.textContent = 'Nodo desconectado — inicia el nodo para ver el estado del fork.';
                 return;
             }
+            const f = data.fork || {};
+            const setTxt = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
 
-            const status = JSON.parse(data.output);
-            const enforced = status.bip110_enforced;
-            complianceStatus.textContent = enforced ? 'Enforced: YES' : 'Enforced: NO';
-            complianceStatus.className = enforced ? 'badge badge-success' : 'badge badge-outline';
-            modeTitle.textContent = `Mode: ${(status.bip110_mode || 'unknown').toUpperCase()}`;
-            if (profileLine) profileLine.textContent = `Profile: ${status.active_policy_profile || 'unknown'}`;
+            // Hero
+            const active = !!(f.blake2b && f.blake2b.active);
+            const badge = document.getElementById('fork-blake2b-badge');
+            if (badge) {
+                badge.textContent = active ? 'ACTIVE' : 'INACTIVE';
+                badge.className = 'badge ' + (active ? 'badge-success' : 'badge-outline');
+            }
+            setTxt('fork-activation-height', f.activation_height != null ? `#${f.activation_height.toLocaleString()}` : '—');
+            setTxt('fork-blocks-since', f.blocks_since_activation != null ? f.blocks_since_activation.toLocaleString() : '—');
+            setTxt('fork-tip-height', f.height != null ? `#${f.height.toLocaleString()}` : '—');
+            setTxt('fork-header-version', f.header_version != null ? `v${f.header_version}` : '—');
+            setTxt('fork-headline', f.headline || '—');
 
-            lastPolicyStatus = status;
-            updateRulesListFromStatus(status);
+            // Deployment cards
+            setForkDot('fork-dot-blake2b', active);
+            setTxt('fork-meta-blake2b', active ? `Active since #${(f.activation_height||0).toLocaleString()}` : 'Not active');
 
-            const reasons = status.rejections_by_reason || {};
-            logBox.innerHTML = '';
-            const entries = Object.entries(reasons).filter(([k]) => k !== 'total').sort((a, b) => b[1] - a[1]);
-            if (entries.length === 0) {
-                logBox.innerHTML = '<p class="text-secondary">No policy rejections recorded since startup.</p>';
-            } else {
-                entries.forEach(([reason, count]) => {
-                    const p = document.createElement('p');
-                    p.className = 'log-warning';
-                    const label = REJECTION_LABELS[reason] || reason;
-                    p.textContent = `${label}: ${count}`;
-                    logBox.appendChild(p);
-                });
-                const total = reasons.total ?? entries.reduce((s, [, c]) => s + c, 0);
-                const totalP = document.createElement('p');
-                totalP.className = 'log-success';
-                totalP.textContent = `Total rejected: ${total}`;
-                logBox.appendChild(totalP);
+            const rdtsActive = !!(f.rdts && f.rdts.active);
+            setForkDot('fork-dot-rdts', rdtsActive);
+            setTxt('fork-meta-rdts', rdtsActive
+                ? `Active (${f.rdts.type || 'flag-day'}) since #${(f.rdts.height||0).toLocaleString()}`
+                : 'Not active');
+
+            setForkDot('fork-dot-sovereign', !!f.sovereign);
+            setTxt('fork-meta-sovereign', f.sovereign
+                ? 'Following BLAKE2b · rejecting SHA256d'
+                : 'Header version not v2');
+            const sub = document.getElementById('fork-hero-sub');
+            if (sub) sub.textContent = f.sovereign
+                ? 'Cadena soberana — siguiendo BLAKE2b, rechazando SHA256d.'
+                : 'Advertencia: el nodo no está en cabeceras v2.';
+
+            // Warnings
+            const warnPanel = document.getElementById('fork-warnings-panel');
+            const warnBox = document.getElementById('fork-warnings');
+            if (warnPanel && warnBox) {
+                const warnings = f.warnings || [];
+                if (warnings.length) {
+                    warnPanel.style.display = '';
+                    warnBox.innerHTML = warnings.map(w => `<p class="log-warning">${w}</p>`).join('');
+                } else {
+                    warnPanel.style.display = 'none';
+                }
             }
         } catch (err) {
             console.error(err);
@@ -1049,36 +1149,34 @@ document.addEventListener('DOMContentLoaded', () => {
         else if (blocking === false) el.classList.add('status-no');
     }
 
-    function updateRulesListFromStatus(status) {
-        if (!status) return;
-        const profile = status.active_policy_profile || status.profile;
-        const preset = POLICY_PRESETS[profile];
-        const rules = preset || {
-            reject_tokens: status.reject_tokens,
-            reject_inscriptions: status.reject_inscriptions,
-            datacarrier_size: status.datacarrier_size,
-            max_op_return_outputs: status.max_op_return_outputs,
-            dust_relay_fee: status.dust_relay_fee,
-            permit_bare_multisig: status.permit_bare_multisig,
-            reject_parasites: status.reject_parasites,
-        };
+    // Refleja la politica REAL del nodo del fork (bitcoin.conf + getmempoolinfo),
+    // no la vieja RPC checkbip110status. `p` es data.policy del dashboard.
+    function updateRulesListFromStatus(p) {
+        if (!p) return;
+        const opret = p.op_return_data;
+        setRuleVal(document.getElementById('rule-val-op_return'),
+            opret === 'blocked' ? 'BLOCKED' : (opret === 'limited' ? 'LIMITED' : 'DEFAULT'),
+            opret === 'blocked');
 
-        const ri = status.reject_inscriptions ?? rules.reject_inscriptions;
-        const mopr = status.max_op_return_outputs ?? rules.max_op_return_outputs;
-
-        setRuleVal(document.getElementById('rule-val-reject_tokens'),
-            rules.reject_tokens ? 'TRUE (BLOCK)' : 'FALSE (RELAY)', rules.reject_tokens);
-        setRuleVal(document.getElementById('rule-val-reject_inscriptions'),
-            ri ? 'TRUE (BLOCK)' : 'FALSE (RELAY)', ri);
+        const dcs = p.datacarrier_size;
         setRuleVal(document.getElementById('rule-val-datacarrier_size'),
-            `${rules.datacarrier_size ?? 0} bytes`, rules.datacarrier_size === 0);
-        setRuleVal(document.getElementById('rule-val-max_op_return_outputs'), String(mopr ?? '—'), null);
+            dcs != null ? `${dcs} bytes` : '—', dcs === 0);
+
+        setRuleVal(document.getElementById('rule-val-rdts'),
+            p.rdts_consensus ? 'ENFORCED' : 'off', p.rdts_consensus);
+
+        setRuleVal(document.getElementById('rule-val-rbf'),
+            (p.rbf_policy || '—').toUpperCase(), p.rbf_policy === 'never');
+
+        setRuleVal(document.getElementById('rule-val-truc'),
+            (p.truc_policy || '—').toUpperCase(), null);
+
+        const drf = p.dust_relay_fee;
         setRuleVal(document.getElementById('rule-val-dust_relay_fee'),
-            `${rules.dust_relay_fee ?? 3000} sat/kvb`, null);
+            drf != null ? `${drf} XBT/kvB` : '—', null);
+
         setRuleVal(document.getElementById('rule-val-permit_bare_multisig'),
-            rules.permit_bare_multisig ? 'TRUE' : 'FALSE', !rules.permit_bare_multisig);
-        setRuleVal(document.getElementById('rule-val-reject_parasites'),
-            rules.reject_parasites ? 'TRUE' : 'FALSE', rules.reject_parasites);
+            p.permit_bare_multisig ? 'TRUE' : 'FALSE', !p.permit_bare_multisig);
     }
     
     function resetStatsToOffline() {
@@ -1087,16 +1185,20 @@ document.addEventListener('DOMContentLoaded', () => {
         dashSyncDesc.textContent = 'Node is stopped';
         
         dashPolicyVal.textContent = 'None';
-        dashBip110Badge.textContent = 'BIP-110: Unknown';
+        if (dashBip110Badge) {
+            dashBip110Badge.textContent = 'BLAKE2b: —';
+            dashBip110Badge.className = 'badge badge-outline';
+        }
         policyActiveIndicator.innerHTML = 'Current profile: <strong>Offline</strong>';
-        
+
         dashMempoolCount.textContent = '0';
         dashMempoolBytes.textContent = '0 KB / 0 MB limit';
         if (dashRejectionCount) dashRejectionCount.textContent = '0';
         if (dashRejectionRate) dashRejectionRate.textContent = '0% rejection rate';
-        if (dashRdtsPct) dashRdtsPct.textContent = '0%';
+        const offFork = document.getElementById('dash-fork-state');
+        if (offFork) { offFork.textContent = '—'; offFork.style.color = ''; }
         if (heroPolicyTitle) heroPolicyTitle.textContent = 'Policy: —';
-        if (heroBip110Enforced) heroBip110Enforced.textContent = 'BIP-110: —';
+        if (heroBip110Enforced) heroBip110Enforced.textContent = 'BLAKE2b: —';
         if (infoUptime) infoUptime.textContent = '—';
         
         dashRejectionsTotal.textContent = '0 Rejected';
@@ -1178,6 +1280,372 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         } catch (e) {
             console.log("CoinGecko offline, using simulated BTC price of $93,500");
+        }
+    }
+
+    function fmtUsd(n, digits = 2) {
+        if (n === null || n === undefined || isNaN(n)) return '—';
+        return '$' + Number(n).toLocaleString('en-US', {
+            minimumFractionDigits: digits, maximumFractionDigits: digits,
+        });
+    }
+
+    function startDatumPolling() {
+        if (datumIntervalId) clearInterval(datumIntervalId);
+        datumIntervalId = setInterval(fetchDatumStatus, 5000);
+    }
+    function stopDatumPolling() {
+        if (datumIntervalId) { clearInterval(datumIntervalId); datumIntervalId = null; }
+    }
+
+    let datumOwnedByGui = false;
+
+    async function fetchDatumStatus() {
+        try {
+            const res = await fetch('/api/datum/status');
+            renderDatumStatus(await res.json());
+        } catch (e) {
+            renderDatumStatus({ running: false });
+        }
+    }
+
+    function setDatumNotice(msg, kind) {
+        const n = document.getElementById('datum-notice');
+        if (!n) return;
+        if (!msg) { n.classList.add('hidden'); n.textContent = ''; return; }
+        n.textContent = msg;
+        n.className = 'mining-notice ' + (kind || 'info');
+        n.classList.remove('hidden');
+    }
+
+    async function startDatum() {
+        const btn = document.getElementById('datum-start-btn');
+        if (btn) { btn.disabled = true; btn.textContent = 'Starting…'; }
+        setDatumNotice('', null);
+        try {
+            const res = await fetch('/api/datum/start', { method: 'POST' });
+            const data = await res.json();
+            if (!data.success) {
+                setDatumNotice(data.error || 'Could not start DATUM Gateway.', 'warn');
+            } else {
+                datumOwnedByGui = true;
+            }
+        } catch (e) {
+            setDatumNotice('Backend error starting DATUM Gateway.', 'warn');
+        } finally {
+            if (btn) { btn.disabled = false; btn.textContent = 'Start Mining'; }
+            fetchDatumStatus();
+        }
+    }
+
+    async function stopDatum() {
+        const btn = document.getElementById('datum-stop-btn');
+        if (btn) { btn.disabled = true; btn.textContent = 'Stopping…'; }
+        setDatumNotice('', null);
+        try {
+            const res = await fetch('/api/datum/stop', { method: 'POST' });
+            const data = await res.json();
+            if (!data.success) {
+                setDatumNotice(data.error || 'Could not stop DATUM Gateway.', 'warn');
+            } else {
+                datumOwnedByGui = false;
+            }
+        } catch (e) {
+            setDatumNotice('Backend error stopping DATUM Gateway.', 'warn');
+        } finally {
+            if (btn) { btn.disabled = false; btn.textContent = 'Stop'; }
+            fetchDatumStatus();
+        }
+    }
+
+    function renderDatumStatus(data) {
+        const badge = document.getElementById('datum-status-badge');
+        const setText = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+        const show = (id, on) => { const el = document.getElementById(id); if (el) el.classList.toggle('hidden', !on); };
+        const offlineHint = document.getElementById('datum-offline-hint');
+        const openBtn = document.getElementById('datum-open-dashboard');
+        const startBtn = document.getElementById('datum-start-btn');
+        const stopBtn = document.getElementById('datum-stop-btn');
+
+        if (openBtn && data && data.api) openBtn.href = data.api + '/';
+
+        if (!data || !data.running) {
+            if (badge) { badge.textContent = 'Offline'; badge.className = 'badge badge-outline'; }
+            setText('datum-status-val', 'Not running');
+            ['datum-hashrate-val','datum-local-shares','datum-pool-shares','datum-clients','datum-job-height']
+                .forEach(id => setText(id, '—'));
+            setText('datum-pool', 'Pool: —');
+            setText('datum-miner-tag', 'Tag: —');
+            if (offlineHint) offlineHint.classList.remove('hidden');
+            show('datum-start-btn', true);
+            show('datum-stop-btn', false);
+            if (startBtn) startBtn.disabled = false;
+            return;
+        }
+        if (offlineHint) offlineHint.classList.add('hidden');
+
+        // Running: hide Start, show Stop. Stop only works on GUI-owned instances.
+        show('datum-start-btn', false);
+        show('datum-stop-btn', true);
+        if (stopBtn) {
+            const external = data.owned === false;
+            stopBtn.disabled = external;
+            stopBtn.title = external
+                ? 'This gateway was started outside Oracle Knots and is managed externally.'
+                : 'Stop the DATUM Gateway';
+        }
+
+        const s = data.stats || {};
+        const connected = (s.status || '').toLowerCase().includes('connected');
+        if (badge) {
+            badge.textContent = data.stats ? (s.status || 'Running') : 'Starting…';
+            badge.className = 'badge ' + (connected ? 'badge-success' : 'badge-primary');
+        }
+        setText('datum-status-val', s.status || 'Running');
+
+        if (s.hashrate && s.hashrate.value !== undefined && s.hashrate.value !== null) {
+            setText('datum-hashrate-val', `${s.hashrate.value} ${s.hashrate.unit || ''}/s`);
+        } else setText('datum-hashrate-val', '—');
+
+        const la = s.shares_local_accepted, lr = s.shares_local_rejected;
+        setText('datum-local-shares', (la !== null && la !== undefined) ? `${la} / ${lr ?? 0}` : '—');
+        const pa = s.shares_pool_accepted, pr = s.shares_pool_rejected;
+        setText('datum-pool-shares', (pa !== null && pa !== undefined) ? `${pa} / ${pr ?? 0}` : '—');
+
+        setText('datum-clients', (s.connections !== null && s.connections !== undefined) ? String(s.connections) : '—');
+        setText('datum-threads-desc', `${s.active_threads ?? 0} threads · ${s.subscriptions ?? 0} subscriptions`);
+
+        setText('datum-job-height', (s.job_block_height !== null && s.job_block_height !== undefined) ? `#${s.job_block_height}` : '—');
+        setText('datum-job-value', (s.job_block_value !== null && s.job_block_value !== undefined) ? `block value ${Number(s.job_block_value).toFixed(8)} XBT` : 'block value —');
+
+        setText('datum-pool', `Pool: ${s.pool_host || '—'}${s.pool_tag ? ' · ' + s.pool_tag : ''}`);
+        setText('datum-miner-tag', `Tag: ${s.miner_tag || '—'}`);
+    }
+
+    document.getElementById('datum-start-btn')?.addEventListener('click', startDatum);
+    document.getElementById('datum-stop-btn')?.addEventListener('click', stopDatum);
+
+    async function loadDatumConfig() {
+        try {
+            const res = await fetch('/api/datum/config');
+            const data = await res.json();
+            const c = data.config || {};
+            const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = (v ?? ''); };
+            set('cfg-pool-address', c.mining?.pool_address);
+            set('cfg-tag-primary', c.mining?.coinbase_tag_primary);
+            set('cfg-tag-secondary', c.mining?.coinbase_tag_secondary);
+            set('cfg-stratum-port', c.stratum?.listen_port);
+            set('cfg-pool-host', c.datum?.pool_host);
+            set('cfg-pool-port', c.datum?.pool_port);
+            set('cfg-pool-pubkey', c.datum?.pool_pubkey);
+            set('cfg-api-port', c.api?.listen_port);
+            set('cfg-admin-pass', '');
+
+            const adminInput = document.getElementById('cfg-admin-pass');
+            if (adminInput) adminInput.placeholder = data.secret_set?.['api.admin_password']
+                ? '•••••• (set — leave blank to keep)' : 'set a password';
+
+            const rpcInfo = document.getElementById('datum-rpc-info');
+            if (rpcInfo) {
+                const u = data.node_rpc?.rpcuser || '—';
+                const pw = data.node_rpc?.has_rpcpassword ? '✓' : '✗ (start node / set rpcpassword)';
+                rpcInfo.textContent = `user "${u}" · password ${pw}`;
+            }
+            const autoBtn = document.getElementById('datum-autosetup-btn');
+            if (autoBtn) autoBtn.classList.toggle('hidden', !!data.has_config);
+        } catch (e) { /* ignore */ }
+    }
+
+    function datumConfigMsg(msg, kind) {
+        const el = document.getElementById('datum-config-msg');
+        if (!el) return;
+        if (!msg) { el.classList.add('hidden'); return; }
+        el.textContent = msg;
+        el.className = 'mining-notice ' + (kind || 'info');
+        el.classList.remove('hidden');
+    }
+
+    async function saveDatumConfig() {
+        const val = (id) => document.getElementById(id)?.value.trim() ?? '';
+        const numOrUndef = (id) => { const v = val(id); return v === '' ? undefined : Number(v); };
+        const payload = {
+            mining: {
+                pool_address: val('cfg-pool-address'),
+                coinbase_tag_primary: val('cfg-tag-primary'),
+                coinbase_tag_secondary: val('cfg-tag-secondary'),
+            },
+            stratum: { listen_port: numOrUndef('cfg-stratum-port') },
+            datum: {
+                pool_host: val('cfg-pool-host'),
+                pool_port: numOrUndef('cfg-pool-port'),
+                pool_pubkey: val('cfg-pool-pubkey'),
+            },
+            api: {
+                listen_port: numOrUndef('cfg-api-port'),
+                admin_password: val('cfg-admin-pass'),  // vacío = conservar el actual
+            },
+        };
+        datumConfigMsg('Saving…', 'info');
+        try {
+            const res = await fetch('/api/datum/config', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+            const data = await res.json();
+            if (data.success) {
+                datumConfigMsg('Saved. Restart the gateway (Stop → Start Mining) to apply.', 'info');
+                loadDatumConfig();
+            } else {
+                datumConfigMsg(data.error || 'Could not save config.', 'warn');
+            }
+        } catch (e) {
+            datumConfigMsg('Backend error saving config.', 'warn');
+        }
+    }
+
+    async function autoSetupDatum() {
+        datumConfigMsg('Setting up from node…', 'info');
+        try {
+            const res = await fetch('/api/datum/init-config', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ force: false }),
+            });
+            const data = await res.json();
+            if (data.success) {
+                datumConfigMsg(data.rpc_injected
+                    ? 'Config created and node RPC injected. Fill in your payout address and admin password, then Save.'
+                    : 'Config created. Start your node so RPC credentials can be injected, then re-run.', 'info');
+            } else if (data.exists) {
+                datumConfigMsg('A config already exists — edit the fields below and Save.', 'info');
+            } else {
+                datumConfigMsg(data.error || 'Auto-setup failed.', 'warn');
+            }
+            loadDatumConfig();
+        } catch (e) {
+            datumConfigMsg('Backend error during auto-setup.', 'warn');
+        }
+    }
+
+    document.getElementById('datum-save-config-btn')?.addEventListener('click', saveDatumConfig);
+    document.getElementById('datum-autosetup-btn')?.addEventListener('click', autoSetupDatum);
+
+    // ---- Oracle Wallet (Shrike) integration ----
+    function owMsg(msg, kind) {
+        const el = document.getElementById('ow-msg');
+        if (!el) return;
+        if (!msg) { el.classList.add('hidden'); return; }
+        el.textContent = msg;
+        el.className = 'mining-notice ' + (kind || 'info');
+        el.classList.remove('hidden');
+    }
+
+    async function loadOracleWalletStatus() {
+        const badge = document.getElementById('ow-status-badge');
+        const conn = document.getElementById('ow-conn');
+        const openBtn = document.getElementById('ow-open-btn');
+        const setupBtn = document.getElementById('ow-setup-btn');
+        try {
+            const res = await fetch('/api/wallet/oracle-wallet');
+            const d = await res.json();
+            if (!d.installed) {
+                if (badge) { badge.textContent = 'Not installed'; badge.className = 'badge badge-outline'; }
+                if (conn) conn.textContent = 'Connection: Shrike not installed';
+                if (openBtn) openBtn.disabled = true;
+                if (setupBtn) setupBtn.disabled = true;
+                return;
+            }
+            if (badge) {
+                badge.textContent = d.configured ? 'Ready' : 'Needs setup';
+                badge.className = 'badge ' + (d.configured ? 'badge-success' : 'badge-primary');
+            }
+            if (conn) conn.textContent = d.configured
+                ? `Connection: ${d.server || 'node'} ✓`
+                : 'Connection: not configured';
+            if (openBtn) openBtn.disabled = false;
+            if (setupBtn) setupBtn.disabled = false;
+        } catch (e) { /* ignore */ }
+    }
+
+    async function setupOracleWallet() {
+        owMsg('Configuring connection to your node…', 'info');
+        try {
+            const res = await fetch('/api/wallet/oracle-wallet/setup', { method: 'POST' });
+            const d = await res.json();
+            owMsg(d.success
+                ? 'Connection configured. ' + (d.note || '')
+                : (d.error || 'Setup failed.'), d.success ? 'info' : 'warn');
+            loadOracleWalletStatus();
+        } catch (e) { owMsg('Backend error during setup.', 'warn'); }
+    }
+
+    async function openOracleWallet() {
+        owMsg('Launching Oracle Wallet…', 'info');
+        try {
+            const res = await fetch('/api/wallet/oracle-wallet/launch', { method: 'POST' });
+            const d = await res.json();
+            owMsg(d.success ? 'Oracle Wallet launched.' : (d.error || 'Could not launch.'),
+                  d.success ? 'info' : 'warn');
+        } catch (e) { owMsg('Backend error launching wallet.', 'warn'); }
+    }
+
+    document.getElementById('ow-setup-btn')?.addEventListener('click', setupOracleWallet);
+    document.getElementById('ow-open-btn')?.addEventListener('click', openOracleWallet);
+
+    async function fetchPrice() {
+        const card = document.getElementById('dash-price-card');
+        try {
+            const res = await fetch('/api/price');
+            const data = await res.json();
+            renderPrice(data);
+        } catch (e) {
+            if (card) card.classList.add('price-offline');
+            const valEl = document.getElementById('dash-price-val');
+            if (valEl) valEl.textContent = '—';
+        }
+    }
+
+    function renderPrice(data) {
+        const card = document.getElementById('dash-price-card');
+        const valEl = document.getElementById('dash-price-val');
+        const changeEl = document.getElementById('dash-price-change');
+        const metaEl = document.getElementById('dash-price-meta');
+        if (!valEl) return;
+
+        if (!data || !data.success || !data.price) {
+            valEl.textContent = '—';
+            if (changeEl) changeEl.textContent = '';
+            if (metaEl) metaEl.textContent = 'Neoxa unreachable';
+            if (card) card.classList.add('price-offline');
+            return;
+        }
+
+        const p = data.price;
+        xbtPriceUsd = (p.last !== null && p.last !== undefined && !isNaN(p.last)) ? p.last : null;
+        if (card) {
+            card.classList.remove('price-offline');
+            card.classList.toggle('price-stale', !!data.stale);
+        }
+        valEl.textContent = fmtUsd(p.last);
+
+        if (changeEl) {
+            const ch = p.change_pct_24h;
+            if (ch === null || ch === undefined || isNaN(ch)) {
+                changeEl.textContent = '';
+                changeEl.className = 'price-change';
+            } else {
+                const up = ch >= 0;
+                changeEl.textContent = `${up ? '▲' : '▼'} ${Math.abs(ch).toFixed(2)}%`;
+                changeEl.className = `price-change ${up ? 'up' : 'down'}`;
+            }
+        }
+
+        if (metaEl) {
+            const bid = fmtUsd(p.bid);
+            const ask = fmtUsd(p.ask);
+            const spread = (p.spread !== null && p.spread !== undefined && !isNaN(p.spread))
+                ? fmtUsd(p.spread) : '—';
+            const staleTag = data.stale ? ' · stale' : '';
+            metaEl.textContent = `bid ${bid} · ask ${ask} · spread ${spread}${staleTag}`;
         }
     }
     
@@ -1989,13 +2457,20 @@ document.addEventListener('DOMContentLoaded', () => {
                 const bal = info.balance;
                 const unconfirmed = info.unconfirmed_balance || 0;
                 
-                walletBalanceBtc.textContent = `${bal.toFixed(8)} BTC`;
-                
-                const balUsd = bal * btcPriceUsd;
-                walletBalanceUsd.textContent = `$${balUsd.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})} USD`;
-                
+                walletBalanceBtc.textContent = `${bal.toFixed(8)} XBT`;
+
+                // Valuar en XBT (precio del fork en Neoxa), NUNCA en BTC/SHA256.
+                if (xbtPriceUsd !== null) {
+                    const balUsd = bal * xbtPriceUsd;
+                    walletBalanceUsd.textContent = `$${balUsd.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})} USD`;
+                    walletBalanceUsd.title = `Valued at XBT $${xbtPriceUsd.toLocaleString(undefined, {maximumFractionDigits: 2})} (Neoxa)`;
+                } else {
+                    walletBalanceUsd.textContent = '— USD';
+                    walletBalanceUsd.title = 'XBT price unavailable (Neoxa unreachable)';
+                }
+
                 if (unconfirmed > 0) {
-                    walletBalanceUnconfirmed.textContent = `Unconfirmed: ${unconfirmed.toFixed(8)} BTC`;
+                    walletBalanceUnconfirmed.textContent = `Unconfirmed: ${unconfirmed.toFixed(8)} XBT`;
                     walletBalanceUnconfirmed.classList.remove('hidden');
                     balanceCard?.classList.add('has-unconfirmed');
                 } else {
@@ -2029,10 +2504,17 @@ document.addEventListener('DOMContentLoaded', () => {
                     const div = document.createElement('div');
                     div.className = 'tx-item';
                     
+                    // listtransactions devuelve send/receive pero tambien generate
+                    // (coinbase maduro), immature (coinbase sin las 100 confs) y
+                    // orphan. Sin contarlas, una recompensa de mineria se pintaba
+                    // como "Sent -3.10614189 BTC", que es justo lo contrario.
+                    const MINED = { generate: 'Mined', immature: 'Mined (immature)', orphan: 'Mined (orphan)' };
+                    const isMined = tx.category in MINED;
                     const isReceive = tx.category === 'receive';
-                    const typeClass = isReceive ? 'tx-receive' : 'tx-send';
-                    const symbol = isReceive ? '↓' : '↑';
-                    const typeText = isReceive ? 'Received' : 'Sent';
+                    const isIncoming = isReceive || isMined;
+                    const typeClass = isIncoming ? 'tx-receive' : 'tx-send';
+                    const symbol = isIncoming ? '↓' : '↑';
+                    const typeText = isMined ? MINED[tx.category] : (isReceive ? 'Received' : 'Sent');
                     const conf = tx.confirmations || 0;
                     const confClass = conf >= 6 ? 'tx-confirmed' : conf > 0 ? 'tx-pending' : 'tx-unconfirmed';
                     const confLabel = conf >= 6 ? `${conf} conf` : conf > 0 ? `${conf} conf` : 'unconfirmed';
@@ -2047,10 +2529,11 @@ document.addEventListener('DOMContentLoaded', () => {
                                 <span class="tx-type ${typeClass}">${typeText}</span>
                                 <span class="tx-conf-badge ${confClass}">${confLabel}</span>
                                 <span class="tx-address" title="${tx.address || ''}">${isReceive ? 'From' : 'To'}: ${shortAddr}</span>
+                                ${isMined && tx.blockheight ? `<span class="tx-address">block ${tx.blockheight}</span>` : ''}
                             </div>
                         </div>
                         <div class="tx-amount-col">
-                            <span class="tx-amount ${typeClass}">${isReceive ? '+' : '-'}${Math.abs(tx.amount).toFixed(8)} BTC</span>
+                            <span class="tx-amount ${typeClass}">${isIncoming ? '+' : '-'}${Math.abs(tx.amount).toFixed(8)} XBT</span>
                             <div class="tx-date">${txDate}</div>
                         </div>
                     `;
@@ -2719,7 +3202,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 tr.innerHTML = `
                     <td class="addr-cell" title="${entry.address}">${entry.address}</td>
                     <td>${label}</td>
-                    <td>${received} BTC</td>
+                    <td>${received} XBT</td>
                     <td style="text-align: right; white-space: nowrap;">
                         <button class="addr-action-btn" data-action="copy" data-addr="${entry.address}">Copy</button>
                         <button class="addr-action-btn" data-action="receive" data-addr="${entry.address}">Receive</button>
@@ -2988,7 +3471,7 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
         
-        if (!confirm(`Are you sure you want to send ${amount.toFixed(8)} BTC to ${address}?`)) {
+        if (!confirm(`Are you sure you want to send ${amount.toFixed(8)} XBT to ${address}?`)) {
             return;
         }
         
@@ -3008,7 +3491,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const data = await res.json();
 
             if (data.success) {
-                showToast(`Sent ${amount} BTC — TxID: ${data.txid}`, 'success', 6000);
+                showToast(`Sent ${amount} XBT — TxID: ${data.txid}`, 'success', 6000);
                 sendAddressInput.value = '';
                 sendAmountInput.value = '';
                 switchWalletSubTab(pillWalletHistory, walletSubHistory);
@@ -3040,10 +3523,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 .filter(u => selectedUtxoKeys.has(utxoKey(u)))
                 .reduce((s, u) => s + u.amount, 0);
             if (selectedTotal < amount) {
-                showToast(`Selected UTXOs (${selectedTotal.toFixed(8)} BTC) may not cover amount + fees`, 'error', 6000);
+                showToast(`Selected UTXOs (${selectedTotal.toFixed(8)} XBT) may not cover amount + fees`, 'error', 6000);
             }
 
-            if (!confirm(`Send ${amount.toFixed(8)} BTC using ${inputs.length} selected UTXO(s)?`)) return;
+            if (!confirm(`Send ${amount.toFixed(8)} XBT using ${inputs.length} selected UTXO(s)?`)) return;
 
             const payload = { name: activeWalletName, address, amount, inputs };
             if (feeRate && feeRate > 0) payload.fee_rate = feeRate;
@@ -3058,7 +3541,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
                 const data = await res.json();
                 if (data.success) {
-                    const feeMsg = data.fee != null ? ` (fee: ${Number(data.fee).toFixed(8)} BTC)` : '';
+                    const feeMsg = data.fee != null ? ` (fee: ${Number(data.fee).toFixed(8)} XBT)` : '';
                     showToast(`Sent via coin control — TxID: ${data.txid}${feeMsg}`, 'success', 7000);
                     sendAdvAddressInput.value = '';
                     sendAdvAmountInput.value = '';
@@ -3134,16 +3617,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     if (btnQuickMempoolInspect) {
-        btnQuickMempoolInspect.addEventListener('click', async () => {
-            if (isNodeRunning) {
-                try {
-                    const res = await fetch('/api/mempool-audit?limit=500');
-                    const data = await res.json();
-                    if (data.success) window._lastMempoolAudit = data.audit;
-                } catch (e) { /* use cached */ }
-            }
-            openMempoolPolicyModal();
-        });
+        btnQuickMempoolInspect.addEventListener('click', openMempoolExplorer);
     }
 
     const mempoolModalClose = document.getElementById('mempool-modal-close');

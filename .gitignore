@@ -26,3 +26,9 @@ test/lint/test_runner/target/
 /guix-build-*
 
 /ci/scratch/
+
+# DATUM Gateway user configs (contain rpcpassword / admin_password / payout addr)
+oracle-datum.conf.json
+*datum*.conf.json
+!contrib/datum/oracle-datum.example.json
+*.conf.json.bak-*
