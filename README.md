@@ -1,197 +1,143 @@
-# Oracle Knots (SovereignKnots)
-============================
-<img width="420" height="142" alt="image" src="https://github.com/user-attachments/assets/d227f2b0-7f68-4629-a2a9-cae9ea38604e" />
+# Oracle Knots — the sovereign BLAKE2b stack
 
-Oracle Knots is a professional, high-quality fork of **Bitcoin Knots** designed specifically for sovereign individuals, node operators, and low-resource mining operations (such as BitAxe + Mac Mini or single-board setups). 
+<img width="420" height="142" alt="Oracle Knots" src="https://github.com/user-attachments/assets/d227f2b0-7f68-4629-a2a9-cae9ea38604e" />
 
-Our philosophy centers on **"Don't Trust, Verify"**, reclaiming Bitcoin as **sound money first**, and keeping node verification lightweight by aggressively filtering non-financial data spam (e.g., Runes, BRC-20, Ordinals, and bloated OP_RETURN outputs).
+Oracle Knots is an **all-in-one node, wallet, and mining stack for the BLAKE2b
+proof-of-work fork of Bitcoin** (community ticker **XBT**, listed as **BTCB2** on
+Neoxa). Install one thing and get a fully verifying node, a wallet that can spend
+on the fork, and sovereign solo/pool mining — managed from a single Control
+Center. No compiling five separate programs.
 
----
+Philosophy: **"Don't Trust, Verify"**, sound money first, and keeping node
+verification lightweight by aggressively filtering non-financial data spam.
 
-## Key Features & Differences vs. Bitcoin Knots
-
-1. **Full BIP-110 Support (Temporary Soft Fork)**
-   - Implements strict consensus-level restrictions designed to temporarily cap arbitrary data storage on the blockchain.
-   - Restricts `scriptPubKey` sizes to 34 bytes (except `OP_RETURN` which is capped at 83 bytes).
-   - Restricts witness pushdata elements to 256 bytes.
-   - Restricts Taproot control blocks to 257 bytes.
-   - Disallows `OP_SUCCESS` opcodes and Tapscript conditionally.
-   - Exposes a new CLI / config option `-bip110=auto|always|never` to configure the activation mode (fully compatible with UASF nodes).
-
-2. **Declarative Policy Engine**
-   - Configure mempool and relay policies at runtime without compiling. 
-   - Managed via a simple human-readable `policy.toml` configuration file in the node's data directory.
-   - Includes predefined profiles for different network alignment strategies:
-     - `maximalist`: Zero tolerance for data carrier spam. OP_RETURN is blocked entirely (datacarrier size set to 0), and all inscriptions/token protocols are actively filtered.
-     - `bip110-strict`: Enforces standard BIP-110 consensus bounds locally.
-     - `monetary-only`: Similar to maximalist, targeting monetary usage exclusively.
-     - `default-knots`: Standard Knots policy profile.
-
-3. **Sovereign Mining Template Filtering**
-   - The Block Template Assembler (`BlockAssembler`) dynamically inspects transactions and packages from the mempool and filters out any transaction violating your active `policy.toml` rules.
-   - Ensures that blocks mined by your node contain zero non-compliant transactions.
-
-4. **Native Prometheus Metrics Exporter**
-   - Built-in lightweight HTTP server serving standard Prometheus format metrics on a configurable port (`-prometheusport`, default `9332`).
-   - Tracks block height, mempool size/bytes/usage, peer count (inbound/outbound), active policy profile, and detailed rejection statistics since startup (rejections by type: inscriptions, runes, dust, etc.).
-
-5. **Sovereign UX & Resource-Aware Defaults**
-   - **RAM Preservation:** Lowers the default `-maxmempool` from 300MB to 100MB, preventing memory exhaustion on modest hardware (like BitAxe mining hosts, Raspberry Pis, or older Mac Minis).
-   - **Tor / I2P Friendly Startup:** Automatically warns the operator at startup if running a public mainnet node without Tor/Onion/I2P proxy configured to discourage exposing physical IPs.
-   - **Branded User Agent:** Shows up as `OracleKnots` on the P2P network.
-
-6. **Sovereign Oracle Desktop Dashboard GUI**
-   - **Modern GUI App**: Mobile-first responsive dashboard powered by `pywebview` + Bottle, branded with the Oracle Owl identity.
-   - **Wallet (Sparrow-style)**: Multi-wallet, receive+QR, send with fee rate, UTXO manager, coin control, PSBT tools, sign/verify messages, encrypt/backup/import, watch-only & descriptors.
-   - **Oracle CLI Terminal**: Interactive `bitcoin-cli` shell with history and quick commands.
-   - **Interactive Config Editor**: Visual tabs for storage, P2P, spam filters, optimization, and RPC settings.
-   - **Live Dashboard**: Mempool sparkline, policy rejection panel, Prometheus metrics, debug.log streamer.
-   - **Desktop Launcher**: `./install-desktop.sh` installs a `.desktop` entry with the Oracle Owl icon.
-
+> Follows the BLAKE2b chain: PoW is BLAKE2b, block headers are v2, mainnet
+> activation is at height **961640**. See **[docs/BLAKE2B.md](docs/BLAKE2B.md)**.
 
 ---
 
-## How to Build
+## Why you need *this* stack
 
-### Dependencies
-Install the required build dependencies for your distribution. On **Arch Linux**:
-```bash
-sudo pacman -S base-devel boost openssl libevent sqlite
-```
+Standard wallets (Electrum, online Sparrow, BlueWallet) **cannot connect to the
+BLAKE2b chain** — they validate 80-byte SHA-256d headers client-side and reject
+the fork's v2 headers. So the only way to see and spend XBT is software that
+understands the fork: **your Oracle Knots node + Oracle Wallet**.
 
-### Compile
-Oracle Knots utilizes **CMake** for build configuration:
-```bash
-# Configure the build directory
-cmake -B build -DCMAKE_BUILD_TYPE=Release
-
-# Build the binaries (bitcoind, bitcoin-cli, bitcoin-util)
-cmake --build build -j$(nproc)
-```
-Binaries are in `build/bin/` (or `build/src/` on some CMake configs).
-
-Alternatively use the project build script:
-
-```bash
-./build.sh
-```
-
-### Control Center GUI
-
-```bash
-# One-time setup
-./setup-gui.sh
-
-# Launch dashboard
-./launch.sh
-
-# Optional: install desktop launcher
-./install-desktop.sh
-```
-
-**GUI dependencies** (Arch Linux): `python`, `qt6-webengine` (for pywebview). Python packages are in `requirements.txt`.
-
-**Wallet note:** `server=1` in `bitcoin.conf` is required for wallet and CLI features.
+| You want to… | Use |
+|---|---|
+| Verify the BLAKE2b chain | Oracle Knots **node** |
+| See balance / spend / sign XBT | **Oracle Wallet** (Shrike + BLAKE2b) → [docs/WALLET.md](docs/WALLET.md) |
+| Mine your own templates | **DATUM Gateway (CONVOY)**, bundled → [docs/MINING.md](docs/MINING.md) |
+| Watch it all | **Control Center** GUI |
 
 ---
 
-## Configuring the Declarative Policy Engine
+## The all-in-one Control Center
 
-At startup, a default configuration file named `policy.toml` is generated in your Bitcoin data directory. You can edit this file to select a profile or define custom rules:
+A mobile-first desktop dashboard (`pywebview` + Bottle) branded with the Oracle
+Owl:
 
-```toml
-# policy.toml
-profile = "maximalist"
-bip110_mode = "auto" # Options: auto, always, never
+- **Dashboard** — sync, block template stats, fork consensus (BLAKE2b/RDTS),
+  mempool, recent blocks, **live XBT price from Neoxa** (with a high-risk
+  disclaimer), and policy-rejection summary.
+- **Wallet** — the built-in wallet plus an **Oracle Wallet** card that
+  configures Shrike's connection to your node in one click and launches it.
+  Balances are valued in **XBT** (not BTC).
+- **Sovereign Mining** — start/stop and **fully configure the DATUM Gateway
+  in-app** (auto-injects node RPC), with live hashrate, shares, and pool status.
+- **Mempool Explorer** — fee-rate distribution and top transactions (standard
+  RPC, pruned-safe).
+- **Policy Engine**, **Fork Status**, **Config editor**, **Oracle CLI**,
+  **Console Logs**.
 
-[custom_rules]
-datacarrier_size = 0          # Capping OP_RETURN payload size
-reject_tokens = true          # Reject BRC-20 / Runes
-reject_inscriptions = true    # Reject Taproot/Witness Ordinals inscriptions
-dust_relay_fee = 3000         # Custom dust fee in sat/kvb
-permit_bare_multisig = false
-permit_bare_pubkey = false
-reject_parasites = true
-max_op_return_outputs = 0
-```
+Launch everything:
 
-### Dynamic Policy Modification (RPC)
-You can set and toggle policy values on the fly without restarting the node:
 ```bash
-bitcoin-cli setsovereignpolicy monetary-only
-```
-Check compliance status and transaction rejection statistics:
-```bash
-bitcoin-cli checkbip110status
+./oracle-knots            # ensure the node is up + open the Control Center
+./oracle-knots --with-datum --wallet   # also start mining + open Oracle Wallet
+./oracle-knots status     # component status, starts nothing
 ```
 
 ---
 
-## Recommended Configuration for Sovereign Operators
+## Node features vs. Bitcoin Knots
 
-Below is a recommended configuration (`bitcoin.conf`) for a resource-constrained, high-privacy mining operator setup:
+1. **BLAKE2b proof-of-work fork** — header v2, `DEPLOYMENT_BLAKE2B` (mainnet
+   961640), consensus-critical `blake2b_headline`, opt-in unified sighash.
+2. **Full BIP-110 / RDTS support** — `-bip110=auto|always|never` to configure
+   the reduced-data soft-fork enforcement.
+3. **Declarative Policy Engine** — runtime `policy.toml` with profiles
+   (`maximalist`, `bip110-strict`, `monetary-only`, `default-knots`).
+4. **Sovereign mining template filtering** — the block assembler drops mempool
+   txs that violate *your* policy.
+5. **Native Prometheus exporter** (`-prometheusport`, default 9332).
+6. **Resource-aware defaults** and a **branded `OracleKnots` P2P user agent**.
+
+See **[OPERATOR_TOOLS.md](OPERATOR_TOOLS.md)** for the operator RPCs.
+
+---
+
+## Build & run
+
+Full instructions (deps, submodule, verification): **[docs/BUILD.md](docs/BUILD.md)**.
+
+```bash
+git clone https://github.com/MarcanoFilms/oracle-knots.git
+cd oracle-knots
+git submodule update --init --recursive   # DATUM Gateway (CONVOY)
+./build.sh                                 # node + DATUM
+./setup-gui.sh                             # one-time GUI venv
+./oracle-knots                             # launch the stack
+```
+
+**GUI deps** (Arch): `python`, `qt6-webengine`. Python packages in
+`requirements.txt`. `server=1` in `bitcoin.conf` is required for wallet/CLI.
+
+---
+
+## Recommended `bitcoin.conf`
 
 ```ini
-# bitcoin.conf
-txindex=0
-blocksonly=0
-maxconnections=40
+# BLAKE2b consensus
+consensusrules=rdts
+blake2b_headline=<exact canonical headline>
+
+# Sovereign / resource-aware
+policyprofile=maximalist
+bip110=auto
 maxmempool=100
-dbcache=150
+prometheus=1
+prometheusport=9332
 
 # Privacy
 proxy=127.0.0.1:9050
 onion=127.0.0.1:9050
 listenonion=1
-discover=0
-
-# Oracle Knots Custom Policy
-policyprofile=maximalist
-bip110=auto
-prometheus=1
-prometheusport=9332
 ```
 
 ---
 
-## Operator Tools & Sovereign Mining
+## Repository layout
 
-Oracle Knots includes operator-focused tooling for sovereign miners and node runners. See **[OPERATOR_TOOLS.md](OPERATOR_TOOLS.md)** for full documentation.
-
-**Highlights:**
-
-- **Clear rejection logs** — `Oracle Policy [relay|template]: …` lines in `debug.log` with human-readable reasons
-- **Sovereign block templates** — `BlockAssembler` filters mempool txs by your `policy.toml`; stats via `getsovereigntemplatestats`
-- **Mempool policy audit** — `getmempoolpolicyaudit` scans in-memory mempool (works in **pruned mode**)
-- **BIP-110 / RDTS** — deployment signaling in dashboard + `getdeploymentinfo`
-- **Preflight** — `getsovereigndiagnostics` and GUI `/api/preflight` for Tor, policy, sync checks
-- **Prometheus** — `bitcoin_oracle_template_*`, `bitcoin_oracle_bip110_enforced` metrics
-
-```bash
-bitcoin-cli getsovereigntemplatestats
-bitcoin-cli getmempoolpolicyaudit 200
-bitcoin-cli getsovereigndiagnostics
-bitcoin-cli getrecentpolicyrejections 20
 ```
-
-The Control Center dashboard shows **Sovereign Mining — Block Template** stats, RDTS progress, and a **Mempool Policy Audit** modal.
-
----
-
-## Publicar en GitHub
-
-Para subir el repo **sin compilar ni ejecutar el nodo** (útil si esa máquina ya tiene otro nodo activo), ver **[GITHUB_PUSH.md](GITHUB_PUSH.md)**.
-
-Resumen rápido en la otra PC:
-
-```bash
-cd ~/oracle-knots
-git restore depends/          # si el tarball no trajo depends/
-./scripts/push-to-github.sh   # push no interactivo
+gui.py, gui/            Control Center (backend + frontend)
+oracle-knots            all-in-one launcher
+build.sh                builds node + DATUM
+src/                    Oracle Knots node (Knots + BLAKE2b + policy engine)
+mining/datum-convoy/    DATUM Gateway (CONVOY) submodule
+contrib/datum/          sanitized DATUM example config
+contrib/wallet/         Oracle Wallet launcher + desktop entry
+docs/                   BLAKE2B, WALLET, MINING, BUILD
 ```
 
 ---
+
+## Security
+
+- No credentials are committed. Real DATUM/wallet configs are gitignored; only
+  sanitized examples are tracked.
+- The Control Center never sends `rpcpassword`/`admin_password` to the browser.
 
 ## License
 
-Oracle Knots is released under the terms of the MIT license. See [COPYING](COPYING) for more information.
+MIT. See [COPYING](COPYING).
