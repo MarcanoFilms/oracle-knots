@@ -7,9 +7,10 @@ cd "$REPO_ROOT"
 
 # WebKitGTK (pywebview) crashea bajo Wayland+NVIDIA con "Error 71 (Protocol error)".
 # Ruta la ventana por XWayland y desactiva el renderer DMABUF de WebKit (roto en NVIDIA).
+# OJO: NO desactivar el compositing (WEBKIT_DISABLE_COMPOSITING_MODE) — rompe el render
+# y el dashboard aparece "desconectado" con los botones muertos.
 export GDK_BACKEND="${GDK_BACKEND:-x11}"
 export WEBKIT_DISABLE_DMABUF_RENDERER="${WEBKIT_DISABLE_DMABUF_RENDERER:-1}"
-export WEBKIT_DISABLE_COMPOSITING_MODE="${WEBKIT_DISABLE_COMPOSITING_MODE:-1}"
 
 if [ ! -d "gui-venv" ]; then
     echo "Oracle Knots: setting up GUI environment..."
