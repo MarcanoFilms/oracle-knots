@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Oracle Wallet — lanzador de la wallet soberana XBT (Shrike/Sparrow con BLAKE2b).
+#
+# Resuelve el binario de Shrike y lo abre bajo la identidad Oracle Wallet.
+# La conexión al nodo se preconfigura desde el Control Center
+# (pestaña Wallet → "Configure connection") o manualmente en ~/.shrike/config.
+set -euo pipefail
+
+BIN="${ORACLE_WALLET_BIN:-}"
+for c in "$BIN" "$HOME/.local/bin/shrike" "$HOME/.local/opt/Shrike/bin/Shrike" "$(command -v shrike 2>/dev/null || true)"; do
+    [ -n "$c" ] && [ -x "$c" ] && { BIN="$c"; break; }
+done
+
+if [ -z "${BIN:-}" ] || [ ! -x "$BIN" ]; then
+    echo "Oracle Wallet (Shrike) no está instalado." >&2
+    echo "Instálalo siguiendo docs/WALLET.md (fork Shrike con soporte BLAKE2b)." >&2
+    exit 1
+fi
+
+exec "$BIN" "$@"

@@ -1,0 +1,4 @@
+[submodule "mining/datum-convoy"]
+	path = mining/datum-convoy
+	url = https://github.com/CONVOYMining/datum_gateway
+	branch = master

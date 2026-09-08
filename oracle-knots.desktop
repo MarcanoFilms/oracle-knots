@@ -1,0 +1,15 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Terminal=false
+Name=Oracle Knots
+GenericName=Bitcoin Sovereign Node
+Comment=The Oracle watches the chain — launch Oracle Knots Control Center
+Exec=@REPO_ROOT@/launch.sh
+Icon=@REPO_ROOT@/gui/assets/oracle-owl-256.png
+Path=@REPO_ROOT@
+StartupWMClass=Oracle Knots Control Center
+Categories=Finance;Network;Utility;
+Keywords=bitcoin;oracle;knots;owl;wallet;node;sovereign;btc;
+StartupNotify=true
+MimeType=
