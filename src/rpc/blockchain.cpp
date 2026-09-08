@@ -19,6 +19,7 @@
 #include <consensus/amount.h>
 #include <consensus/params.h>
 #include <consensus/validation.h>
+#include <consensus/tx_verify.h>
 #include <core_io.h>
 #include <deploymentinfo.h>
 #include <deploymentstatus.h>
@@ -262,6 +263,8 @@ UniValue blockToJSON(BlockManager& blockman, const CBlock& block, const CBlockIn
                 txs.push_back(std::move(objTx));
             }
             break;
+    }
+
     result.pushKV("tx", std::move(txs));
 
     // Check BIP-110 compliance of all transactions in this block
@@ -4290,7 +4293,9 @@ static RPCHelpMan checkbip110status()
     } else if (OraclePolicy::g_bip110_mode == "never") {
         consensus_active = false;
     } else if (tip) {
-        consensus_active = DeploymentActiveAt(*tip, chainman, Consensus::DEPLOYMENT_REDUCED_DATA);
+        // 29.4.1: RDTS/BIP-110 is time-based (RdtsActiveAt), not a versionbits deployment.
+        consensus_active = chainman.GetConsensus().RdtsActiveAt(
+            tip->nHeight, tip->pprev ? tip->pprev->GetMedianTimePast() : tip->GetMedianTimePast());
     }
 
     UniValue result(UniValue::VOBJ);

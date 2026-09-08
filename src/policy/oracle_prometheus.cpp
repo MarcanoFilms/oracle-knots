@@ -154,7 +154,11 @@ static void ExporterThread(const node::NodeContext& node, int port) {
                         if (OraclePolicy::g_bip110_mode == "always") {
                             bip110_enforced = true;
                         } else if (OraclePolicy::g_bip110_mode != "never") {
-                            bip110_enforced = DeploymentActiveAt(*tip, *node.chainman, Consensus::DEPLOYMENT_REDUCED_DATA);
+                            // 29.4.1: RDTS/BIP-110 activation is time-based (RdtsActiveAt),
+                            // not a versionbits deployment anymore.
+                            bip110_enforced = node.chainman->GetConsensus().RdtsActiveAt(
+                                tip->nHeight,
+                                tip->pprev ? tip->pprev->GetMedianTimePast() : tip->GetMedianTimePast());
                         }
                     }
                 }
