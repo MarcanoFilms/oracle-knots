@@ -1097,13 +1097,22 @@ def update_policy_toml(file_path, new_settings):
 def index():
     return static_file('index.html', root=GUI_DIR)
 
+def _no_cache(resp):
+    # La GUI se edita en vivo y pywebview/navegadores cachean agresivo, dejando
+    # CSS/JS viejo pegado (ej. bloques recientes que "vuelven a texto plano").
+    # Forzar recarga de assets elimina esa clase de problema.
+    resp.set_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+    resp.set_header("Pragma", "no-cache")
+    resp.set_header("Expires", "0")
+    return resp
+
 @route('/static/<filename:path>')
 def send_static(filename):
-    return static_file(filename, root=GUI_DIR)
+    return _no_cache(static_file(filename, root=GUI_DIR))
 
 @route('/static/assets/<filename:path>')
 def send_assets(filename):
-    return static_file(filename, root=os.path.join(GUI_DIR, 'assets'))
+    return _no_cache(static_file(filename, root=os.path.join(GUI_DIR, 'assets')))
 
 @route('/api/status')
 def api_status():
