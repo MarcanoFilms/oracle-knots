@@ -7,10 +7,12 @@ REPO_ROOT="$(cd "$(dirname "$0")" && pwd)"
 cd "$REPO_ROOT"
 
 TOOLCHAIN="$REPO_ROOT/depends/x86_64-pc-linux-gnu/toolchain.cmake"
-CMAKE_EXTRA=()
+# RDTS_CONSENT is required by the Knots BIP-110 gate on every build (with or
+# without the depends toolchain), so it must always be passed.
+CMAKE_EXTRA=(-DRDTS_CONSENT=IMPLICIT)
 
 if [ -f "$TOOLCHAIN" ]; then
-    CMAKE_EXTRA=(--toolchain "$TOOLCHAIN" -DRDTS_CONSENT=IMPLICIT)
+    CMAKE_EXTRA+=(--toolchain "$TOOLCHAIN")
     echo "==> Using depends toolchain"
 else
     echo "==> Building without depends toolchain (system libs)"
