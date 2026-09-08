@@ -385,18 +385,17 @@
                                 </div>
                             </div>
 
-                            <!-- Oracle Wallet (Shrike) — advanced spend/sign for XBT -->
+                            <!-- Native XBT spend & sign — no external app -->
                             <div class="panel panel-compact" id="oracle-wallet-panel">
                                 <div class="panel-header">
-                                    <h3>Oracle Wallet — spend &amp; sign XBT</h3>
-                                    <span class="badge" id="ow-status-badge">—</span>
+                                    <h3>Native XBT spend &amp; sign</h3>
+                                    <span class="badge" id="ow-mode-badge">—</span>
                                 </div>
                                 <div class="panel-body">
-                                    <p class="text-secondary text-sm">Standard wallets can't connect to the BLAKE2b chain (they reject its v2 headers). <strong>Oracle Wallet</strong> — a Shrike/Sparrow build with BLAKE2b — talks to <em>your</em> node to spend and sign XBT, with hardware-wallet support.</p>
+                                    <p class="text-secondary text-sm">Your Oracle Knots node runs a <strong>BLAKE2b-native wallet</strong> — spend and sign XBT right here, without leaving the app. <span id="ow-mode-hint"></span></p>
                                     <div class="mining-toolbar">
-                                        <span class="mining-meta" id="ow-conn">Connection: —</span>
-                                        <button class="btn btn-outline btn-sm" id="ow-setup-btn">Configure connection</button>
-                                        <button class="btn btn-primary btn-sm" id="ow-open-btn">Open Oracle Wallet</button>
+                                        <button class="btn btn-primary btn-sm" id="ow-send-action">Send XBT</button>
+                                        <button class="btn btn-outline btn-sm" id="ow-hardware-action">Hardware signing (PSBT / QR)</button>
                                     </div>
                                     <div class="mining-notice hidden" id="ow-msg"></div>
                                 </div>

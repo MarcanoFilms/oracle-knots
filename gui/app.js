@@ -1529,7 +1529,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('datum-save-config-btn')?.addEventListener('click', saveDatumConfig);
     document.getElementById('datum-autosetup-btn')?.addEventListener('click', autoSetupDatum);
 
-    // ---- Oracle Wallet (Shrike) integration ----
+    // ---- Native XBT wallet (node's BLAKE2b wallet, all in-app) ----
     function owMsg(msg, kind) {
         const el = document.getElementById('ow-msg');
         if (!el) return;
@@ -1540,56 +1540,39 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function loadOracleWalletStatus() {
-        const badge = document.getElementById('ow-status-badge');
-        const conn = document.getElementById('ow-conn');
-        const openBtn = document.getElementById('ow-open-btn');
-        const setupBtn = document.getElementById('ow-setup-btn');
+        const badge = document.getElementById('ow-mode-badge');
+        const hint = document.getElementById('ow-mode-hint');
+        if (!activeWalletName) {
+            if (badge) { badge.textContent = 'No wallet'; badge.className = 'badge badge-outline'; }
+            if (hint) hint.textContent = 'Load or create a wallet to begin.';
+            return;
+        }
         try {
-            const res = await fetch('/api/wallet/oracle-wallet');
+            const res = await fetch(`/api/wallet/info?name=${encodeURIComponent(activeWalletName)}`);
             const d = await res.json();
-            if (!d.installed) {
-                if (badge) { badge.textContent = 'Not installed'; badge.className = 'badge badge-outline'; }
-                if (conn) conn.textContent = 'Connection: Shrike not installed';
-                if (openBtn) openBtn.disabled = true;
-                if (setupBtn) setupBtn.disabled = true;
-                return;
-            }
+            const info = d.success ? JSON.parse(d.output) : {};
+            const hot = info.private_keys_enabled === true;
+            const ext = info.external_signer === true;
             if (badge) {
-                badge.textContent = d.configured ? 'Ready' : 'Needs setup';
-                badge.className = 'badge ' + (d.configured ? 'badge-success' : 'badge-primary');
+                badge.textContent = hot ? 'Hot wallet' : (ext ? 'Hardware' : 'Watch-only');
+                badge.className = 'badge ' + (hot ? 'badge-success' : 'badge-primary');
             }
-            if (conn) conn.textContent = d.configured
-                ? `Connection: ${d.server || 'node'} ✓`
-                : 'Connection: not configured';
-            if (openBtn) openBtn.disabled = false;
-            if (setupBtn) setupBtn.disabled = false;
+            if (hint) hint.textContent = hot
+                ? 'This wallet holds keys — sign and broadcast directly from Send.'
+                : 'Watch-only — build a PSBT here and sign it on your Keystone (QR/file), then broadcast. No external app.';
         } catch (e) { /* ignore */ }
     }
 
-    async function setupOracleWallet() {
-        owMsg('Configuring connection to your node…', 'info');
-        try {
-            const res = await fetch('/api/wallet/oracle-wallet/setup', { method: 'POST' });
-            const d = await res.json();
-            owMsg(d.success
-                ? 'Connection configured. ' + (d.note || '')
-                : (d.error || 'Setup failed.'), d.success ? 'info' : 'warn');
-            loadOracleWalletStatus();
-        } catch (e) { owMsg('Backend error during setup.', 'warn'); }
-    }
-
-    async function openOracleWallet() {
-        owMsg('Launching Oracle Wallet…', 'info');
-        try {
-            const res = await fetch('/api/wallet/oracle-wallet/launch', { method: 'POST' });
-            const d = await res.json();
-            owMsg(d.success ? 'Oracle Wallet launched.' : (d.error || 'Could not launch.'),
-                  d.success ? 'info' : 'warn');
-        } catch (e) { owMsg('Backend error launching wallet.', 'warn'); }
-    }
-
-    document.getElementById('ow-setup-btn')?.addEventListener('click', setupOracleWallet);
-    document.getElementById('ow-open-btn')?.addEventListener('click', openOracleWallet);
+    // Botones nativos: saltan a los flujos in-app (Send / PSBT), sin ventana externa.
+    document.getElementById('ow-send-action')?.addEventListener('click', () => {
+        document.getElementById('pill-wallet-send')?.click();
+        document.getElementById('send-address')?.focus();
+    });
+    document.getElementById('ow-hardware-action')?.addEventListener('click', () => {
+        document.getElementById('pill-wallet-tools')?.click();
+        document.getElementById('subpill-psbt')?.click();
+        owMsg('Hardware flow: build/fund a PSBT, show it to your Keystone (QR/file), paste the signed PSBT here, then Finalize & Broadcast — all without leaving Oracle Knots.', 'info');
+    });
 
     async function fetchPrice() {
         const card = document.getElementById('dash-price-card');
@@ -2458,6 +2441,19 @@ document.addEventListener('DOMContentLoaded', () => {
                 const unconfirmed = info.unconfirmed_balance || 0;
                 
                 walletBalanceBtc.textContent = `${bal.toFixed(8)} XBT`;
+
+                // Tarjeta de wallet nativa: reflejar el modo real del wallet.
+                const owBadge = document.getElementById('ow-mode-badge');
+                const owHint = document.getElementById('ow-mode-hint');
+                if (owBadge) {
+                    const hot = info.private_keys_enabled === true;
+                    const ext = info.external_signer === true;
+                    owBadge.textContent = hot ? 'Hot wallet' : (ext ? 'Hardware' : 'Watch-only');
+                    owBadge.className = 'badge ' + (hot ? 'badge-success' : 'badge-primary');
+                    if (owHint) owHint.textContent = hot
+                        ? 'This wallet holds keys — sign and broadcast directly from Send.'
+                        : 'Watch-only — build a PSBT here and sign it on your Keystone (QR/file), then broadcast. No external app.';
+                }
 
                 // Valuar en XBT (precio del fork en Neoxa), NUNCA en BTC/SHA256.
                 if (xbtPriceUsd !== null) {
