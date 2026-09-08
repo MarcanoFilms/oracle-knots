@@ -9,6 +9,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="/static/css/price-widget.css">
     <!-- Local QRCode Generator Library -->
     <script src="/static/qrcode.min.js"></script>
 </head>
@@ -387,6 +388,9 @@
                                     </button>
                                 </div>
                             </div>
+
+                            <!-- Bitcoin (BTC) reference price widget -->
+                            <div id="price-widget-container" class="wallet-price-widget-wrap"></div>
 
                             <!-- Native XBT spend & sign — no external app -->
                             <div class="panel panel-compact" id="oracle-wallet-panel">
@@ -2024,6 +2028,7 @@
 
     <script src="/static/three.min.js"></script>
     <script src="/static/explorer.js"></script>
+    <script src="/static/components/PriceWidget.js"></script>
     <script src="/static/app.js"></script>
 </body>
 </html>

@@ -10,7 +10,15 @@ import json
 import urllib.request
 import shlex
 from datetime import datetime, timezone
-from bottle import route, run, static_file, request, response
+from bottle import route, run, static_file, request, response, default_app
+
+# Bitcoin price widget (reference BTC price, from CoinGecko). Optional module —
+# guarded so the GUI still runs if the api/ package is absent.
+try:
+    from api.routes_bitcoin_price import setup_price_routes
+    setup_price_routes(default_app())
+except Exception as _price_routes_err:  # pragma: no cover
+    print(f"Bitcoin price routes unavailable: {_price_routes_err}")
 
 # Define paths (portable — relative to this script)
 ORACLE_KNOTS_DIR = os.path.dirname(os.path.abspath(__file__))
