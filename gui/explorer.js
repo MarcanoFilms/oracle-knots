@@ -519,14 +519,23 @@
             if (!data.online) return;
             tipBadge.textContent = `Tip: ${fmtNum(data.tip_height)}`;
             const blocks = (data.blocks || []).slice().sort((a, b) => b.height - a.height);
-            blocksStrip.innerHTML = blocks.map(b => `
-                <div class="explorer-block-card" data-hash="${esc(b.hash)}">
-                    <div class="ebc-height font-mono">#${fmtNum(b.height)}</div>
-                    <div class="ebc-meta">${fmtNum(b.n_tx)} txs</div>
-                    <div class="ebc-meta">${fmtAge(b.time)}</div>
-                    ${b.miner_tag ? `<div class="ebc-miner">${esc(b.miner_tag)}</div>` : ''}
-                    ${b.policy_fail > 0 ? `<div class="ebc-flag">⚠ ${b.policy_fail} policy fails</div>` : '<div class="ebc-flag ebc-clean">✓ clean</div>'}
-                </div>`).join('') || '<p class="text-secondary text-center py-4">No recent block data.</p>';
+            const maxTx = Math.max(1, ...blocks.map(x => x.n_tx || 0));
+            blocksStrip.innerHTML = blocks.map(b => {
+                const fill = Math.round(Math.min(100, (b.n_tx || 0) / maxTx * 100));
+                const reward = b.coinbase_reward != null ? `${Number(b.coinbase_reward).toFixed(3)} XBT`
+                    : (b.subsidy != null ? `${Number(b.subsidy).toFixed(3)} XBT` : '');
+                const dirty = b.policy_fail > 0;
+                return `
+                <div class="explorer-block-card${dirty ? '' : ' is-clean'}" data-hash="${esc(b.hash)}" style="--fill:${fill}%" title="${b.miner_tag ? esc(b.miner_tag) + ' · ' : ''}${fmtNum(b.n_tx)} txs">
+                    <div class="ebc-top">
+                        <span class="ebc-height font-mono">#${fmtNum(b.height)}</span>
+                        <span class="ebc-flag ${dirty ? '' : 'ebc-clean'}">${dirty ? '⚠ ' + b.policy_fail : '✓'}</span>
+                    </div>
+                    ${reward ? `<div class="ebc-reward">${reward}</div>` : ''}
+                    <div class="ebc-meta">${fmtNum(b.n_tx)} txs · ${fmtAge(b.time)}</div>
+                    <div class="ebc-fillbar"><span></span></div>
+                </div>`;
+            }).join('') || '<p class="text-secondary text-center py-4">No recent block data.</p>';
             blocksStrip.querySelectorAll('[data-hash]').forEach(el =>
                 el.addEventListener('click', () => openBlockDetail(el.dataset.hash)));
         } catch (e) { /* transient */ }
