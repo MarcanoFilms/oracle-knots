@@ -24,6 +24,10 @@ bool g_reject_parasites = true;
 int g_max_op_return_outputs = 0;
 
 int64_t g_startup_time = 0;
+std::deque<RecentPolicyRejection> g_recent_rejections;
+SovereignTemplateStats g_last_template_stats;
+constexpr size_t MAX_RECENT_REJECTIONS = 100;
+
 std::map<std::string, uint64_t> g_rejection_counts = {
     {"total", 0},
     {"tokens-runes", 0},
@@ -233,11 +237,17 @@ void LoadPolicyConfig(kernel::MemPoolOptions& mempool_opts) {
         file.close();
     }
 
-    // Apply active profile (if not set to custom)
+    ApplyActivePolicyToMempool(mempool_opts);
+
+    LogPrintf("Oracle Policy: Loaded active profile: '%s' [BIP-110 Enforce: '%s', Reject Inscriptions: %d, Max OP_RETURN: %d]\n",
+              g_active_profile, g_bip110_mode, g_reject_inscriptions, g_max_op_return_outputs);
+}
+
+void ApplyActivePolicyToMempool(kernel::MemPoolOptions& mempool_opts)
+{
     if (g_active_profile != "custom") {
         ApplyProfileSettings(g_active_profile, mempool_opts);
     } else {
-        // Apply custom values parsed from TOML file
         mempool_opts.reject_tokens = g_reject_tokens;
         mempool_opts.reject_parasites = g_reject_parasites;
         mempool_opts.permit_bare_pubkey = g_permit_bare_pubkey;
@@ -249,9 +259,12 @@ void LoadPolicyConfig(kernel::MemPoolOptions& mempool_opts) {
         }
         mempool_opts.dust_relay_feerate = CFeeRate(g_dust_relay_fee);
     }
+}
 
-    LogPrintf("Oracle Policy: Loaded active profile: '%s' [BIP-110 Enforce: '%s', Reject Inscriptions: %d, Max OP_RETURN: %d]\n",
-              g_active_profile, g_bip110_mode, g_reject_inscriptions, g_max_op_return_outputs);
+void ApplyPolicyFromRuntime(kernel::MemPoolOptions& mempool_opts)
+{
+    ApplyActivePolicyToMempool(mempool_opts);
+    SavePolicyConfig();
 }
 
 bool SavePolicyConfig() {
@@ -278,11 +291,59 @@ bool SavePolicyConfig() {
     return true;
 }
 
-void IncrementRejectionCount(const std::string& reason) {
+std::string RejectReasonToMessage(const std::string& reason)
+{
+    static const std::map<std::string, std::string> messages = {
+        {"inscription", "Ordinals inscription detected in witness"},
+        {"max-op-returns", "Exceeded max OP_RETURN outputs for active policy"},
+        {"tokens-runes", "Runes / BRC-20 token overlay detected"},
+        {"tokens-olga", "OLGA token overlay detected"},
+        {"dust-nonanchor", "Non-anchor dust output below relay threshold"},
+        {"dust-nonzero", "Non-zero dust output below relay threshold"},
+        {"bare-pubkey", "Bare pubkey output not permitted by policy"},
+        {"bare-multisig", "Bare multisig output not permitted by policy"},
+        {"parasite-cat21", "Parasite CAT-21 locktime overlay detected"},
+        {"version", "Non-standard transaction version"},
+        {"tx-size", "Transaction weight exceeds standard limit"},
+        {"scriptpubkey", "Non-standard scriptPubKey for active policy"},
+        {"scriptpubkey-size", "scriptPubKey exceeds policy size limit"},
+        {"multi-op-return", "Multiple OP_RETURN outputs not permitted"},
+        {"dust", "Output below dust threshold"},
+        {"template-policy", "Filtered from sovereign block template by active policy"},
+    };
+    const auto it = messages.find(reason);
+    if (it != messages.end()) return it->second;
+    return "Rejected by sovereign policy: " + reason;
+}
+
+void IncrementRejectionCount(const std::string& reason)
+{
     g_rejection_counts["total"]++;
-    if (g_rejection_counts.count(reason)) {
-        g_rejection_counts[reason]++;
+    g_rejection_counts[reason]++;
+}
+
+void RecordPolicyRejection(const std::string& reason, const uint256& wtxid, const std::string& context)
+{
+    IncrementRejectionCount(reason);
+    const std::string message = RejectReasonToMessage(reason);
+    LogPrintf("Oracle Policy [%s]: %s (wtxid=%s, profile=%s)\n",
+              context, message, wtxid.ToString(), g_active_profile);
+
+    RecentPolicyRejection entry;
+    entry.reason = reason;
+    entry.message = message;
+    entry.wtxid = wtxid.ToString();
+    entry.context = context;
+    entry.timestamp = GetTime();
+    g_recent_rejections.push_front(std::move(entry));
+    while (g_recent_rejections.size() > MAX_RECENT_REJECTIONS) {
+        g_recent_rejections.pop_back();
     }
+}
+
+void UpdateTemplateStats(const SovereignTemplateStats& stats)
+{
+    g_last_template_stats = stats;
 }
 
 } // namespace OraclePolicy

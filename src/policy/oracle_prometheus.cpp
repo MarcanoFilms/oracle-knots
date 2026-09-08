@@ -1,8 +1,11 @@
 #include <policy/oracle_prometheus.h>
 #include <policy/oracle_policy.h>
 #include <node/context.h>
+#include <node/miner.h>
 #include <net.h>
 #include <validation.h>
+#include <deploymentstatus.h>
+#include <consensus/params.h>
 #include <txmempool.h>
 #include <logging.h>
 #include <util/time.h>
@@ -125,11 +128,39 @@ static void ExporterThread(const node::NodeContext& node, int port) {
                         << "# TYPE bitcoin_oracle_bip110_mode gauge\n"
                         << "bitcoin_oracle_bip110_mode{mode=\"" << OraclePolicy::g_bip110_mode << "\"} 1\n\n";
 
+                metrics << "# HELP bitcoin_rejected_tx_total Rejection counts by reason\n"
+                        << "# TYPE bitcoin_rejected_tx_total counter\n";
                 for (const auto& entry : OraclePolicy::g_rejection_counts) {
-                    metrics << "# HELP bitcoin_rejected_tx_total Rejection counts by reason\n"
-                            << "# TYPE bitcoin_rejected_tx_total counter\n"
-                            << "bitcoin_rejected_tx_total{reason=\"" << entry.first << "\"} " << entry.second << "\n\n";
+                    metrics << "bitcoin_rejected_tx_total{reason=\"" << entry.first << "\"} " << entry.second << "\n";
                 }
+                metrics << "\n";
+
+                const auto& tpl = OraclePolicy::g_last_template_stats;
+                metrics << "# HELP bitcoin_oracle_template_txs_included Txs in last sovereign template\n"
+                        << "# TYPE bitcoin_oracle_template_txs_included gauge\n"
+                        << "bitcoin_oracle_template_txs_included " << tpl.txs_included << "\n\n"
+                        << "# HELP bitcoin_oracle_template_policy_filtered Txs filtered from last template\n"
+                        << "# TYPE bitcoin_oracle_template_policy_filtered gauge\n"
+                        << "bitcoin_oracle_template_policy_filtered " << tpl.policy_filtered << "\n\n"
+                        << "# HELP bitcoin_oracle_template_fees_sats Fees in last template (sats)\n"
+                        << "# TYPE bitcoin_oracle_template_fees_sats gauge\n"
+                        << "bitcoin_oracle_template_fees_sats " << tpl.fees << "\n\n";
+
+                bool bip110_enforced = false;
+                if (node.chainman) {
+                    LOCK(::cs_main);
+                    const CBlockIndex* tip = node.chainman->ActiveChain().Tip();
+                    if (tip) {
+                        if (OraclePolicy::g_bip110_mode == "always") {
+                            bip110_enforced = true;
+                        } else if (OraclePolicy::g_bip110_mode != "never") {
+                            bip110_enforced = DeploymentActiveAt(*tip, *node.chainman, Consensus::DEPLOYMENT_REDUCED_DATA);
+                        }
+                    }
+                }
+                metrics << "# HELP bitcoin_oracle_bip110_enforced BIP-110 consensus enforced (1=yes)\n"
+                        << "# TYPE bitcoin_oracle_bip110_enforced gauge\n"
+                        << "bitcoin_oracle_bip110_enforced " << (bip110_enforced ? 1 : 0) << "\n\n";
 
                 metrics << "# HELP bitcoin_uptime Uptime in seconds\n"
                         << "# TYPE bitcoin_uptime gauge\n"
