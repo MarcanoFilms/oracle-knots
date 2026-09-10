@@ -30,7 +30,7 @@ class PriceWidget {
             'aud': 'A$',
             'btc': '₿'
         };
-        this.selectedCurrency = localStorage.getItem('preferred_currency') || 'usd';
+        this.selectedCurrency = (() => { try { return localStorage.getItem('preferred_currency') || 'usd'; } catch (e) { return 'usd'; } })();
         this.autoRefreshTimer = null;
     }
 
@@ -343,7 +343,7 @@ class PriceWidget {
         if (currencySelector) {
             currencySelector.addEventListener('change', (e) => {
                 this.selectedCurrency = e.target.value;
-                localStorage.setItem('preferred_currency', this.selectedCurrency);
+                try { localStorage.setItem('preferred_currency', this.selectedCurrency); } catch (err) {}
                 this.updateUI();
             });
         }

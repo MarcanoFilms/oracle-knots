@@ -4,6 +4,21 @@ document.addEventListener('DOMContentLoaded', () => {
     const STORAGE_KEY_ACTIVE_WALLET = 'oracle_active_wallet';
     const STORAGE_KEY_SIDEBAR_COLLAPSED = 'oracle-sidebar-collapsed';
 
+    // localStorage puede lanzar SecurityError en WebKitGTK (pywebview) según el
+    // data dir del webview. Un throw aquí mataba el init entero (dashboard sin
+    // conectar, botones sin enlazar). LS envuelve el acceso para que nunca tire.
+    const LS = (() => {
+        let raw = null;
+        try { raw = window.localStorage; const t = '__ok_ls__'; raw.setItem(t, '1'); raw.removeItem(t); }
+        catch (e) { raw = null; }
+        const mem = {};
+        return {
+            getItem: (k) => { try { return raw ? raw.getItem(k) : (k in mem ? mem[k] : null); } catch (e) { return (k in mem ? mem[k] : null); } },
+            setItem: (k, v) => { try { if (raw) raw.setItem(k, v); else mem[k] = String(v); } catch (e) { mem[k] = String(v); } },
+            removeItem: (k) => { try { if (raw) raw.removeItem(k); else delete mem[k]; } catch (e) { delete mem[k]; } },
+        };
+    })();
+
     // ----------------------------------------------------
     // Toast Notification System
     // ----------------------------------------------------
@@ -367,14 +382,14 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    const savedSidebar = localStorage.getItem(STORAGE_KEY_SIDEBAR_COLLAPSED);
+    const savedSidebar = LS.getItem(STORAGE_KEY_SIDEBAR_COLLAPSED);
     applySidebarCollapsed(savedSidebar !== 'false');
 
     if (sidebarToggle) {
         sidebarToggle.addEventListener('click', () => {
             const collapsed = !sidebar.classList.contains('collapsed');
             applySidebarCollapsed(collapsed);
-            localStorage.setItem(STORAGE_KEY_SIDEBAR_COLLAPSED, String(collapsed));
+            LS.setItem(STORAGE_KEY_SIDEBAR_COLLAPSED, String(collapsed));
         });
     }
 
@@ -760,7 +775,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function getDismissedPreflight() {
-        try { return JSON.parse(localStorage.getItem('ok_preflight_dismissed') || '[]'); }
+        try { return JSON.parse(LS.getItem('ok_preflight_dismissed') || '[]'); }
         catch (e) { return []; }
     }
 
@@ -793,7 +808,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const msg = decodeURIComponent(btn.getAttribute('data-msg'));
                 const d = getDismissedPreflight();
                 if (!d.includes(msg)) d.push(msg);
-                localStorage.setItem('ok_preflight_dismissed', JSON.stringify(d));
+                LS.setItem('ok_preflight_dismissed', JSON.stringify(d));
                 strip.dataset.sig = '';
                 renderPreflightStrip(preflight);
             });
@@ -2215,7 +2230,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // WALLET OPERATIONS AND MANAGEMENT
     // ----------------------------------------------------
     function resolveActiveWallet(wallets) {
-        const saved = localStorage.getItem(STORAGE_KEY_ACTIVE_WALLET);
+        const saved = LS.getItem(STORAGE_KEY_ACTIVE_WALLET);
         if (saved && wallets.includes(saved)) return saved;
         return wallets[0];
     }
@@ -2277,7 +2292,7 @@ document.addEventListener('DOMContentLoaded', () => {
         activeWalletName = name;
         selectedUtxoKeys.clear();
         cachedUtxos = [];
-        localStorage.setItem(STORAGE_KEY_ACTIVE_WALLET, name);
+        LS.setItem(STORAGE_KEY_ACTIVE_WALLET, name);
         if (activeWalletNameLabel) activeWalletNameLabel.textContent = name;
         if (walletSelector) walletSelector.value = name;
         fetchWalletInfo();
@@ -2389,7 +2404,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const data = await res.json();
             if (data.success) {
                 showToast(`Wallet "${name}" loaded`, 'success');
-                localStorage.setItem(STORAGE_KEY_ACTIVE_WALLET, name);
+                LS.setItem(STORAGE_KEY_ACTIVE_WALLET, name);
                 await checkWalletStatus();
             } else {
                 showToast(`Failed to load wallet: ${data.error}`, 'error', 6000);
@@ -2416,7 +2431,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const data = await res.json();
 
             if (data.success) {
-                localStorage.setItem(STORAGE_KEY_ACTIVE_WALLET, name);
+                LS.setItem(STORAGE_KEY_ACTIVE_WALLET, name);
                 showToast(`Wallet "${name}" created and loaded`, 'success');
                 checkWalletStatus();
             } else {
@@ -2814,7 +2829,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (data.success) {
                     showToast(`Wallet "${activeWalletName}" unloaded`, 'success');
                     activeWalletName = '';
-                    localStorage.removeItem(STORAGE_KEY_ACTIVE_WALLET);
+                    LS.removeItem(STORAGE_KEY_ACTIVE_WALLET);
                     checkWalletStatus();
                 } else {
                     showToast(`Failed to unload: ${data.error}`, 'error', 6000);
