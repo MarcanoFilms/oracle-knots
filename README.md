@@ -13,6 +13,11 @@ verification lightweight by aggressively filtering non-financial data spam.
 
 > Follows the BLAKE2b chain: PoW is BLAKE2b, block headers are v2, mainnet
 > activation is at height **961640**. See **[docs/BLAKE2B.md](docs/BLAKE2B.md)**.
+>
+> The node is built on **Bitcoin Knots 29.4.1** and reports
+> `/OracleKnots:29.4.1/…`. Its consensus code is byte-for-byte identical to a
+> node verified against the live BLAKE2b chain — the Oracle overlay only adds
+> non-consensus policy, mining and UI on top.
 
 ---
 
@@ -90,8 +95,23 @@ git submodule update --init --recursive   # DATUM Gateway (CONVOY)
 ./oracle-knots                             # launch the stack
 ```
 
-**GUI deps** (Arch): `python`, `qt6-webengine`. Python packages in
-`requirements.txt`. `server=1` in `bitcoin.conf` is required for wallet/CLI.
+**GUI deps** (Arch): `python`, `python-gobject`, `webkit2gtk-4.1`, `gtk3`
+(pywebview's GTK/WebKit backend). Python packages in `requirements.txt`.
+`server=1` in `bitcoin.conf` is required for wallet/CLI.
+
+### Troubleshooting the Control Center
+
+`./launch.sh` already sets the env below; you only need it if you launch
+`gui.py` yourself.
+
+- **Window opens then closes / `Error 71 (Protocol error) dispatching to Wayland
+  display`** (Wayland + NVIDIA): route the window through XWayland and disable
+  WebKit's DMABUF renderer — `GDK_BACKEND=x11 WEBKIT_DISABLE_DMABUF_RENDERER=1`.
+  Do **not** set `WEBKIT_DISABLE_COMPOSITING_MODE=1`; it stops the dashboard from
+  rendering.
+- **Dashboard stuck on "DISCONNECTED" / dead buttons**: an older build; update to
+  the latest — `localStorage` access is now guarded so the UI can't be aborted by
+  a WebKit `SecurityError`.
 
 ---
 
