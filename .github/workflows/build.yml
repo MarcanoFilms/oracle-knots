@@ -8,7 +8,7 @@ on:
 
 jobs:
   build:
-    name: Build Oracle Knots on Linux
+    name: Build & smoke-test Oracle Knots on Linux
     runs-on: ubuntu-24.04
 
     steps:
@@ -24,4 +24,31 @@ jobs:
       run: cmake -B build -DCMAKE_BUILD_TYPE=Release
 
     - name: Build project
-      run: cmake --build build -j$(nproc)
+      run: cmake --build build -j"$(nproc)"
+
+    # Functional smoke test: prove the node actually runs, not just that it compiles.
+    # NOTE: the upstream Bitcoin Core unit-test matrix is intentionally not run here —
+    # this is a BLAKE2b consensus fork (v2 headers, BLAKE2b PoW), so several upstream
+    # tests assume SHA-256d and would report false failures. This regtest smoke test
+    # exercises the fork's own binaries end-to-end instead.
+    - name: Smoke test (versions + regtest boot + RPC)
+      run: |
+        set -euo pipefail
+        BITCOIND="$(find build -type f -executable -name bitcoind | head -1)"
+        CLI="$(find build -type f -executable -name bitcoin-cli | head -1)"
+        echo "bitcoind:    $BITCOIND"
+        echo "bitcoin-cli: $CLI"
+        "$BITCOIND" -version | head -1
+        "$CLI" -version | head -1
+        DD="$RUNNER_TEMP/regtest"
+        mkdir -p "$DD"
+        "$BITCOIND" -regtest -daemon -datadir="$DD" -rpcuser=ci -rpcpassword=ci
+        for i in $(seq 1 30); do
+          "$CLI" -regtest -datadir="$DD" -rpcuser=ci -rpcpassword=ci getblockchaininfo >/dev/null 2>&1 && break
+          sleep 1
+        done
+        echo "--- getblockchaininfo ---"
+        "$CLI" -regtest -datadir="$DD" -rpcuser=ci -rpcpassword=ci getblockchaininfo
+        echo "--- user agent ---"
+        "$CLI" -regtest -datadir="$DD" -rpcuser=ci -rpcpassword=ci getnetworkinfo | grep -i subversion
+        "$CLI" -regtest -datadir="$DD" -rpcuser=ci -rpcpassword=ci stop

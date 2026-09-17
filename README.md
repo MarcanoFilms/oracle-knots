@@ -2,6 +2,10 @@
 
 <img width="420" height="142" alt="Oracle Knots" src="https://github.com/user-attachments/assets/d227f2b0-7f68-4629-a2a9-cae9ea38604e" />
 
+[![Build CI](https://github.com/MarcanoFilms/oracle-knots/actions/workflows/build.yml/badge.svg)](https://github.com/MarcanoFilms/oracle-knots/actions/workflows/build.yml)
+[![Latest release](https://img.shields.io/github/v/release/MarcanoFilms/oracle-knots?display_name=tag)](https://github.com/MarcanoFilms/oracle-knots/releases/latest)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](COPYING)
+
 Oracle Knots is an **all-in-one node, wallet, and mining stack for the BLAKE2b
 proof-of-work fork of Bitcoin** (community ticker **XBT**, listed as **BTCB2** on
 Neoxa). Install one thing and get a fully verifying node, a wallet that can spend
@@ -83,6 +87,10 @@ See **[OPERATOR_TOOLS.md](OPERATOR_TOOLS.md)** for the operator RPCs.
 ---
 
 ## Build & run
+
+**Verified platform:** Linux x86-64 (Ubuntu 24.04) — built and smoke-tested on
+every push by the [Build CI](https://github.com/MarcanoFilms/oracle-knots/actions/workflows/build.yml).
+Prebuilt binaries are on the [Releases page](https://github.com/MarcanoFilms/oracle-knots/releases/latest).
 
 Full instructions (deps, submodule, verification): **[docs/BUILD.md](docs/BUILD.md)**.
 
