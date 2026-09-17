@@ -4,12 +4,16 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Oracle Knots Control Center</title>
+    <!-- Per-run API token, substituted by gui.py when it serves this page. -->
+    <meta name="oracle-api-token" content="__ORACLE_API_TOKEN__">
     <link rel="icon" type="image/svg+xml" href="/static/assets/oracle-owl-epic.svg">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+    <!-- No webfont CDN on purpose: fetching fonts would hand a third party this
+         node's IP address on every launch. The stacks in style.css use whatever
+         Inter / Fira Code are installed locally, else the system fonts. -->
     <link rel="stylesheet" href="/static/style.css">
     <link rel="stylesheet" href="/static/css/price-widget.css">
+    <!-- Attaches the API token to same-origin fetches; must load first. -->
+    <script src="/static/api-client.js"></script>
     <!-- Local QRCode Generator Library -->
     <script src="/static/qrcode.min.js"></script>
 </head>

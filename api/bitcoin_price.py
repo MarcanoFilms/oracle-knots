@@ -12,13 +12,28 @@ Features:
 - Intelligent caching (60-second TTL)
 - Fallback support (Kraken API as backup)
 
-Dependencies: requests (standard library HTTP)
-No external dependencies needed for basic functionality.
+Dependencies: requests, and PySocks when the node runs behind a proxy
+(both in requirements.txt).
+
+Outbound requests follow the node's proxy setting via oracle_net, so a price
+lookup cannot quietly expose the IP address of a node that is meant to be
+reachable only over Tor.
 """
 
+import os
+import sys
 import requests
 import time
 import json
+
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
+
+try:
+    import oracle_net
+except ImportError:  # pragma: no cover - the module ships beside this package
+    oracle_net = None
 from functools import wraps
 from typing import Dict, List, Optional, Tuple
 from decimal import Decimal
@@ -79,6 +94,24 @@ class BitcoinPriceService:
         self.cache = PriceCache()
         self.session = requests.Session()
         self.session.headers.update({"User-Agent": self.USER_AGENT})
+
+    def _get(self, url, params=None, timeout=None):
+        """HTTP GET under the outbound policy (see oracle_net).
+
+        Fails closed: if the policy cannot be applied, no request is made.
+        """
+        if oracle_net is None:
+            raise RuntimeError(
+                "oracle_net is unavailable, so the proxy policy cannot be applied; "
+                "refusing to make an outbound request that could expose your IP."
+            )
+        proxies = oracle_net.proxies_for_requests()
+        return self.session.get(
+            url,
+            params=params,
+            timeout=timeout or self.REQUEST_TIMEOUT,
+            proxies=proxies,
+        )
 
     @property
     def current_price(self) -> Dict:
@@ -148,11 +181,7 @@ class BitcoinPriceService:
             'include_last_updated_at': 'true'
         }
 
-        response = self.session.get(
-            self.COINGECKO_SIMPLE,
-            params=params,
-            timeout=self.REQUEST_TIMEOUT
-        )
+        response = self._get(self.COINGECKO_SIMPLE, params=params)
         response.raise_for_status()
 
         data = response.json()['bitcoin']
@@ -178,11 +207,7 @@ class BitcoinPriceService:
 
     def _fetch_kraken_price(self) -> Dict:
         """Fallback: Fetch from Kraken API"""
-        response = self.session.get(
-            self.KRAKEN_TICKER,
-            params={'pair': 'XBTUSDC'},  # Bitcoin to USD Coin
-            timeout=self.REQUEST_TIMEOUT
-        )
+        response = self._get(self.KRAKEN_TICKER, params={'pair': 'XBTUSDC'})  # Bitcoin to USD Coin
         response.raise_for_status()
 
         data = response.json()['result']['XXBTZUSD']
@@ -220,11 +245,7 @@ class BitcoinPriceService:
                 'interval': 'daily'
             }
 
-            response = self.session.get(
-                self.COINGECKO_MARKET,
-                params=params,
-                timeout=self.REQUEST_TIMEOUT
-            )
+            response = self._get(self.COINGECKO_MARKET, params=params)
             response.raise_for_status()
 
             prices = response.json()['prices']

@@ -91,7 +91,9 @@ Launch everything:
    (`maximalist`, `bip110-strict`, `monetary-only`, `default-knots`).
 4. **Sovereign mining template filtering** — the block assembler drops mempool
    txs that violate *your* policy.
-5. **Native Prometheus exporter** (`-prometheusport`, default 9332).
+5. **Native Prometheus exporter** (`-prometheusport`, default 9332), bound to
+   loopback unless you widen it with `-prometheusbind`. The endpoint is
+   unauthenticated, so it is not exposed to your network by default.
 6. **Resource-aware defaults** and a **branded `OracleKnots` P2P user agent**.
 
 See **[OPERATOR_TOOLS.md](OPERATOR_TOOLS.md)** for the operator RPCs.
@@ -132,6 +134,12 @@ git submodule update --init --recursive   # DATUM Gateway (CONVOY)
 - **Dashboard stuck on "DISCONNECTED" / dead buttons**: an older build; update to
   the latest — `localStorage` access is now guarded so the UI can't be aborted by
   a WebKit `SecurityError`.
+- **"Refused: missing or invalid API token"**: the page was opened without the
+  per-run token. Launch it with `./oracle-knots` (which passes the token), or open
+  `http://127.0.0.1:<port>/?token=$(cat ~/.oracle-knots/gui.token)`.
+- **No price shown, with a message about PySocks**: your node routes through a
+  proxy, so the price lookup needs SOCKS support. `pip install -r requirements.txt`,
+  or set `ORACLE_PRICE_FETCH=direct` to accept direct connections.
 
 ---
 
@@ -148,6 +156,9 @@ bip110=auto
 maxmempool=100
 prometheus=1
 prometheusport=9332
+# Loopback only, which is the default. Widen it (e.g. 0.0.0.0) only behind a
+# firewall: the metrics endpoint has no authentication.
+prometheusbind=127.0.0.1
 
 # Privacy
 proxy=127.0.0.1:9050
@@ -161,6 +172,8 @@ listenonion=1
 
 ```
 gui.py, gui/            Control Center (backend + frontend)
+oracle_net.py           outbound network policy (proxy-aware price lookups)
+test/gui/               Control Center tests (no node build required)
 oracle-knots            all-in-one launcher
 build.sh                builds node + DATUM
 src/                    Oracle Knots node (Knots + BLAKE2b + policy engine)
@@ -177,6 +190,29 @@ docs/                   BLAKE2B, WALLET, MINING, BUILD
 - No credentials are committed. Real DATUM/wallet configs are gitignored; only
   sanitized examples are tracked.
 - The Control Center never sends `rpcpassword`/`admin_password` to the browser.
+- **The metrics exporter is loopback-only** by default (`-prometheusbind`), since
+  it serves node telemetry without authentication.
+- **The Control Center API requires a token.** One is minted per run, written to
+  `~/.oracle-knots/gui.token` (owner-readable only) and baked into the page the
+  launcher opens, so another user on the machine cannot drive your wallet through
+  `127.0.0.1`. Requests must also arrive addressed to a loopback `Host`, which is
+  what stops a website from reaching the dashboard by resolving its own name to
+  `127.0.0.1`.
+- **Wallet passphrases never appear in the process list.** They are handed to
+  `bitcoin-cli` over stdin (`-stdinwalletpassphrase`/`-stdin`), so they cannot be
+  read out of `ps` or `/proc`. Imported descriptors travel the same way.
+- **No third-party requests in the clear.** Price lookups follow the node's own
+  `proxy=`/`onion=` setting, with DNS resolved by the proxy; if a proxy is
+  configured but unusable, the lookup is refused instead of leaking your IP.
+  `ORACLE_PRICE_FETCH=off` disables them entirely and `=direct` opts back into
+  direct connections. The dashboard also loads no webfonts or other remote assets.
+
+### Driving the API from the command line
+
+```bash
+TOKEN=$(cat ~/.oracle-knots/gui.token)
+curl -H "X-Oracle-Token: $TOKEN" http://127.0.0.1:8080/api/status
+```
 
 ## License
 

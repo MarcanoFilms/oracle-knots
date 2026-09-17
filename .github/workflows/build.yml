@@ -7,6 +7,27 @@ on:
     branches: [ main ]
 
 jobs:
+  # Fast feedback: the Control Center's API guard and secret handling are pure
+  # Python, so they need neither the node build nor the network.
+  control-center-tests:
+    name: Control Center tests (Python)
+    runs-on: ubuntu-24.04
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install GUI test dependencies
+      run: python -m pip install --upgrade bottle requests PySocks
+
+    - name: Run Control Center tests
+      run: python -m unittest discover -s test/gui -v
+
   build:
     name: Build & smoke-test Oracle Knots on Linux
     runs-on: ubuntu-24.04
@@ -30,7 +51,8 @@ jobs:
     # NOTE: the upstream Bitcoin Core unit-test matrix is intentionally not run here —
     # this is a BLAKE2b consensus fork (v2 headers, BLAKE2b PoW), so several upstream
     # tests assume SHA-256d and would report false failures. This regtest smoke test
-    # exercises the fork's own binaries end-to-end instead.
+    # exercises the fork's own binaries end-to-end instead, and the step after it
+    # runs the functional tests written for the fork itself.
     - name: Smoke test (versions + regtest boot + RPC)
       run: |
         set -euo pipefail
@@ -52,3 +74,15 @@ jobs:
         echo "--- user agent ---"
         "$CLI" -regtest -datadir="$DD" -rpcuser=ci -rpcpassword=ci getnetworkinfo | grep -i subversion
         "$CLI" -regtest -datadir="$DD" -rpcuser=ci -rpcpassword=ci stop
+
+    # The fork's own functional tests. These were written against BLAKE2b
+    # behaviour (NODE_BLAKE2B service bit, DNS-seed cadence), so unlike the
+    # upstream matrix they are meaningful here.
+    - name: Functional tests (BLAKE2b)
+      run: |
+        set -euo pipefail
+        python3 build/test/functional/test_runner.py \
+          --ci \
+          --timeout-factor=4 \
+          p2p_blake2b_dns_immediate.py \
+          p2p_blake2b_outbound_preference.py

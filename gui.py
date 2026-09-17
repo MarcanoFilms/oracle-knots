@@ -9,8 +9,14 @@ import threading
 import json
 import urllib.request
 import shlex
+import secrets
 from datetime import datetime, timezone
-from bottle import route, run, static_file, request, response, default_app
+
+# Outbound network policy: price lookups must follow the node's proxy setting
+# instead of exposing the operator's IP address. See oracle_net.py.
+import oracle_net
+from oracle_net import OutboundBlocked
+from bottle import route, run, static_file, request, response, default_app, hook, abort
 
 # Bitcoin price widget (reference BTC price, from CoinGecko). Optional module —
 # guarded so the GUI still runs if the api/ package is absent.
@@ -41,6 +47,103 @@ def _resolve_binary(name: str) -> str:
 
 BITCOIND_PATH = _resolve_binary("bitcoind")
 BITCOIN_CLI_PATH = _resolve_binary("bitcoin-cli")
+
+# ----------------------------------------------------
+# Local API hardening
+# ----------------------------------------------------
+# This server exposes wallet spending, dumping and unlocking plus a bitcoin-cli
+# passthrough over plain HTTP. Binding loopback is not by itself a boundary: any
+# other user on the machine can reach it, and a web page the operator visits can
+# aim requests at 127.0.0.1 — or at a hostname that resolves there, which is how
+# DNS rebinding sidesteps the browser's cross-origin rules. So requests must
+# arrive addressed to a loopback Host, must not come from another site, and every
+# request outside the static assets must carry the token minted below.
+GUI_API_TOKEN = secrets.token_urlsafe(32)
+GUI_TOKEN_HEADER = "X-Oracle-Token"
+GUI_TOKEN_PLACEHOLDER = "__ORACLE_API_TOKEN__"
+_ALLOWED_HOSTNAMES = frozenset({"127.0.0.1", "localhost", "::1", "[::1]"})
+_dashboard_port = None  # filled in by main() once the port is chosen
+
+
+def gui_token_path():
+    return os.path.join(os.path.expanduser("~"), ".oracle-knots", "gui.token")
+
+
+def write_gui_token_file(token, path=None):
+    """Persist the token 0600 so the operator, and only the operator, can also
+    drive the API from curl. Returns the path, or None if it could not be written."""
+    path = path or gui_token_path()
+    try:
+        parent = os.path.dirname(path)
+        os.makedirs(parent, mode=0o700, exist_ok=True)
+        os.chmod(parent, 0o700)
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
+            f.write(token + "\n")
+        return path
+    except OSError:
+        return None
+
+
+def host_header_is_local(host_header):
+    """True when the Host header names loopback. A rebinding attack still sends
+    its own hostname, so this is what stops it."""
+    if not host_header:
+        return True  # HTTP/1.0 clients send no Host header
+    host = host_header.strip()
+    if host.startswith("["):            # [::1] or [::1]:8080
+        hostname = host.split("]", 1)[0] + "]"
+    elif host.count(":") > 1:           # bare IPv6 literal, which carries no port
+        hostname = host
+    elif ":" in host:                   # host:port
+        hostname = host.rsplit(":", 1)[0]
+    else:
+        hostname = host
+    return hostname.lower() in _ALLOWED_HOSTNAMES
+
+
+def origin_is_local(origin, port):
+    """True when an Origin header, if present at all, is this dashboard."""
+    if not origin:
+        return True
+    allowed = tuple(f"http://{host}:{port}" for host in ("127.0.0.1", "localhost", "[::1]"))
+    return origin in allowed
+
+
+def token_matches(provided):
+    if not provided:
+        return False
+    return secrets.compare_digest(str(provided), GUI_API_TOKEN)
+
+
+def request_is_static(path):
+    return path == "/static" or path.startswith("/static/")
+
+
+@hook("before_request")
+def enforce_local_api_guard():
+    path = request.path or "/"
+    if not host_header_is_local(request.get_header("Host")):
+        abort(403, "Refused: this request was not addressed to a loopback host.")
+    # Static assets are plain files from this repo, and the <link>/<script> tags
+    # that load them cannot attach a header, so they are served without a token.
+    if request_is_static(path):
+        return
+    if request.method not in ("GET", "HEAD") and not origin_is_local(
+        request.get_header("Origin"), _dashboard_port
+    ):
+        abort(403, "Refused: cross-site request.")
+    if path == "/":
+        # Page load: a browser navigation cannot set headers, so the token may
+        # also arrive in the query string.
+        if token_matches(request.query.get("token")) or token_matches(
+            request.get_header(GUI_TOKEN_HEADER)
+        ):
+            return
+        abort(403, "Refused: open the Control Center with ./oracle-knots, or add "
+                   "?token=<the token in ~/.oracle-knots/gui.token>.")
+    if not token_matches(request.get_header(GUI_TOKEN_HEADER)):
+        abort(403, "Refused: missing or invalid API token.")
 
 def is_port_in_use(port: int) -> bool:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -132,7 +235,26 @@ def get_prometheus_port(pid):
         pass
     return 9332
 
-def run_bitcoin_cli(args_list, datadir=None, network="mainnet", wallet_name=None, timeout=5.0):
+class SecretInputError(ValueError):
+    """A secret cannot be handed to bitcoin-cli over stdin (it spans lines)."""
+
+
+def check_stdin_secret(value, label):
+    """bitcoin-cli reads one stdin argument per line, so embedded newlines would
+    split a secret into two arguments. Reject them instead of mangling them."""
+    if "\n" in value or "\r" in value:
+        raise SecretInputError(f"{label} cannot contain line breaks")
+    return value
+
+
+def run_bitcoin_cli(args_list, datadir=None, network="mainnet", wallet_name=None, timeout=5.0,
+                    flags=None, stdin_lines=None):
+    """Run bitcoin-cli.
+
+    flags/stdin_lines keep secrets off the command line: anything passed in
+    stdin_lines is fed to bitcoin-cli's stdin instead of argv, so it never shows
+    up in `ps` output or /proc/<pid>/cmdline for other users on this machine.
+    """
     cmd = [BITCOIN_CLI_PATH]
     if datadir:
         cmd.append(f"-datadir={datadir}")
@@ -146,9 +268,16 @@ def run_bitcoin_cli(args_list, datadir=None, network="mainnet", wallet_name=None
         cmd.append("-signet")
     if wallet_name:
         cmd.append(f"-rpcwallet={wallet_name}")
+    # bitcoin-cli skips leading switches, so every flag must precede the method.
+    if flags:
+        cmd.extend(flags)
     cmd.extend(args_list)
+    stdin_data = None
+    if stdin_lines:
+        stdin_data = "".join(f"{line}\n" for line in stdin_lines)
     try:
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout,
+                             input=stdin_data)
         if res.returncode == 0:
             return True, res.stdout.strip()
         else:
@@ -1103,7 +1232,17 @@ def update_policy_toml(file_path, new_settings):
 # ----------------------------------------------------
 @route('/')
 def index():
-    return static_file('index.html', root=GUI_DIR)
+    """Serve the dashboard with the API token baked in, so the page's own fetches
+    can authenticate. The file on disk only ever holds the placeholder."""
+    try:
+        with open(os.path.join(GUI_DIR, "index.html"), "r", encoding="utf-8") as f:
+            html = f.read()
+    except OSError as e:
+        response.status = 500
+        return f"Control Center assets are missing: {e}"
+    response.content_type = "text/html; charset=UTF-8"
+    _no_cache(response)
+    return html.replace(GUI_TOKEN_PLACEHOLDER, GUI_API_TOKEN)
 
 def _no_cache(resp):
     # La GUI se edita en vivo y pywebview/navegadores cachean agresivo, dejando
@@ -1366,18 +1505,19 @@ def api_fork_status():
     }
 
 def _fetch_neoxa_price():
-    """Lee el ticker BTCB2_USDC de Neoxa. Devuelve dict normalizado o None."""
+    """Lee el ticker BTCB2_USDC de Neoxa. Devuelve (dict normalizado | None, error).
+
+    La peticion sale por el proxy del nodo (oracle_net): si el nodo corre tras
+    Tor, consultar el precio en claro delataria su IP, asi que en ese caso se
+    rechaza la consulta en vez de filtrarla."""
     try:
-        req = urllib.request.Request(
-            NEOXA_TICKER_URL,
-            headers={"Accept": "application/json", "User-Agent": "OracleKnots/2.0"},
-        )
-        with urllib.request.urlopen(req, timeout=8.0) as resp:
-            payload = json.loads(resp.read().decode("utf-8", "replace"))
+        payload = oracle_net.open_json(NEOXA_TICKER_URL, timeout=8.0)
+    except OutboundBlocked as e:
+        return None, str(e)
     except Exception:
-        return None
+        return None, "Neoxa unreachable"
     if not isinstance(payload, dict) or not payload.get("success"):
-        return None
+        return None, "Neoxa returned no ticker"
     t = payload.get("ticker") or {}
     def _num(key):
         try:
@@ -1386,8 +1526,8 @@ def _fetch_neoxa_price():
             return None
     last = _num("lastPrice")
     if last is None:
-        return None
-    return {
+        return None, "Neoxa ticker had no last price"
+    return ({
         "ticker": "XBT",
         "pair": "BTCB2_USDC",
         "exchange": "Neoxa",
@@ -1401,7 +1541,7 @@ def _fetch_neoxa_price():
         "volume_24h": _num("volume24h"),
         "quote_volume_24h": _num("quoteVolume24h"),
         "trades_24h": t.get("trades24h"),
-    }
+    }, None)
 
 @route('/api/price')
 def api_price():
@@ -1411,14 +1551,15 @@ def api_price():
     cached = _price_cache.get("data")
     if cached is not None and (now - _price_cache.get("ts", 0.0)) < PRICE_CACHE_TTL:
         return {"success": True, "price": cached, "cached": True, "stale": False}
-    fresh = _fetch_neoxa_price()
+    fresh, error = _fetch_neoxa_price()
     if fresh is not None:
         _price_cache = {"ts": now, "data": fresh}
         return {"success": True, "price": fresh, "cached": False, "stale": False}
     # Fetch fallo: si hay un valor viejo, lo servimos marcado como stale.
     if cached is not None:
-        return {"success": True, "price": cached, "cached": True, "stale": True}
-    return {"success": False, "error": "Neoxa unreachable", "price": None}
+        return {"success": True, "price": cached, "cached": True, "stale": True,
+                "error": error}
+    return {"success": False, "error": error or "Neoxa unreachable", "price": None}
 
 def _find_datum_process():
     """Busca un datum_gateway (CONVOY) corriendo. Devuelve (pid, config_path) o (None, None)."""
@@ -3084,8 +3225,15 @@ def api_wallet_encrypt():
     if not running:
         return {"success": False, "error": "Node is offline"}
 
+    try:
+        check_stdin_secret(passphrase, "Passphrase")
+    except SecretInputError as e:
+        return {"success": False, "error": str(e)}
+
+    # -stdin appends the passphrase as the trailing argument of encryptwallet.
     success, output = run_bitcoin_cli(
-        ["encryptwallet", passphrase], datadir, network, wallet_name=name, timeout=120.0,
+        ["encryptwallet"], datadir, network, wallet_name=name, timeout=120.0,
+        flags=["-stdin"], stdin_lines=[passphrase],
     )
     if success:
         return {"success": True, "output": output}
@@ -3104,9 +3252,17 @@ def api_wallet_unlock():
     if not running:
         return {"success": False, "error": "Node is offline"}
 
+    try:
+        check_stdin_secret(passphrase, "Passphrase")
+    except SecretInputError as e:
+        return {"success": False, "error": str(e)}
+
+    # -stdinwalletpassphrase inserts the passphrase as walletpassphrase's first
+    # argument, so only the timeout travels on the command line.
     success, output = run_bitcoin_cli(
-        ["walletpassphrase", passphrase, str(timeout_secs)],
+        ["walletpassphrase", str(timeout_secs)],
         datadir, network, wallet_name=name, timeout=30.0,
+        flags=["-stdinwalletpassphrase"], stdin_lines=[passphrase],
     )
     if success:
         return {"success": True}
@@ -3145,9 +3301,18 @@ def api_wallet_change_passphrase():
     if not running:
         return {"success": False, "error": "Node is offline"}
 
+    try:
+        check_stdin_secret(old_pass, "Current passphrase")
+        check_stdin_secret(new_pass, "New passphrase")
+    except SecretInputError as e:
+        return {"success": False, "error": str(e)}
+
+    # -stdinwalletpassphrase takes the first stdin line as the old passphrase and
+    # -stdin appends the second as the new one; neither reaches argv.
     success, output = run_bitcoin_cli(
-        ["walletpassphrasechange", old_pass, new_pass],
+        ["walletpassphrasechange"],
         datadir, network, wallet_name=name, timeout=120.0,
+        flags=["-stdinwalletpassphrase", "-stdin"], stdin_lines=[old_pass, new_pass],
     )
     if success:
         return {"success": True}
@@ -3263,8 +3428,11 @@ def api_wallet_import_descriptors():
         "active": True,
         "internal": False,
     }])
+    # A descriptor can carry private key material (xprv/WIF), so it goes over
+    # stdin rather than argv. json.dumps never emits newlines, so it is one line.
     success, output = run_bitcoin_cli(
-        ["importdescriptors", req], datadir, network, wallet_name=name, timeout=120.0,
+        ["importdescriptors"], datadir, network, wallet_name=name, timeout=120.0,
+        flags=["-stdin"], stdin_lines=[req],
     )
     if success:
         try:
@@ -3379,8 +3547,26 @@ def api_get_logs():
 def start_bottle_server(port):
     run(host='127.0.0.1', port=port, quiet=True)
 
+def _node_conf_for_outbound():
+    """bitcoin.conf of the running node, for oracle_net's proxy lookup."""
+    _, datadir, network = get_node_context()
+    bitcoin_conf_path, _ = get_config_paths(datadir, network)
+    return parse_bitcoin_conf(bitcoin_conf_path)
+
+
+oracle_net.set_node_conf_provider(_node_conf_for_outbound)
+
+
 def main():
+    global _dashboard_port
     dashboard_port = find_available_port(8080)
+    _dashboard_port = dashboard_port
+    token_file = write_gui_token_file(GUI_API_TOKEN)
+    if token_file:
+        print(f"Control Center API token written to {token_file} (owner-only).")
+    else:
+        print("Warning: could not write the API token file; the token is still "
+              "required and is only held in memory for this run.")
     
     # Start Bottle server in background thread
     server_thread = threading.Thread(target=start_bottle_server, args=(dashboard_port,), daemon=True)
@@ -3395,10 +3581,12 @@ def main():
         sys.exit(1)
 
     try:
+        dashboard_url = f"http://127.0.0.1:{dashboard_port}/?token={GUI_API_TOKEN}"
         print(f"Opening Oracle Knots Control Center on port {dashboard_port}...")
+        print(f"To open it in a browser instead: {dashboard_url}")
         window = webview.create_window(
             title="Oracle Knots — The Oracle Watches",
-            url=f"http://127.0.0.1:{dashboard_port}",
+            url=dashboard_url,
             width=1250,
             height=850,
             background_color="#05070e",

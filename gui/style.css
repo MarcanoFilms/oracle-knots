@@ -27,7 +27,7 @@
     --text-muted: #475569;
     
     --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    --font-mono: 'Fira Code', monospace;
+    --font-mono: 'Fira Code', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     
     --sidebar-width: 260px;
     --sidebar-width-collapsed: 64px;
