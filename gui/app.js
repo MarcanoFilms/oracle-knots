@@ -1297,14 +1297,19 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     
     async function fetchBtcPrice() {
+        // Goes through our own backend rather than straight to CoinGecko: a
+        // request from this window would leave the node's IP address with a
+        // third party, bypassing the proxy the node itself uses.
         try {
-            const res = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd');
+            const res = await fetch('/api/bitcoin/price?currency=usd');
             const data = await res.json();
-            if (data.bitcoin && data.bitcoin.usd) {
-                btcPriceUsd = data.bitcoin.usd;
+            if (data.success && data.price && data.price.usd) {
+                btcPriceUsd = data.price.usd;
+            } else if (data.error) {
+                console.log(`BTC reference price unavailable: ${data.error}`);
             }
         } catch (e) {
-            console.log("CoinGecko offline, using simulated BTC price of $93,500");
+            console.log("BTC reference price unavailable, using the simulated value");
         }
     }
 

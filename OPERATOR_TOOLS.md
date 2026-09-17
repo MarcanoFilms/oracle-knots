@@ -9,7 +9,9 @@ BIP-110 deployment status, mempool policy audit, and preflight diagnostics.
 2. **Sovereign template stats (C++)** — `BlockAssembler` tracks policy-filtered txs; Prometheus + RPC expose them.
 3. **Operator RPCs** — `getsovereigntemplatestats`, `getsovereigndiagnostics`, `getmempoolpolicyaudit`, `getrecentpolicyrejections`.
 4. **GUI** — Dashboard mining panel, BIP-110 progress bar, mempool policy modal, preflight strip, filtered logs.
-5. **Prometheus** — Template and BIP-110 gauges; fixed HELP/TYPE headers.
+5. **Prometheus** — Template and BIP-110 gauges; fixed HELP/TYPE headers. The
+   exporter listens on loopback only unless `-prometheusbind` says otherwise,
+   because it serves this telemetry without authentication.
 
 All mempool/template features work in **pruned mode** (no `txindex` required).
 

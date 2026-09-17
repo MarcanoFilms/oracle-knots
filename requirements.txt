@@ -2,3 +2,9 @@
 bottle>=0.13.0
 pywebview>=5.0
 proxy_tools>=0.1.0
+# api/bitcoin_price.py has always imported requests; listing it so a fresh
+# install actually gets the price routes instead of silently skipping them.
+requests>=2.31.0
+# SOCKS5 support, so price lookups can follow the node's proxy (Tor) instead of
+# going out in the clear. Without it, those lookups are refused rather than leaked.
+PySocks>=1.7.1

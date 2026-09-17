@@ -1,5 +1,50 @@
 # Changelog
 
+## Unreleased — hardening
+
+Security fixes across the node and the Control Center. No consensus code is
+touched: the node's validation rules are unchanged.
+
+### Node
+- **The Prometheus exporter no longer listens on every interface.** It bound
+  `INADDR_ANY` while `-prometheus` defaults to on, so every node published its
+  height, peer counts, mempool and uptime to anyone who could reach the host,
+  unauthenticated. It now binds loopback, with `-prometheusbind=<addr>` to widen
+  it deliberately, and warns in the log when that address is not loopback.
+- The exporter serves one client at a time, so it now sets a send/receive timeout
+  per connection: a client that connected and stayed quiet used to stall every
+  later scrape.
+
+### Control Center
+- **The API requires a per-run token.** Loopback alone was no boundary: any other
+  user on the machine could reach wallet send, dump and unlock, plus the
+  `bitcoin-cli` passthrough. The token is written to `~/.oracle-knots/gui.token`
+  (0600) and injected into the page the launcher opens.
+- **Requests must be addressed to a loopback `Host`**, and cross-site `Origin`s are
+  refused. This is what stops DNS rebinding, where a website resolves its own
+  hostname to `127.0.0.1` and so looks same-origin to the browser.
+- **Wallet passphrases are no longer passed as command-line arguments.** Unlock,
+  encrypt and change-passphrase now use `bitcoin-cli -stdinwalletpassphrase`/
+  `-stdin`, so secrets cannot be read from `ps` or `/proc/<pid>/cmdline`.
+  Imported descriptors, which can carry an xprv, go the same way.
+- **Price lookups follow the node's proxy.** The Neoxa ticker and the CoinGecko and
+  Kraken reference prices went out in the clear, exposing the IP of a node meant to
+  be reachable only over Tor. They now use `proxy=`/`onion=` from `bitcoin.conf`
+  with DNS resolved by the proxy, and fail closed when that is impossible.
+  `ORACLE_PRICE_FETCH=off`/`=direct` are the operator overrides.
+- The dashboard no longer fetches webfonts from a CDN, and the BTC reference price
+  is fetched by the backend instead of directly by the window.
+- `requests` and `PySocks` are now declared in `requirements.txt`. `requests` was
+  always imported by `api/bitcoin_price.py`, so without it the price routes were
+  silently skipped.
+
+### Tests and CI
+- New `test/gui/` suite (38 tests) covering the API guard, the Host/Origin checks,
+  the token file's permissions, secret routing for every affected endpoint, and the
+  outbound proxy policy. It needs no node build.
+- Build CI now runs those tests in a separate fast job, and runs the fork's own
+  functional tests (`p2p_blake2b_*`) after the regtest smoke test.
+
 ## v2.0.0 — All-in-one BLAKE2b stack
 
 The headline release: Oracle Knots moves from a SHA-256d Knots fork to the
@@ -35,6 +80,4 @@ mining stack managed from one Control Center.
 
 ### Known follow-ups
 - Compile on a machine with Boost (`sudo pacman -S boost`); see docs/BUILD.md.
-- Pull `src/common/sighash_rules.cpp` (opt-in unified sighash) from the 29.4.1
-  tree for full parity — standard-signature spending works without it.
 - Deep JavaFX rebrand of Oracle Wallet (title bar still reads "Shrike").
