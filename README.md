@@ -11,17 +11,23 @@ proof-of-work fork of Bitcoin** (community ticker **XBT**, listed as **BTCB2** o
 Neoxa). Install one thing and get a fully verifying node, a wallet that can spend
 on the fork, and sovereign solo/pool mining — managed from a single Control
 Center. No compiling five separate programs.
+<img width="1918" height="1044" alt="image" src="https://github.com/user-attachments/assets/6155c28f-35d3-4fee-b543-d63478508838" />
+
 
 Philosophy: **"Don't Trust, Verify"**, sound money first, and keeping node
 verification lightweight by aggressively filtering non-financial data spam.
 
 > Follows the BLAKE2b chain: PoW is BLAKE2b, block headers are v2, mainnet
 > activation is at height **961640**. See **[docs/BLAKE2B.md](docs/BLAKE2B.md)**.
+> <img width="310" height="192" alt="image" src="https://github.com/user-attachments/assets/dab8bdbb-8b6e-479a-9e53-9f42db785dbd" />
+
 >
 > The node is built on **Bitcoin Knots 29.4.1** and reports
 > `/OracleKnots:29.4.1/…`. Its consensus code is byte-for-byte identical to a
 > node verified against the live BLAKE2b chain — the Oracle overlay only adds
 > non-consensus policy, mining and UI on top.
+><img width="424" height="72" alt="image" src="https://github.com/user-attachments/assets/325f0e55-d9f5-4353-94d6-1c4276298177" />
+
 
 ---
 
@@ -38,6 +44,9 @@ understands the fork: **your Oracle Knots node + Oracle Wallet**.
 | See balance / spend / sign XBT | **Oracle Wallet** (Shrike + BLAKE2b) → [docs/WALLET.md](docs/WALLET.md) |
 | Mine your own templates | **DATUM Gateway (CONVOY)**, bundled → [docs/MINING.md](docs/MINING.md) |
 | Watch it all | **Control Center** GUI |
+<img width="1919" height="1043" alt="image" src="https://github.com/user-attachments/assets/c205ec41-222a-4333-b4d3-63b7c117ab1c" />
+
+<img width="984" height="537" alt="image" src="https://github.com/user-attachments/assets/8f6c3049-bec4-4d4b-ab3d-5cbc5db67194" />
 
 ---
 
@@ -58,6 +67,9 @@ Owl:
   RPC, pruned-safe).
 - **Policy Engine**, **Fork Status**, **Config editor**, **Oracle CLI**,
   **Console Logs**.
+  <img width="1645" height="1019" alt="image" src="https://github.com/user-attachments/assets/d267bb2c-0fac-41af-8c6f-f478822f5067" />
+<img width="1657" height="1035" alt="image" src="https://github.com/user-attachments/assets/df1e36b4-45c2-490f-8877-16c9670d6d51" />
+
 
 Launch everything:
 
