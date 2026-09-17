@@ -20,6 +20,8 @@
 
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <arpa/inet.h>
+#include <sys/time.h>
 #include <unistd.h>
 #include <poll.h>
 
@@ -28,7 +30,10 @@ namespace OraclePrometheus {
 static std::atomic<bool> g_prometheus_run{false};
 static std::thread g_prometheus_thread;
 
-static void ExporterThread(const node::NodeContext& node, int port) {
+//! Per-client send/receive timeout for the single-threaded serving loop.
+static constexpr int CLIENT_TIMEOUT_SECONDS{5};
+
+static void ExporterThread(const node::NodeContext& node, std::string bind_addr, int port) {
     int server_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (server_fd < 0) {
         LogPrintf("Oracle Prometheus: Error creating socket: %s\n", std::strerror(errno));
@@ -45,8 +50,22 @@ static void ExporterThread(const node::NodeContext& node, int port) {
     struct sockaddr_in address;
     std::memset(&address, 0, sizeof(address));
     address.sin_family = AF_INET;
-    address.sin_addr.s_addr = INADDR_ANY; // Bind to all interfaces
     address.sin_port = htons(port);
+
+    // The exporter serves unauthenticated node telemetry (height, peers, mempool,
+    // uptime), so it binds to loopback unless the operator explicitly widens it
+    // with -prometheusbind. An unparseable address is a hard error rather than a
+    // silent fall back to every interface.
+    if (inet_pton(AF_INET, bind_addr.c_str(), &address.sin_addr) != 1) {
+        LogPrintf("Oracle Prometheus: Invalid -prometheusbind address '%s'; exporter not started\n", bind_addr);
+        close(server_fd);
+        return;
+    }
+    if (address.sin_addr.s_addr != htonl(INADDR_LOOPBACK)) {
+        LogPrintf("Oracle Prometheus: Warning: exporter bound to %s, which is reachable beyond this machine. "
+                  "The metrics endpoint has no authentication; firewall port %d or use -prometheusbind=127.0.0.1\n",
+                  bind_addr, port);
+    }
 
     if (bind(server_fd, (struct sockaddr*)&address, sizeof(address)) < 0) {
         LogPrintf("Oracle Prometheus: Error binding to port %d: %s\n", port, std::strerror(errno));
@@ -60,7 +79,7 @@ static void ExporterThread(const node::NodeContext& node, int port) {
         return;
     }
 
-    LogPrintf("Oracle Prometheus: Exporter listening on port %d\n", port);
+    LogPrintf("Oracle Prometheus: Exporter listening on %s:%d\n", bind_addr, port);
 
     struct pollfd fds[1];
     fds[0].fd = server_fd;
@@ -78,6 +97,15 @@ static void ExporterThread(const node::NodeContext& node, int port) {
         if (fds[0].revents & POLLIN) {
             int client_fd = accept(server_fd, nullptr, nullptr);
             if (client_fd >= 0) {
+                // This loop serves one client at a time, so a peer that connects
+                // and then goes quiet would otherwise block every later scrape.
+                // Time out both directions.
+                struct timeval tv;
+                tv.tv_sec = CLIENT_TIMEOUT_SECONDS;
+                tv.tv_usec = 0;
+                setsockopt(client_fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+                setsockopt(client_fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+
                 // Read request headers (and ignore them)
                 char buffer[1024];
                 int bytes_read = recv(client_fd, buffer, sizeof(buffer) - 1, 0);
@@ -189,11 +217,11 @@ static void ExporterThread(const node::NodeContext& node, int port) {
     LogPrintf("Oracle Prometheus: Exporter thread stopped\n");
 }
 
-void StartPrometheusExporter(const node::NodeContext& node, int port) {
+void StartPrometheusExporter(const node::NodeContext& node, const std::string& bind_addr, int port) {
     if (g_prometheus_run) return;
 
     g_prometheus_run = true;
-    g_prometheus_thread = std::thread(ExporterThread, std::ref(node), port);
+    g_prometheus_thread = std::thread(ExporterThread, std::ref(node), bind_addr, port);
 }
 
 void StopPrometheusExporter() {

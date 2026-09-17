@@ -789,6 +789,7 @@ void SetupServerArgs(ArgsManager& argsman, bool can_listen_ipc)
     argsman.AddArg("-maxopreturnoutputs=<n>", "Maximum number of allowed OP_RETURN outputs per transaction (default: 0)", ArgsManager::ALLOW_ANY, OptionsCategory::NODE_RELAY);
     argsman.AddArg("-prometheus", "Enable native Prometheus metrics exporter HTTP server (default: true)", ArgsManager::ALLOW_ANY, OptionsCategory::NODE_RELAY);
     argsman.AddArg("-prometheusport=<port>", "Port for the Prometheus metrics exporter (default: 9332)", ArgsManager::ALLOW_ANY, OptionsCategory::NODE_RELAY);
+    argsman.AddArg("-prometheusbind=<addr>", strprintf("Bind the Prometheus metrics exporter to the given IPv4 address. The endpoint is unauthenticated, so it stays on loopback unless you widen it deliberately, e.g. -prometheusbind=0.0.0.0 (default: %s)", OraclePrometheus::DEFAULT_PROMETHEUS_BIND), ArgsManager::ALLOW_ANY, OptionsCategory::NODE_RELAY);
 
 
     argsman.AddArg("-blockmaxsize=<n>", strprintf("Set maximum block size in bytes (default: %d)", DEFAULT_BLOCK_MAX_SIZE), ArgsManager::ALLOW_ANY, OptionsCategory::BLOCK_CREATION);
@@ -2494,7 +2495,8 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
     // Start native Prometheus metrics exporter
     if (args.GetBoolArg("-prometheus", true)) {
         int prom_port = args.GetIntArg("-prometheusport", 9332);
-        OraclePrometheus::StartPrometheusExporter(node, prom_port);
+        const std::string prom_bind{args.GetArg("-prometheusbind", OraclePrometheus::DEFAULT_PROMETHEUS_BIND)};
+        OraclePrometheus::StartPrometheusExporter(node, prom_bind, prom_port);
     }
 
     // Check privacy settings for mainnet
