@@ -1,9 +1,10 @@
-Bitcoin Knots version 29.4.1.knots20260508 is now available from:
+Bitcoin Knots version 29.4.2.knots20260508 is now available from:
 
-  <https://bitcoinknots.org/files/29.x/29.4.1.knots20260508/>
+  <https://bitcoinknots.org/files/29.x/29.4.2.knots20260508/>
 
-This release includes mitigation of the ongoing attack on the network, as well
-as a few improvements to spam filters.
+This release includes further mitigation of the ongoing attack on the network.
+[Please read below](#FIXME) for important informed consent on this and upcoming planned
+changes.
 
 Please report bugs using the issue tracker at GitHub:
 
@@ -25,9 +26,9 @@ Upgrading directly from very old versions of Bitcoin Core or Knots is possible,
 but it might take some time if the data directory needs to be migrated. Old
 wallet versions of Bitcoin Knots are generally supported.
 
-If your node was old, pruned, and followed invalid blocks, your node may need
-to re-sync the blockchain from scratch. You will be asked at startup if this
-is necessary.
+If your node is already pruned past September 21 when you upgrade, your node
+may need to re-sync the blockchain from scratch. You will be asked at startup
+if this is necessary.
 
 Compatibility
 ==============
@@ -53,109 +54,71 @@ to do so until/unless that is resolved.
 Attack Mitigation
 =================
 
-On August 8th, most former miners abandoned Bitcoin en masse and together with
-other bad actors have been falsely promoting a new altcoin as "Bitcoin". This
-is the biggest attack on the Bitcoin network to date, and brought the network
-to a crawl.
+Due to attacks from apathetic BLAKE2b incumbents looking to exploit Bitcoin for
+profit, the community has decided to extend the current (since 2009) 16-hour
+(100 blocks) maturity lock time on newly mined bitcoins up to 350 days, and
+possibly make it contingent on actually mining (the attackers are blind hashing
+instead of mining).
 
-Mitigating this attack unfortunately requires a backward-incompatible protocol
-change, included in this release. It has been 13 years since the last such
-change, and several other security issues had been deferred; where practical,
-those have also been fixed at the same time.
+Because this has the potential for negative side-effects and not been discussed
+more broadly (only within the active #strategic chat), this release of Bitcoin
+Knots deploys only a 45-day maturity time, but nothing more. If consensus is
+reached to extend it further, or withhold payment to attackers, a future update
+will be needed. However, miners and hashers are now on notice that these
+options are being considered and they may need to wait much longer or (if not
+mining with their own node) never be paid at all. Users should upgrade to this
+new version as soon as possible, and plan for updates around mid-October
+and 2027 August.
 
-These changes are included:
-- Fix poison blocks (CVE-2013-2292)
-- Fix unintentional fees (CVE-2020-14199)
-- Fix block tx count mutation (CVE-2017-12842)
-- Fix for block withholding attacks
-- Minor changes to BIP110 (Reduced Data Temporary Softfork) activation/expiry
-- Temporary 800 kWU block weight limit (approximately 300kB in size)
-- BLAKE2b proof-of-work algorithm (mitigates ongoing attack)
-- Efficiency improvements for mining hardware
-- Future-proofing for merge mined sidechains
-- Future-proofing for 40-bit block times
+If you are "mining" without running DATUM Gateway yourself, you are NOT
+actually mining, and are in fact attacking the network. You should expect to
+_never_ get paid any rewards for that going forward. If you wish to mine
+properly, set up your own DATUM Gateway and use it for mining. There is
+volunteer tech support available on the Knots Discord ⁠#support channel. Or for
+basic instructions, see:
 
-Note that other software, such as third-party wallets, may require upgrades to
-remain compatible.
+  <https://bitcoinknots.org/learn/mining>
 
-If you intend to sell, gift, or spend fake “bitcoins” on the new altcoin
-launched by former miners, you should ensure your wallet supports the new
-SIGHASH_UNIFIED signature format and re-send your bitcoins to yourself using
-it first (the usual cautions on waiting for the transaction to confirm are
-applicable).
+Please join and participate in the #⁠⁠strategic Discord channel if you hold any opinion or wish to discuss suggestions/plans on this matter.
 
-For more information, please visit:
-
-  <https://bitcoinknots.org/learn/2026-blake2b>
+  <https://bitcoinknots.org/social/discord>
 
 Notable changes
 ===============
 
-- The `rejecttokens` spam filter has been enabled by default, and now also
-  detects Counterparty transactions.
-
-- The `getblockheader` and `getblock` RPC methods now additionally include new
-  block headers: "txcount" (present only when known, replaces the deprecated
-  "nTx" key), "header_version", "nonce2", "nonce3", "extranonce",
-  "time_offset", "header_flags", "xor_key", "xor_key_mask_clear_bits", and
-  "mm_rhs".
+- SHA256d difficulty and BLAKE2b difficulty are entirely different units and
+  cannot be compared or converted. To address this, the "difficulty" field has
+  been removed where applicable (SHA256d block information retains it), and
+  the `getdifficulty` RPC method has been removed (use `getblockchaininfo`
+  instead). knots#420
 
 ### Validation
 
-- knots#357 Consensus: Unified opt-in sighash for all transaction types
-- knots#358 Consensus: Activate RDTS at the PoW-change hardfork (flag day)
-- knots#359 Hardfork: New BLAKE2b proof-of-work algorithm
-- knots#360 validation: check the block index after InvalidateBlock repairs it
-- knots#385 HARDFORK: BLAKE2b Parameters (Mainnet & Testnet4)
+- knots#419 T.Softfork: Long coinbase maturity (part 1 of 3)
 
 ### Net
 
-- knots#368 p2p: Prefer NODE_BLAKE2B peers instead of NODE_REDUCED_DATA
-- knots#375 net: add Léo Haf testnet4 seed
-- knots#386 net: base DNS-seed cadence on NODE_BLAKE2B peer count
-
-### Policy
-
-- knots#349 policy: reject Counterparty messages under -rejecttokens
-- knots#354 defaults: Enable rejecttokens by default
-
-### GUI
-
-- knots#377 qt: Fix MSVC C4305 in MempoolStats::drawChart
+- #30951 net: Support -listen with -v2onlyclearnet properly
+- #35766 p2p: Assume v2transport for addresses from seeds
+- seeds: update fixed dns seeds for mainnet and testnet4
 
 ### RPC
 
-- knots#363 rpc: expose v2 header fields in blockheaderToJSON
+- knots#420 Bugfix: RPC: Replace SHA256d "difficulty" with "difficulty_blake2b"
 
 ### Misc
 
-- knots#362 Remove the RDTS consent requirement
+- knots#365 test: Skip the completion-file comparison in pull request CI
 
 Credits
 =======
 
 Thanks to everyone who directly contributed to this release:
 
-- AcesHigh70
-- Bill Cox
 - Chris Guida
-- Christian Heimes
-- CodesInChaos
-- Frank Denis
-- Hodlinator
-- Jason A. Donenfeld
-- Jason Sopko
-- JP Aumasson
-- Kai Köhne
-- Kyle Santiago
-- Léo Haf
-- Lőrinc
 - Luke Dashjr
-- Mangix
-- mjvk
-- Pádraig Brady
-- Philip D'Ath
-- Samuel Neves
+- Martin Zumsande
+- stratospher
 
 As well as to the rest of the community for your patience and support as we
 mitigate the biggest attack on Bitcoin in history.
