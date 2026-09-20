@@ -1,80 +1,219 @@
-Bitcoin Knots
-=============
+# Oracle Knots — the sovereign BLAKE2b stack
 
-https://bitcoinknots.org
+<img width="420" height="142" alt="Oracle Knots" src="https://github.com/user-attachments/assets/d227f2b0-7f68-4629-a2a9-cae9ea38604e" />
 
-For an immediately usable, binary version of the Bitcoin Knots software, see
-the website.
+[![Build CI](https://github.com/MarcanoFilms/oracle-knots/actions/workflows/build.yml/badge.svg)](https://github.com/MarcanoFilms/oracle-knots/actions/workflows/build.yml)
+[![Latest release](https://img.shields.io/github/v/release/MarcanoFilms/oracle-knots?display_name=tag)](https://github.com/MarcanoFilms/oracle-knots/releases/latest)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](COPYING)
 
-What is Bitcoin Knots?
-----------------------
+Oracle Knots is an **all-in-one node, wallet, and mining stack for the BLAKE2b
+proof-of-work fork of Bitcoin** (community ticker **XBT**, listed as **BTCB2** on
+Neoxa). Install one thing and get a fully verifying node, a wallet that can spend
+on the fork, and sovereign solo/pool mining — managed from a single Control
+Center. No compiling five separate programs.
+<img width="1918" height="1044" alt="image" src="https://github.com/user-attachments/assets/6155c28f-35d3-4fee-b543-d63478508838" />
 
-Bitcoin Knots connects to the Bitcoin peer-to-peer network to download and fully
-validate blocks and transactions. It also includes a wallet and graphical user
-interface, which can be optionally built.
 
-Further information about Bitcoin Knots is available in the [doc folder](/doc).
+Philosophy: **"Don't Trust, Verify"**, sound money first, and keeping node
+verification lightweight by aggressively filtering non-financial data spam.
 
-License
--------
+> Follows the BLAKE2b chain: PoW is BLAKE2b, block headers are v2, mainnet
+> activation is at height **961640**. See **[docs/BLAKE2B.md](docs/BLAKE2B.md)**.
+> <img width="310" height="192" alt="image" src="https://github.com/user-attachments/assets/dab8bdbb-8b6e-479a-9e53-9f42db785dbd" />
 
-Bitcoin Knots is released under the terms of the MIT license. See [COPYING](COPYING) for more
-information or see https://opensource.org/licenses/MIT.
+>
+> The node is built on **Bitcoin Knots 29.4.1** and reports
+> `/OracleKnots:29.4.1/…`. Its consensus code is byte-for-byte identical to a
+> node verified against the live BLAKE2b chain — the Oracle overlay only adds
+> non-consensus policy, mining and UI on top.
+><img width="424" height="72" alt="image" src="https://github.com/user-attachments/assets/325f0e55-d9f5-4353-94d6-1c4276298177" />
 
-Development Process
--------------------
 
-Development generally takes place as part of [Bitcoin Core](https://github.com/bitcoin/bitcoin), and is merged into
-Knots for each release.
+---
 
-Even if your pull request to Core is closed, or if your feature is not
-suitable for Core (eg, because it builds on a feature not supported in Core;
-relies on centralised services; etc), it may still be eligible for inclusion
-in Bitcoin Knots. In this case, a pull request may be opened on the
-[Knots GitHub](https://github.com/bitcoinknots/bitcoin) for review and consideration.
-When accepted, you are expected to maintain the submitted branch in your own
-repository, and it will be automatically merged into new releases of Knots.
+## Why you need *this* stack
 
-Developer IRC can be found on Freenode at #bitcoin-dev.
+Standard wallets (Electrum, online Sparrow, BlueWallet) **cannot connect to the
+BLAKE2b chain** — they validate 80-byte SHA-256d headers client-side and reject
+the fork's v2 headers. So the only way to see and spend XBT is software that
+understands the fork: **your Oracle Knots node + Oracle Wallet**.
 
-Testing
--------
+| You want to… | Use |
+|---|---|
+| Verify the BLAKE2b chain | Oracle Knots **node** |
+| See balance / spend / sign XBT | **Oracle Wallet** (Shrike + BLAKE2b) → [docs/WALLET.md](docs/WALLET.md) |
+| Mine your own templates | **DATUM Gateway (CONVOY)**, bundled → [docs/MINING.md](docs/MINING.md) |
+| Watch it all | **Control Center** GUI |
+<img width="1919" height="1043" alt="image" src="https://github.com/user-attachments/assets/c205ec41-222a-4333-b4d3-63b7c117ab1c" />
 
-Testing and code review is the bottleneck for development; we get more pull
-requests than we can review and test on short notice. Please be patient and help out by testing
-other people's pull requests, and remember this is a security-critical project where any mistake might cost people
-lots of money.
+<img width="984" height="537" alt="image" src="https://github.com/user-attachments/assets/8f6c3049-bec4-4d4b-ab3d-5cbc5db67194" />
 
-### Automated Testing
+---
 
-Developers are strongly encouraged to write [unit tests](src/test/README.md) for new code, and to
-submit new unit tests for old code. Unit tests can be compiled and run
-(assuming they weren't disabled during the generation of the build system) with: `ctest`. Further details on running
-and extending unit tests can be found in [/src/test/README.md](/src/test/README.md).
+## The all-in-one Control Center
 
-There are also [regression and integration tests](/test), written
-in Python.
-These tests can be run (if the [test dependencies](/test) are installed) with: `build/test/functional/test_runner.py`
-(assuming `build` is your build directory).
+A mobile-first desktop dashboard (`pywebview` + Bottle) branded with the Oracle
+Owl:
 
-The CI (Continuous Integration) systems make sure that every pull request is built for Windows, Linux, and macOS,
-and that unit/sanity tests are run automatically.
+- **Dashboard** — sync, block template stats, fork consensus (BLAKE2b/RDTS),
+  mempool, recent blocks, **live XBT price from Neoxa** (with a high-risk
+  disclaimer), and policy-rejection summary.
+- **Wallet** — the built-in wallet plus an **Oracle Wallet** card that
+  configures Shrike's connection to your node in one click and launches it.
+  Balances are valued in **XBT** (not BTC).
+- **Sovereign Mining** — start/stop and **fully configure the DATUM Gateway
+  in-app** (auto-injects node RPC), with live hashrate, shares, and pool status.
+- **Mempool Explorer** — fee-rate distribution and top transactions (standard
+  RPC, pruned-safe).
+- **Policy Engine**, **Fork Status**, **Config editor**, **Oracle CLI**,
+  **Console Logs**.
+  <img width="1645" height="1019" alt="image" src="https://github.com/user-attachments/assets/d267bb2c-0fac-41af-8c6f-f478822f5067" />
+<img width="1657" height="1035" alt="image" src="https://github.com/user-attachments/assets/df1e36b4-45c2-490f-8877-16c9670d6d51" />
 
-### Manual Quality Assurance (QA) Testing
 
-Changes should be tested by somebody other than the developer who wrote the
-code. This is especially important for large or high-risk changes. It is useful
-to add a test plan to the pull request description if testing the changes is
-not straightforward.
+Launch everything:
 
-Translations
-------------
+```bash
+./oracle-knots            # ensure the node is up + open the Control Center
+./oracle-knots --with-datum --wallet   # also start mining + open Oracle Wallet
+./oracle-knots status     # component status, starts nothing
+```
 
-Changes to translations as well as new translations can be submitted to
-[Bitcoin Core's Transifex page](https://explore.transifex.com/bitcoin/bitcoin/).
+---
 
-Translations are periodically pulled from Transifex and merged into the git repository. See the
-[translation process](doc/translation_process.md) for details on how this works.
+## Node features vs. Bitcoin Knots
 
-**Important**: We do not accept translation changes as GitHub pull requests because the next
-pull from Transifex would automatically overwrite them again.
+1. **BLAKE2b proof-of-work fork** — header v2, `DEPLOYMENT_BLAKE2B` (mainnet
+   961640), consensus-critical `blake2b_headline`, opt-in unified sighash.
+2. **Full BIP-110 / RDTS support** — `-bip110=auto|always|never` to configure
+   the reduced-data soft-fork enforcement.
+3. **Declarative Policy Engine** — runtime `policy.toml` with profiles
+   (`maximalist`, `bip110-strict`, `monetary-only`, `default-knots`).
+4. **Sovereign mining template filtering** — the block assembler drops mempool
+   txs that violate *your* policy.
+5. **Native Prometheus exporter** (`-prometheusport`, default 9332), bound to
+   loopback unless you widen it with `-prometheusbind`. The endpoint is
+   unauthenticated, so it is not exposed to your network by default.
+6. **Resource-aware defaults** and a **branded `OracleKnots` P2P user agent**.
+
+See **[OPERATOR_TOOLS.md](OPERATOR_TOOLS.md)** for the operator RPCs.
+
+---
+
+## Build & run
+
+**Verified platform:** Linux x86-64 (Ubuntu 24.04) — built and smoke-tested on
+every push by the [Build CI](https://github.com/MarcanoFilms/oracle-knots/actions/workflows/build.yml).
+Prebuilt binaries are on the [Releases page](https://github.com/MarcanoFilms/oracle-knots/releases/latest).
+
+Full instructions (deps, submodule, verification): **[docs/BUILD.md](docs/BUILD.md)**.
+
+```bash
+git clone https://github.com/MarcanoFilms/oracle-knots.git
+cd oracle-knots
+git submodule update --init --recursive   # DATUM Gateway (CONVOY)
+./build.sh                                 # node + DATUM
+./setup-gui.sh                             # one-time GUI venv
+./oracle-knots                             # launch the stack
+```
+
+**GUI deps** (Arch): `python`, `python-gobject`, `webkit2gtk-4.1`, `gtk3`
+(pywebview's GTK/WebKit backend). Python packages in `requirements.txt`.
+`server=1` in `bitcoin.conf` is required for wallet/CLI.
+
+### Troubleshooting the Control Center
+
+`./launch.sh` already sets the env below; you only need it if you launch
+`gui.py` yourself.
+
+- **Window opens then closes / `Error 71 (Protocol error) dispatching to Wayland
+  display`** (Wayland + NVIDIA): route the window through XWayland and disable
+  WebKit's DMABUF renderer — `GDK_BACKEND=x11 WEBKIT_DISABLE_DMABUF_RENDERER=1`.
+  Do **not** set `WEBKIT_DISABLE_COMPOSITING_MODE=1`; it stops the dashboard from
+  rendering.
+- **Dashboard stuck on "DISCONNECTED" / dead buttons**: an older build; update to
+  the latest — `localStorage` access is now guarded so the UI can't be aborted by
+  a WebKit `SecurityError`.
+- **"Refused: missing or invalid API token"**: the page was opened without the
+  per-run token. Launch it with `./oracle-knots` (which passes the token), or open
+  `http://127.0.0.1:<port>/?token=$(cat ~/.oracle-knots/gui.token)`.
+- **No price shown, with a message about PySocks**: your node routes through a
+  proxy, so the price lookup needs SOCKS support. `pip install -r requirements.txt`,
+  or set `ORACLE_PRICE_FETCH=direct` to accept direct connections.
+
+---
+
+## Recommended `bitcoin.conf`
+
+```ini
+# BLAKE2b consensus
+consensusrules=rdts
+blake2b_headline=<exact canonical headline>
+
+# Sovereign / resource-aware
+policyprofile=maximalist
+bip110=auto
+maxmempool=100
+prometheus=1
+prometheusport=9332
+# Loopback only, which is the default. Widen it (e.g. 0.0.0.0) only behind a
+# firewall: the metrics endpoint has no authentication.
+prometheusbind=127.0.0.1
+
+# Privacy
+proxy=127.0.0.1:9050
+onion=127.0.0.1:9050
+listenonion=1
+```
+
+---
+
+## Repository layout
+
+```
+gui.py, gui/            Control Center (backend + frontend)
+oracle_net.py           outbound network policy (proxy-aware price lookups)
+test/gui/               Control Center tests (no node build required)
+oracle-knots            all-in-one launcher
+build.sh                builds node + DATUM
+src/                    Oracle Knots node (Knots + BLAKE2b + policy engine)
+mining/datum-convoy/    DATUM Gateway (CONVOY) submodule
+contrib/datum/          sanitized DATUM example config
+contrib/wallet/         Oracle Wallet launcher + desktop entry
+docs/                   BLAKE2B, WALLET, MINING, BUILD
+```
+
+---
+
+## Security
+
+- No credentials are committed. Real DATUM/wallet configs are gitignored; only
+  sanitized examples are tracked.
+- The Control Center never sends `rpcpassword`/`admin_password` to the browser.
+- **The metrics exporter is loopback-only** by default (`-prometheusbind`), since
+  it serves node telemetry without authentication.
+- **The Control Center API requires a token.** One is minted per run, written to
+  `~/.oracle-knots/gui.token` (owner-readable only) and baked into the page the
+  launcher opens, so another user on the machine cannot drive your wallet through
+  `127.0.0.1`. Requests must also arrive addressed to a loopback `Host`, which is
+  what stops a website from reaching the dashboard by resolving its own name to
+  `127.0.0.1`.
+- **Wallet passphrases never appear in the process list.** They are handed to
+  `bitcoin-cli` over stdin (`-stdinwalletpassphrase`/`-stdin`), so they cannot be
+  read out of `ps` or `/proc`. Imported descriptors travel the same way.
+- **No third-party requests in the clear.** Price lookups follow the node's own
+  `proxy=`/`onion=` setting, with DNS resolved by the proxy; if a proxy is
+  configured but unusable, the lookup is refused instead of leaking your IP.
+  `ORACLE_PRICE_FETCH=off` disables them entirely and `=direct` opts back into
+  direct connections. The dashboard also loads no webfonts or other remote assets.
+
+### Driving the API from the command line
+
+```bash
+TOKEN=$(cat ~/.oracle-knots/gui.token)
+curl -H "X-Oracle-Token: $TOKEN" http://127.0.0.1:8080/api/status
+```
+
+## License
+
+MIT. See [COPYING](COPYING).

@@ -1,0 +1,347 @@
+/**
+ * Oracle Knots - Bitcoin Price Widget Styles
+ *
+ * Compact strip design — integrates with Oracle Knots dark theme.
+ * Uses design tokens from design-tokens.css (no hardcoded colors).
+ * Target height: ≤90px total.
+ */
+
+/* ============================================================
+   PRICE WIDGET — MAIN CONTAINER
+   ============================================================ */
+
+.price-widget {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 8px 56px 8px 12px; /* right padding reserves space for watermark */
+    position: relative;
+    overflow: hidden;
+    transition: border-color 0.2s;
+}
+
+/* Bitcoin Knots watermark — subtle respect for the community */
+.price-widget::after {
+    content: '';
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 44px;
+    height: 44px;
+    background: url('/static/assets/bitcoinknots-logo.svg') no-repeat center / contain;
+    opacity: 0.07;
+    pointer-events: none;
+}
+
+/* ============================================================
+   PRICE HEADER — TITLE & CONTROLS
+   ============================================================ */
+
+.price-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 4px;
+    gap: 0.5rem;
+}
+
+.price-title {
+    font-size: 9px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    color: var(--text-secondary);
+    margin: 0;
+}
+
+.price-controls {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+}
+
+/* ============================================================
+   CURRENCY SELECTOR
+   ============================================================ */
+
+.currency-dropdown {
+    background: var(--bg-secondary, var(--bg-card));
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    padding: 2px 5px;
+    border-radius: 5px;
+    font-size: 10px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: border-color 0.15s;
+}
+
+.currency-dropdown:hover {
+    border-color: var(--accent-cyan, #00d4ff);
+}
+
+.currency-dropdown:focus {
+    outline: none;
+    border-color: var(--accent-cyan, #00d4ff);
+}
+
+.currency-dropdown option {
+    background: var(--bg-darkest, #05070e);
+    color: var(--text-primary);
+}
+
+/* ============================================================
+   REFRESH BUTTON
+   ============================================================ */
+
+.btn-refresh {
+    background: var(--bg-secondary, var(--bg-card));
+    color: var(--text-secondary);
+    border: 1px solid var(--border-color);
+    padding: 2px 5px;
+    border-radius: 5px;
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition: border-color 0.15s, color 0.15s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 22px;
+    height: 22px;
+}
+
+.btn-refresh:hover {
+    border-color: var(--accent-cyan, #00d4ff);
+    color: var(--accent-cyan, #00d4ff);
+}
+
+.btn-refresh.spinning {
+    animation: pw-spin 1s linear infinite;
+}
+
+@keyframes pw-spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+/* ============================================================
+   PRICE DISPLAY — CURRENT PRICE & CHANGE
+   ============================================================ */
+
+.price-display {
+    display: flex;
+    align-items: baseline;
+    gap: 1rem;
+    margin-bottom: 4px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.current-price {
+    flex: 1;
+}
+
+.price-amount {
+    font-size: 1.4rem;
+    font-weight: 700;
+    display: block;
+    color: var(--text-primary);
+    line-height: 1.2;
+}
+
+.price-change {
+    text-align: right;
+    min-width: 80px;
+}
+
+.change-percent {
+    font-size: 1rem;
+    font-weight: 600;
+    display: block;
+    margin-bottom: 1px;
+}
+
+.change-percent.positive {
+    color: var(--status-green, #22c55e);
+}
+
+.change-percent.negative {
+    color: var(--accent-cyan, #00d4ff);
+}
+
+.change-label {
+    font-size: 9px;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    display: block;
+}
+
+/* ============================================================
+   SPARKLINE CHART
+   ============================================================ */
+
+.sparkline-container {
+    margin-bottom: 4px;
+    height: 30px;
+    min-height: 30px;
+}
+
+.price-sparkline {
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+
+/* ============================================================
+   MARKET DATA — COMPACT GRID
+   ============================================================ */
+
+.market-data {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.5rem;
+    padding-top: 4px;
+    border-top: 1px solid var(--border-color);
+}
+
+.market-item {
+    text-align: center;
+}
+
+.market-item label {
+    display: block;
+    font-size: 8px;
+    color: var(--text-secondary);
+    margin-bottom: 2px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-weight: 600;
+}
+
+.market-value {
+    display: block;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-primary);
+    word-break: break-word;
+}
+
+/* ============================================================
+   PRICE FOOTER — UPDATE TIME
+   ============================================================ */
+
+.price-footer {
+    margin-top: 2px;
+    padding-top: 2px;
+    border-top: 1px solid var(--border-color);
+    text-align: center;
+    font-size: 9px;
+    color: var(--text-secondary);
+    opacity: 0.8;
+}
+
+/* ============================================================
+   RESPONSIVE
+   ============================================================ */
+
+@media (max-width: 768px) {
+    .price-widget {
+        padding: 6px 48px 6px 10px;
+    }
+
+    .price-amount {
+        font-size: 1.2rem;
+    }
+
+    .change-percent {
+        font-size: 0.9rem;
+    }
+
+    .market-data {
+        grid-template-columns: 1fr;
+        gap: 3px;
+    }
+
+    .market-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        text-align: left;
+    }
+
+    .market-item label {
+        margin-bottom: 0;
+    }
+}
+
+@media (max-width: 480px) {
+    .price-widget {
+        padding: 5px 44px 5px 8px;
+        border-radius: 6px;
+    }
+
+    .price-header {
+        flex-direction: row;
+        gap: 4px;
+    }
+
+    .price-controls {
+        gap: 3px;
+    }
+}
+
+/* ============================================================
+   ALERT STATE
+   ============================================================ */
+
+.alert {
+    padding: 8px 10px;
+    border-radius: 6px;
+    font-size: 12px;
+}
+
+.alert-error {
+    background: rgba(239, 68, 68, 0.08);
+    border: 1px solid rgba(239, 68, 68, 0.25);
+    color: var(--status-red, #ef4444);
+}
+
+.alert-error strong {
+    color: var(--status-red, #ef4444);
+}
+
+/* ============================================================
+   IBD PERFORMANCE — disable transitions during sync
+   ============================================================ */
+
+body.ibd-mode .price-widget::after {
+    display: none; /* skip background-image paint on slow GPU */
+}
+
+/* ============================================================
+   PRINT STYLES
+   ============================================================ */
+
+@media print {
+    .price-widget {
+        box-shadow: none;
+        border: 1px solid #ccc;
+        background: white;
+        color: black;
+    }
+
+    .price-widget::after {
+        display: none;
+    }
+
+    .btn-refresh,
+    .currency-dropdown {
+        display: none;
+    }
+
+    .price-sparkline {
+        display: none;
+    }
+}

@@ -1,0 +1,37 @@
+{
+	"_comment": "Oracle Knots — DATUM Gateway (CONVOY) example config for the BLAKE2b chain. Copy to oracle-datum.conf.json and fill the placeholders. NEVER commit your filled-in config: it contains your RPC password and admin password. rpcuser/rpcpassword must match your node's bitcoin.conf. pool_address is YOUR BLAKE2b payout address.",
+	"bitcoind": {
+		"rpcuser": "datum",
+		"rpcpassword": "REPLACE_WITH_YOUR_BITCOIN_CONF_RPCPASSWORD",
+		"rpcurl": "http://127.0.0.1:8332",
+		"notify_fallback": true
+	},
+	"stratum": {
+		"listen_addr": "0.0.0.0",
+		"listen_port": 9735,
+		"vardiff_min": 1
+	},
+	"mining": {
+		"pool_address": "REPLACE_WITH_YOUR_BLAKE2B_PAYOUT_ADDRESS",
+		"coinbase_tag_primary": "OracleKnots",
+		"coinbase_tag_secondary": "sovereign-miner"
+	},
+	"api": {
+		"admin_password": "REPLACE_WITH_A_STRONG_ADMIN_PASSWORD",
+		"listen_addr": "127.0.0.1",
+		"listen_port": 7152,
+		"modify_conf": false
+	},
+	"logger": {
+		"log_to_console": true,
+		"log_level_console": 1
+	},
+	"datum": {
+		"pool_host": "b.pyblock.xyz",
+		"pool_port": 28915,
+		"pool_pubkey": "b5e0b0326b964a92f3046c73a76b9e98173e0c3ea0e0ca771f4e6a3dd92e2935b2caad2a088fdd7bf0a48fc0c41776a9abb13c7d4c6964b53a9ceee4c775e036",
+		"pool_pass_workers": true,
+		"pool_pass_full_users": true,
+		"pooled_mining_only": false
+	}
+}

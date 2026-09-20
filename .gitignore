@@ -21,3 +21,20 @@ test/lint/test_runner/target/
 /guix-build-*
 
 /ci/scratch/
+
+# --- Oracle Knots (all-in-one) ---
+# Real DATUM Gateway config holds rpcpassword/admin_password — never commit it.
+*datum*.conf.json
+*.conf.json.bak-*
+# Signed/unsigned PSBTs
+*.psbt
+# GUI python venv + caches
+gui-venv/
+.venv/
+__pycache__/
+*.pyc
+# Local build dirs
+build/
+build-*/
+# Node data must never be in-repo
+.bitcoin/

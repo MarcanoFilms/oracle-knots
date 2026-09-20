@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Oracle Wallet
+GenericName=Sovereign XBT Wallet
+Comment=Spend and sign XBT on the BLAKE2b chain via your Oracle Knots node
+Exec=oracle-wallet
+Icon=oracle-knots
+Terminal=false
+Categories=Finance;Network;
+Keywords=bitcoin;blake2b;xbt;wallet;oracle;knots;sovereign;
+StartupNotify=true

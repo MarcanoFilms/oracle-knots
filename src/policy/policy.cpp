@@ -6,6 +6,7 @@
 // NOTE: This file is intended to be customised by the end user, and includes only local node policy logic
 
 #include <policy/policy.h>
+#include <policy/oracle_policy.h>
 
 #include <coins.h>
 #include <consensus/amount.h>
@@ -184,13 +185,26 @@ static inline bool MaybeReject_(std::string& out_reason, const std::string& reas
 
 #define MaybeReject(reason)  do {  \
     if (MaybeReject_(out_reason, reason, reason_prefix, ignore_rejects)) {  \
+        if (record_rejections) {  \
+            OraclePolicy::RecordPolicyRejection(reason, tx.GetWitnessHash(), "relay");  \
+        }  \
         return false;  \
     }  \
 } while(0)
 
-bool IsStandardTx(const CTransaction& tx, const kernel::MemPoolOptions& opts, std::string& out_reason, const ignore_rejects_type& ignore_rejects)
+bool IsStandardTx(const CTransaction& tx, const kernel::MemPoolOptions& opts, std::string& out_reason, const ignore_rejects_type& ignore_rejects, bool record_rejections)
 {
     const std::string reason_prefix;
+
+    // Oracle Policy: reject ordinals/inscriptions
+    if (OraclePolicy::HasInscription(tx)) {
+        MaybeReject("inscription");
+    }
+
+    // Oracle Policy: restrict OP_RETURN outputs
+    if (OraclePolicy::ExceedsMaxOpReturns(tx)) {
+        MaybeReject("max-op-returns");
+    }
 
     if (tx.version > TX_MAX_STANDARD_VERSION || tx.version < 1) {
         MaybeReject("version");
@@ -362,6 +376,7 @@ static bool CheckSigopsBIP54(const CTransaction& tx, const CCoinsViewCache& inpu
  */
 bool AreInputsStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs, const kernel::MemPoolOptions& opts, const std::string& reason_prefix, std::string& out_reason, const ignore_rejects_type& ignore_rejects)
 {
+    const bool record_rejections{true};
     if (tx.IsCoinBase()) {
         return true; // Coinbases don't use vin normally
     }
@@ -423,6 +438,7 @@ bool AreInputsStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs,
 
 bool IsWitnessStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs, const std::string& reason_prefix, std::string& out_reason, const ignore_rejects_type& ignore_rejects)
 {
+    const bool record_rejections{true};
     if (tx.IsCoinBase())
         return true; // Coinbases are skipped
 

@@ -1,0 +1,16 @@
+# Oracle Knots - Default Knots Policy Profile
+#
+# Focus: Replicates the default Bitcoin Knots mempool and relay policies.
+
+profile = "default-knots"
+bip110_mode = "auto"
+
+[custom_rules]
+datacarrier_size = 83         # Default 83 byte OP_RETURN limit
+reject_tokens = false         # Standard relay behavior for overlay tokens
+reject_inscriptions = false   # Standard relay behavior for inscriptions
+dust_relay_fee = 3000
+permit_bare_multisig = false
+permit_bare_pubkey = false
+reject_parasites = true
+max_op_return_outputs = 1
