@@ -3555,6 +3555,8 @@ def _node_conf_for_outbound():
 
 
 oracle_net.set_node_conf_provider(_node_conf_for_outbound)
+# --serve mode: also persist the token so curl can reach the API.
+write_gui_token_file(GUI_API_TOKEN)
 
 
 def main():

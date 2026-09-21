@@ -162,6 +162,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const walletBalanceBtc = document.getElementById('wallet-balance-btc');
     const walletBalanceUsd = document.getElementById('wallet-balance-usd');
     const walletBalanceUnconfirmed = document.getElementById('wallet-balance-unconfirmed');
+    const walletBalanceImmature = document.getElementById('wallet-balance-immature');
     
     // Wallet actions sub-navigation
     const pillWalletReceive = document.getElementById('pill-wallet-receive');
@@ -735,7 +736,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (badge) badge.textContent = fork.sovereign ? 'BLAKE2b · Sovereign' : 'Fork —';
 
         set('mining-txs-included', mining.currentblocktx != null ? mining.currentblocktx.toLocaleString() : '—');
-        const diff = mining.difficulty;
+        const diff = mining.difficulty_blake2b || mining.difficulty;
         set('mining-policy-filtered', diff != null ? Number(diff).toLocaleString(undefined, {maximumFractionDigits: 0}) : '—');
         const hps = mining.networkhashps;
         set('mining-filter-rate', hps != null ? formatHashrate(hps) : '—');
@@ -2502,6 +2503,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 } else {
                     walletBalanceUnconfirmed.classList.add('hidden');
                     balanceCard?.classList.remove('has-unconfirmed');
+                }
+
+                const immature = info.immature_balance || 0;
+                if (immature > 0 && walletBalanceImmature) {
+                    walletBalanceImmature.textContent = `Immature (mining): ${immature.toFixed(8)} XBT`;
+                    walletBalanceImmature.classList.remove('hidden');
+                } else if (walletBalanceImmature) {
+                    walletBalanceImmature.classList.add('hidden');
                 }
             }
         } catch (err) {
