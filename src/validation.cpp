@@ -5829,10 +5829,10 @@ bool Chainstate::RewindForChainstateRevalidation(bilingual_str& error)
             CBlockIndex * const old_tip{m_chain.Tip()};
 
             for (const CBlockIndex* block{old_tip}; block != rewind_target; block = block->pprev) {
-                if (!(block->nStatus & BLOCK_HAVE_DATA) || !(block->nStatus & BLOCK_HAVE_UNDO)) {
+                if ((block->nStatus & BLOCK_CAN_REWIND) != BLOCK_CAN_REWIND) {
                     LogError("Chainstate revalidation needs to rewind through block %s at height %d, but required block or undo data has been pruned\n",
                              block->GetBlockHash().ToString(), block->nHeight);
-                    error = _("The active chain must be revalidated for current consensus rules, but required block data has been pruned. Please restart with -reindex.");
+                    error = _("The active chain must be revalidated for current consensus rules, but required block data has been pruned");
                     return false;
                 }
             }

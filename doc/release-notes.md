@@ -3,7 +3,7 @@ Bitcoin Knots version 29.4.2.knots20260508 is now available from:
   <https://bitcoinknots.org/files/29.x/29.4.2.knots20260508/>
 
 This release includes further mitigation of the ongoing attack on the network.
-[Please read below](#FIXME) for important informed consent on this and upcoming planned
+[Please read below](#attack-mitigation) for important informed consent on this and upcoming planned
 changes.
 
 Please report bugs using the issue tracker at GitHub:
@@ -89,8 +89,9 @@ Notable changes
 - SHA256d difficulty and BLAKE2b difficulty are entirely different units and
   cannot be compared or converted. To address this, the "difficulty" field has
   been removed where applicable (SHA256d block information retains it), and
-  the `getdifficulty` RPC method has been removed (use `getblockchaininfo`
-  instead). knots#420
+  the `getdifficulty` RPC method has been removed. A new "difficulty_blake2b"
+  field has been added for BLAKE2b blocks, as well as in the result for
+  `getblockchaininfo`. knots#420
 
 ### Validation
 
