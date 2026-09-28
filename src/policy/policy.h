@@ -93,6 +93,15 @@ static constexpr unsigned int MAX_STANDARD_P2WSH_STACK_ITEM_SIZE{80};
 static constexpr unsigned int MAX_STANDARD_TAPSCRIPT_STACK_ITEM_SIZE{80};
 /** The maximum size in bytes of a standard witnessScript */
 static constexpr unsigned int MAX_STANDARD_P2WSH_SCRIPT_SIZE{3600};
+/** Minimum number of keys in a 1-of-N CHECKMULTISIG for it to be treated as a
+ * data carrier rather than a spend script. Data-embedding tools (e.g.
+ * bitfiles/bpub) hide their payload in the "public keys" of a 1-of-N multisig
+ * wrapped in P2SH/P2WSH; only one key is ever a real signer. A 1-of-N multisig
+ * with N >= this value has no legitimate custody use (any single key spends, so
+ * it is strictly weaker than a plain single-key output) and is rejected as a
+ * data carrier when bare multisig is not permitted. Threshold multisig
+ * (m >= 2, e.g. 2-of-3, 3-of-5) is never affected. */
+static constexpr unsigned int MULTISIG_DATACARRIER_MIN_KEYS{3};
 /** The maximum size of a standard ScriptSig */
 static constexpr unsigned int MAX_STANDARD_SCRIPTSIG_SIZE{1650};
 /** Min feerate for defining dust.

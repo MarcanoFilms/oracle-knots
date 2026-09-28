@@ -38,6 +38,7 @@ std::map<std::string, uint64_t> g_rejection_counts = {
     {"bare-pubkey", 0},
     {"bare-multisig", 0},
     {"parasite-cat21", 0},
+    {"datacarrier-fakemultisig", 0},
     {"max-op-returns", 0}
 };
 
@@ -303,6 +304,7 @@ std::string RejectReasonToMessage(const std::string& reason)
         {"bare-pubkey", "Bare pubkey output not permitted by policy"},
         {"bare-multisig", "Bare multisig output not permitted by policy"},
         {"parasite-cat21", "Parasite CAT-21 locktime overlay detected"},
+        {"datacarrier-fakemultisig", "Fake 1-of-N multisig data carrier (bpub/bitfiles) in P2SH/P2WSH reveal"},
         {"version", "Non-standard transaction version"},
         {"tx-size", "Transaction weight exceeds standard limit"},
         {"scriptpubkey", "Non-standard scriptPubKey for active policy"},

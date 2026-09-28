@@ -9,6 +9,7 @@ contents. Policy is *not* applied to transactions in blocks.
 
 This documentation is not an exhaustive list of all policy rules.
 
+- [Fake Multisig Data Carriers](datacarrier-fakemultisig.md)
 - [Mempool Limits](mempool-limits.md)
 - [Mempool Replacements](mempool-replacements.md)
 - [Packages](packages.md)

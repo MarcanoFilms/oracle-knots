@@ -355,6 +355,34 @@ static bool CheckSigopsBIP54(const CTransaction& tx, const CCoinsViewCache& inpu
 }
 
 /**
+ * Detect a bare multisig template being (ab)used as a data carrier.
+ *
+ * Data-embedding services such as bitfiles (via its bpub library) hide payload
+ * bytes inside the "public keys" of a 1-of-N CHECKMULTISIG script, then wrap it
+ * in P2SH or P2WSH so the script is invisible at funding time and only lands
+ * on-chain, in the witness/redeem, when the dust output is spent (the "reveal"
+ * transaction). Each fake key carries ~31 bytes of data plus a brute-forced
+ * nonce byte that keeps the encoded point on the secp256k1 curve, so a
+ * validity check on the keys does not catch it. Only one of the N keys is ever
+ * a real signer.
+ *
+ * The reliable, false-positive-free signature is the shape itself: a 1-of-N
+ * multisig with N >= MULTISIG_DATACARRIER_MIN_KEYS. Such a script has no
+ * legitimate custody use, because any single one of the N keys can spend it,
+ * making it strictly weaker than a plain single-key output — nobody builds one
+ * for security. Threshold multisig (m >= 2, e.g. 2-of-3, 3-of-5, 4-of-7) is
+ * never matched and continues to relay normally.
+ */
+static bool IsDatacarrierMultisig(const CScript& script)
+{
+    std::vector<std::vector<unsigned char>> solutions;
+    if (Solver(script, solutions) != TxoutType::MULTISIG) return false;
+    const unsigned int required{solutions.front()[0]};
+    const unsigned int total{solutions.back()[0]};
+    return required == 1 && total >= MULTISIG_DATACARRIER_MIN_KEYS;
+}
+
+/**
  * Check transaction inputs to mitigate two
  * potential denial-of-service attacks:
  *
@@ -429,6 +457,19 @@ bool AreInputsStandard(const CTransaction& tx, const CCoinsViewCache& mapInputs,
             }
             if (subscript.GetSigOpCount(true) > MAX_P2SH_SIGOPS) {
                 MaybeReject("scriptcheck-sigops");
+            }
+        }
+
+        // Reject bare multisig used as a data carrier, wrapped in P2SH or P2WSH
+        // (see IsDatacarrierMultisig). This extends the -permitbaremultisig
+        // policy to the wrapped forms that make the script visible only in the
+        // redeem/witness of the reveal transaction. Threshold multisig is not
+        // affected.
+        if (!opts.permit_bare_multisig &&
+            (whichType == TxoutType::SCRIPTHASH || whichType == TxoutType::WITNESS_V0_SCRIPTHASH)) {
+            const auto [exec_script, weight_per_byte] = GetScriptForTransactionInput(prev.scriptPubKey, tx.vin[i]);
+            if (IsDatacarrierMultisig(exec_script)) {
+                MaybeReject("datacarrier-fakemultisig");
             }
         }
     }

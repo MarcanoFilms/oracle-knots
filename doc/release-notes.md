@@ -107,6 +107,17 @@ Notable changes
 
 - knots#420 Bugfix: RPC: Replace SHA256d "difficulty" with "difficulty_blake2b"
 
+### Policy
+
+- Spends that reveal a fake 1-of-N (N>=3) `CHECKMULTISIG` data carrier wrapped
+  in P2SH or P2WSH are now non-standard when bare multisig is not permitted
+  (`-permitbaremultisig=0`, the default). These are used by file-storage overlays
+  such as bitfiles/bpub, which hide payload bytes inside the "public keys" of a
+  1-of-N multisig and wrap it so the script only appears in the witness/redeem of
+  the reveal transaction. Real threshold multisig (2-of-3, 3-of-5, …) and 1-of-2
+  scripts are unaffected. See
+  [doc/policy/datacarrier-fakemultisig.md](policy/datacarrier-fakemultisig.md).
+
 ### Misc
 
 - knots#365 test: Skip the completion-file comparison in pull request CI
