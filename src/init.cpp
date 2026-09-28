@@ -752,7 +752,7 @@ void SetupServerArgs(ArgsManager& argsman, bool can_listen_ipc)
                    OptionsCategory::NODE_RELAY);
     argsman.AddArg("-permitbarepubkey", strprintf("Relay legacy pubkey outputs (default: %u)", DEFAULT_PERMIT_BAREPUBKEY), ArgsManager::ALLOW_ANY,
                    OptionsCategory::NODE_RELAY);
-    argsman.AddArg("-permitbaremultisig", strprintf("Relay transactions creating non-P2SH multisig outputs (default: %u)", DEFAULT_PERMIT_BAREMULTISIG), ArgsManager::ALLOW_ANY,
+    argsman.AddArg("-permitbaremultisig", strprintf("Relay transactions creating non-P2SH multisig outputs, and relay spends that reveal a 1-of-N (N>=%u) multisig data carrier wrapped in P2SH/P2WSH (default: %u)", MULTISIG_DATACARRIER_MIN_KEYS, DEFAULT_PERMIT_BAREMULTISIG), ArgsManager::ALLOW_ANY,
                    OptionsCategory::NODE_RELAY);
     argsman.AddArg("-permitephemeral=<options>",
                    strprintf("Relay transaction packages that include ephemeral outputs defined by comma-separated options (prefix each by '-' to force off): \"anchor\" to allow minimal anyone-can-spend anchors, \"send\" to allow ordinary output types to be considered ephemeral, and \"dust\" to allow for dust-amount outputs rather than strictly zero-value (default: %s)", "anchor,-send,-dust"),
