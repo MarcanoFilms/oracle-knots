@@ -289,6 +289,11 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentPsbt = '';
     let cachedUtxos = [];
     let selectedUtxoKeys = new Set();
+    // Deteccion de tx nuevas para auto-refresh + notificacion estilo Sparrow.
+    let lastTxCount = null;        // getwalletinfo.txcount previo
+    let lastBalanceStr = null;     // balance previo (string) para detectar cambios que no muevan txcount
+    let knownTxids = new Set();    // txids ya vistos en el historial
+    let historyInitialized = false; // no notificar en la primera carga del wallet
     let cliHistory = [];
     let cliHistoryIndex = -1;
     let mempoolHistory = [];
@@ -2298,6 +2303,11 @@ document.addEventListener('DOMContentLoaded', () => {
         activeWalletName = name;
         selectedUtxoKeys.clear();
         cachedUtxos = [];
+        // Nuevo wallet: reiniciar la deteccion de tx (no notificar el historial existente).
+        lastTxCount = null;
+        lastBalanceStr = null;
+        knownTxids = new Set();
+        historyInitialized = false;
         LS.setItem(STORAGE_KEY_ACTIVE_WALLET, name);
         if (activeWalletNameLabel) activeWalletNameLabel.textContent = name;
         if (walletSelector) walletSelector.value = name;
@@ -2345,6 +2355,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function startWalletPolling() {
+        ensureDesktopNotifications();
         checkWalletStatus();
         if (walletIntervalId) clearInterval(walletIntervalId);
         walletIntervalId = setInterval(checkWalletStatus, 3000);
@@ -2389,6 +2400,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     setActiveWallet(activeWalletName);
                 } else {
                     fetchWalletInfo();
+                    // Si el usuario esta mirando el historial, refrescar cada poll para
+                    // que las confirmaciones suban en vivo (fetchWalletInfo ya cubre la
+                    // deteccion de tx nuevas + notificacion aunque este en otra pestana).
+                    if (walletSubHistory && !walletSubHistory.classList.contains('hidden')) {
+                        fetchWalletHistory();
+                    }
                 }
             } else {
                 activeWalletName = '';
@@ -2460,6 +2477,55 @@ document.addEventListener('DOMContentLoaded', () => {
         await loadWalletByName(name);
     }
 
+    // Pedir permiso de notificaciones del sistema una vez (best-effort; WebKitGTK/pywebview
+    // puede no soportarlo, en cuyo caso caemos al toast in-app).
+    function ensureDesktopNotifications() {
+        try {
+            if (typeof Notification === 'undefined') return;
+            if (Notification.permission === 'default') {
+                Notification.requestPermission().catch(() => {});
+            }
+        } catch (_) {}
+    }
+
+    function fireDesktopNotification(title, body) {
+        // Via principal: libnotify en el backend (identico a Sparrow; funciona
+        // aunque el webview WebKitGTK no exponga la Notification API).
+        try {
+            fetch('/api/notify', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ title, body })
+            }).catch(() => {});
+        } catch (_) {}
+        // Bonus: Notification API del webview, por si esta disponible.
+        try {
+            if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+                new Notification(title, { body, icon: '/static/app_icon.jpg' });
+            }
+        } catch (_) {}
+    }
+
+    // Notifica (toast + notificacion de SO) por tx nuevas detectadas en el historial.
+    function notifyNewTxs(newTxs) {
+        if (!newTxs || !newTxs.length) return;
+        const MINEDCATS = { generate: 'Mined', immature: 'Mined (immature)', orphan: 'Mined (orphan)' };
+        if (newTxs.length === 1) {
+            const tx = newTxs[0];
+            const isMined = tx.category in MINEDCATS;
+            const isReceive = tx.category === 'receive';
+            const incoming = isMined || isReceive;
+            const amt = Math.abs(tx.amount || 0).toFixed(8);
+            const verb = isMined ? MINEDCATS[tx.category] : (isReceive ? 'Received' : 'Sent');
+            const sign = incoming ? '+' : '-';
+            showToast(`${verb} ${sign}${amt} XBT`, incoming ? 'success' : 'info', 6000);
+            fireDesktopNotification(`New transaction: ${sign}${amt} XBT`, `${verb} — ${activeWalletName}`);
+        } else {
+            showToast(`${newTxs.length} new transactions`, 'success', 6000);
+            fireDesktopNotification(`${newTxs.length} new transactions`, activeWalletName);
+        }
+    }
+
     async function fetchWalletInfo() {
         if (!activeWalletName) return;
         try {
@@ -2512,6 +2578,23 @@ document.addEventListener('DOMContentLoaded', () => {
                 } else if (walletBalanceImmature) {
                     walletBalanceImmature.classList.add('hidden');
                 }
+
+                // Auto-refresh: si entro/salio una tx (txcount) o cambio el balance
+                // (confirmaciones que mueven saldo, coinbase que madura), refrescar el
+                // historial para que se actualice solo y dispare la notificacion.
+                const txcount = (typeof info.txcount === 'number') ? info.txcount : null;
+                const balanceStr = `${bal.toFixed(8)}/${unconfirmed.toFixed(8)}/${immature.toFixed(8)}`;
+                const changed = (lastTxCount !== null && txcount !== null && txcount !== lastTxCount)
+                    || (lastBalanceStr !== null && balanceStr !== lastBalanceStr);
+                lastTxCount = txcount;
+                lastBalanceStr = balanceStr;
+                if (changed) {
+                    fetchWalletHistory();
+                    // Refrescar tambien UTXOs/direcciones si esas vistas estan abiertas.
+                    if (walletSubUtxos && !walletSubUtxos.classList.contains('hidden')) {
+                        fetchAndRenderUtxos('manager');
+                    }
+                }
             }
         } catch (err) {
             console.error(err);
@@ -2533,7 +2616,23 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 
                 txs.sort((a, b) => b.time - a.time);
-                
+
+                // Detectar tx nuevas (txids no vistos). En la primera carga del wallet
+                // solo sembramos knownTxids en silencio; despues, cualquier txid nuevo
+                // dispara la notificacion estilo Sparrow. Dedup por txid (listtransactions
+                // puede devolver varias entradas por tx).
+                const freshByTxid = new Map();
+                for (const tx of txs) {
+                    if (tx.txid && !knownTxids.has(tx.txid) && !freshByTxid.has(tx.txid)) {
+                        freshByTxid.set(tx.txid, tx);
+                    }
+                }
+                txs.forEach(tx => { if (tx.txid) knownTxids.add(tx.txid); });
+                if (historyInitialized && freshByTxid.size > 0) {
+                    notifyNewTxs(Array.from(freshByTxid.values()));
+                }
+                historyInitialized = true;
+
                 walletTxList.innerHTML = '';
                 txs.forEach(tx => {
                     const div = document.createElement('div');
