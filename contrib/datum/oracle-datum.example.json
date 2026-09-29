@@ -9,7 +9,8 @@
 	"stratum": {
 		"listen_addr": "0.0.0.0",
 		"listen_port": 9735,
-		"vardiff_min": 1
+		"_vardiff_comment": "vardiff_min is the FLOOR of worker difficulty. Keep it inside the pool's optimal range or you get 'Low Worker Difficulty' warnings and lost hashrate. pyblock's optimal range for this rig is 7683-46100; 8192 is a safe floor and vardiff climbs from there.",
+		"vardiff_min": 8192
 	},
 	"mining": {
 		"pool_address": "REPLACE_WITH_YOUR_BLAKE2B_PAYOUT_ADDRESS",
