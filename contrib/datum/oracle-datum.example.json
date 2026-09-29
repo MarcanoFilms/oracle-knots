@@ -9,6 +9,7 @@
 	"stratum": {
 		"listen_addr": "0.0.0.0",
 		"listen_port": 9735,
+		"_vardiff_comment": "vardiff_min is the FLOOR of worker difficulty; vardiff climbs from there. Default 1 (fine for solo/local mining). When renting hashrate (e.g. MiningRigRentals) raise it INTO the pool's optimal range or you get 'Low Worker Difficulty' warnings and lost hashrate — if the pool reports e.g. 7683-46100, set 8192 or higher.",
 		"vardiff_min": 1
 	},
 	"mining": {

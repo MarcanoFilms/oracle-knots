@@ -1471,6 +1471,7 @@ document.addEventListener('DOMContentLoaded', () => {
             set('cfg-tag-primary', c.mining?.coinbase_tag_primary);
             set('cfg-tag-secondary', c.mining?.coinbase_tag_secondary);
             set('cfg-stratum-port', c.stratum?.listen_port);
+            set('cfg-vardiff-min', c.stratum?.vardiff_min);
             set('cfg-pool-host', c.datum?.pool_host);
             set('cfg-pool-port', c.datum?.pool_port);
             set('cfg-pool-pubkey', c.datum?.pool_pubkey);
@@ -1510,7 +1511,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 coinbase_tag_primary: val('cfg-tag-primary'),
                 coinbase_tag_secondary: val('cfg-tag-secondary'),
             },
-            stratum: { listen_port: numOrUndef('cfg-stratum-port') },
+            stratum: {
+                listen_port: numOrUndef('cfg-stratum-port'),
+                vardiff_min: numOrUndef('cfg-vardiff-min'),
+            },
             datum: {
                 pool_host: val('cfg-pool-host'),
                 pool_port: numOrUndef('cfg-pool-port'),

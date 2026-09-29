@@ -28,6 +28,14 @@ templates from your node, and submits solved blocks directly to the network.
 2. Fill in the fields and **Save Config**:
    - **Payout address** — your BLAKE2b (XBT) address.
    - **Stratum port** — where your miners connect (default `9735`).
+   - **Min worker difficulty (vardiff floor)** — the lowest difficulty the
+     gateway will hand your workers (default `1`, fine for solo/local
+     mining; vardiff climbs from there on its own). When you **rent
+     hashrate** (e.g. MiningRigRentals) raise this into the range the pool
+     reports as optimal for your rig, or you'll see *Low Worker Difficulty*
+     warnings and lose hashrate. If the pool says the optimal range is e.g.
+     `7683 – 46100`, set the floor at or above the low end (`8192` is a safe
+     value there).
    - **Pool host / port / pubkey** — pre-wired to PyBLØCK WAVICLES.
    - **Dashboard admin password** — for the gateway's own web UI.
 3. **Start Mining**. The tab shows pool status, hashrate, shares, connected
