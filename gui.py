@@ -1261,6 +1261,23 @@ def send_static(filename):
 def send_assets(filename):
     return _no_cache(static_file(filename, root=os.path.join(GUI_DIR, 'assets')))
 
+@route('/api/notify', method='POST')
+def api_notify():
+    """Dispara una notificacion de escritorio via libnotify (notify-send) para que
+    las alertas de tx nuevas lleguen al SO como en Sparrow, incluso si el webview
+    WebKitGTK no expone la Notification API del navegador. Best-effort: nunca
+    bloquea ni lanza. title/body van como argv (no shell) -> sin inyeccion."""
+    data = request.json or {}
+    title = str(data.get("title") or "Oracle Knots")[:200]
+    body = str(data.get("body") or "")[:400]
+    try:
+        icon = os.path.join(GUI_DIR, "app_icon.jpg")
+        args = ["notify-send", "-a", "Oracle Knots", "-i", icon, title, body]
+        subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return {"success": True}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
 @route('/api/status')
 def api_status():
     running, pid = check_node_running()
