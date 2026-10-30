@@ -80,9 +80,9 @@ static CBlock CreateGenesisBlock(uint32_t nTime, uint32_t nNonce, uint32_t nBits
 static void AddLongCoinbaseMaturityRevalidationDeployment(Consensus::Params& consensus)
 {
     consensus.chainstate_revalidation_deployments.push_back({
-        .name = "long_coinbase_maturity",
+        .name = consensus.CoinbaseMaturityLongUntilRdts ? "rolling_coinbase_maturity_180d_v2" : "long_coinbase_maturity",
         .start_height = consensus.CoinbaseMaturityLongEnforceHeight,
-        .stop_height = consensus.CoinbaseMaturityLongReleaseHeight - 1,
+        .stop_height = consensus.CoinbaseMaturityLongUntilRdts ? std::numeric_limits<int>::max() : consensus.CoinbaseMaturityLongReleaseHeight - 1,
     });
 }
 
@@ -127,6 +127,7 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].min_activation_height = 709632; // Approximately November 12th, 2021
 
         consensus.Blake2bHeight = 961640;
+        m_stale_peer_common_height = 961631;
         {
             constexpr std::string_view headline = "8-30 NYPost Deride And Conquer";
             consensus.Blake2bHeadline.assign(headline.begin(), headline.end());
@@ -140,10 +141,20 @@ public:
         // reaching ACTIVE, and that deployment has been removed.)
         consensus.RdtsExpiryTime = 1819756800; // September 1st, 2027 00:00 UTC
 
-        consensus.CoinbaseMaturityLongStartHeight = 973440;
-        consensus.CoinbaseMaturityLongEnforceHeight = 973440;
-        consensus.CoinbaseMaturityLongReleaseHeight = 979920;
-        consensus.CoinbaseMaturityLong = consensus.CoinbaseMaturityLongReleaseHeight - consensus.CoinbaseMaturityLongStartHeight;
+        // Retain #419's historical consensus checks and validation marker.
+        consensus.CoinbaseMaturityHistoricalStartHeight = 973440;
+        consensus.CoinbaseMaturityHistoricalReleaseHeight = 979920;
+        consensus.chainstate_revalidation_deployments.push_back({
+            .name = "long_coinbase_maturity",
+            .start_height = consensus.CoinbaseMaturityHistoricalStartHeight,
+            .stop_height = consensus.CoinbaseMaturityHistoricalReleaseHeight - 1,
+        });
+        consensus.CoinbaseMaturityLongStartHeight = 979919;
+        consensus.CoinbaseMaturityLongEnforceHeight = 979919;
+        // Each covered reward matures independently after approximately 180 days.
+        // Expiry only ends coverage of newly mined rewards; it never releases old ones.
+        consensus.CoinbaseMaturityLongUntilRdts = true;
+        consensus.CoinbaseMaturityLong = 180 * 144;
         AddLongCoinbaseMaturityRevalidationDeployment(consensus);
 
         consensus.nMinimumChainWork = uint256{"00000000000000000000000000000000000000013e00277374c9f9eeadc70200"};
@@ -173,10 +184,10 @@ public:
         // This is fine at runtime as we'll fall back to using them as an addrfetch if they don't support the
         // service bits we want, but we should get them updated to support all service bits wanted by any
         // release ASAP to avoid it where possible.
-        vSeeds.emplace_back("seed.bitcoin.sipa.be."); // Pieter Wuille, only supports x1, x5, x9, and xd
         vSeeds.emplace_back("dnsseed.bluematt.me."); // Matt Corallo, only supports x9
         vSeeds.emplace_back("dnsseed.bitcoin.dashjr-list-of-p2p-nodes.us."); // Luke Dashjr, support hardfork seeding (x10000009)
         vSeeds.emplace_back("seed.bitcoin.haf.ovh."); // Léo Haf, support hardfork seeding (x10000009)
+        vSeeds.emplace_back("seed.thelionpool.org."); // Lionel Wardhaugh, support hardfork seeding (x10000009), also crawls Tor and I2P
         vSeeds.emplace_back("seed.bitcoin.jonasschnelli.ch."); // Jonas Schnelli, only supports x1, x5, x9, and xd
         vSeeds.emplace_back("seed.bitcoin.sprovoost.nl."); // Sjors Provoost
         vSeeds.emplace_back("dnsseed.emzy.de."); // Stephan Oeste
@@ -261,6 +272,12 @@ public:
                 .hash_serialized = AssumeutxoHash{uint256{"4daf8a17b4902498c5787966a2b51c613acdab5df5db73f196fa59a4da2f1568"}},
                 .m_chain_tx_count = 1226586151,
                 .blockhash = consteval_ctor(uint256{"0000000000000000000108970acb9522ffd516eae17acddcb1bd16469194a821"}),
+            },
+            {
+                .height = 976'000,
+                .hash_serialized = AssumeutxoHash{uint256{"dbd67717d3f108e4fbd8b4f9efc4057cac11a0ba7c23584b43cca42c9edb7118"}},
+                .m_chain_tx_count = 1417215373,
+                .blockhash = consteval_ctor(uint256{"000000000000000098441aee029573795681eb1602c75271e809b136e9217373"}),
             }
         };
 
@@ -417,13 +434,26 @@ public:
         consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].min_activation_height = 0; // No activation delay
 
         consensus.Blake2bHeight = 150308;
-        consensus.RdtsExpiryTime = 1791903600; // October 13th, 2026 15:00:00 UTC
+        m_stale_peer_common_height = consensus.Blake2bHeight - 1;
+        // Extended from 1791903600 (October 13th, 2026 15:00:00 UTC) after
+        // that time had passed; see the revalidation deployment below.
+        consensus.RdtsExpiryTime = 1806537600; // April 1st, 2027 00:00:00 UTC
 
         consensus.CoinbaseMaturityLongStartHeight = 151406;
         consensus.CoinbaseMaturityLongEnforceHeight = 151550;
         consensus.CoinbaseMaturityLongReleaseHeight = 158111;
         consensus.CoinbaseMaturityLong = consensus.CoinbaseMaturityLongReleaseHeight - consensus.CoinbaseMaturityLongStartHeight;
         AddLongCoinbaseMaturityRevalidationDeployment(consensus);
+
+        // Block 152963 is the first whose parent's median-time-past had
+        // reached the previous RDTS expiry. Nodes that connected it, or any
+        // later block, with the previous parameters applied no RDTS rule to
+        // them and must check them again.
+        consensus.chainstate_revalidation_deployments.push_back({
+            .name = "rdts_testnet4_extension_20270401",
+            .start_height = 152963,
+            .stop_height = std::numeric_limits<int>::max(),
+        });
 
         consensus.nMinimumChainWork = uint256{"0000000000000000000000000000000000000000000001d6dce8651b6094e4c1"};
         consensus.defaultAssumeValid = uint256{"0000000000003ed4f08dbdf6f7d6b271a6bcffce25675cb40aa9fa43179a89f3"}; // 72600
@@ -677,6 +707,9 @@ public:
         if (opts.blake2b_headline) {
             consensus.Blake2bHeadline = *opts.blake2b_headline;
         }
+        if (consensus.Blake2bHeight > 0 && consensus.Blake2bHeight != std::numeric_limits<int>::max()) {
+            m_stale_peer_common_height = opts.stale_peer_common_height.value_or(consensus.Blake2bHeight - 1);
+        }
 
         // Optionally schedule the RDTS deployment (see -rdtsexpiry). RDTS
         // activates at the BLAKE2b fork height scheduled above; only the
@@ -691,6 +724,10 @@ public:
             consensus.CoinbaseMaturityLongEnforceHeight = *opts.coinbase_maturity_long_enforce_height;
             consensus.CoinbaseMaturityLongReleaseHeight = *opts.coinbase_maturity_long_release_height;
             consensus.CoinbaseMaturityLong = consensus.CoinbaseMaturityLongReleaseHeight - consensus.CoinbaseMaturityLongStartHeight;
+            if (opts.coinbase_maturity_long_expiry) {
+                consensus.CoinbaseMaturityLongUntilRdts = true;
+                consensus.RdtsExpiryTime = *opts.coinbase_maturity_long_expiry;
+            }
             AddLongCoinbaseMaturityRevalidationDeployment(consensus);
         }
 

@@ -76,6 +76,18 @@ void ReadRegTestArgs(const ArgsManager& args, CChainParams::RegTestOptions& opti
         }
     }
 
+    if (const auto arg{args.GetArg("-stalepeercommonheight")}; arg) {
+        const auto activation{options.activation_heights.find(Consensus::BuriedDeployment::DEPLOYMENT_BLAKE2B)};
+        if (activation == options.activation_heights.end()) {
+            throw std::runtime_error("-stalepeercommonheight requires -testactivationheight=blake2b@<height>");
+        }
+        int32_t height;
+        if (!ParseInt32(*arg, &height) || height < 0 || height >= activation->second) {
+            throw std::runtime_error(strprintf("Invalid height (%s) for -stalepeercommonheight: must be below the BLAKE2b activation height (%d).", *arg, activation->second));
+        }
+        options.stale_peer_common_height = height;
+    }
+
     if (const auto arg{args.GetArg("-rdtsexpiry", "")}; !arg.empty()) {
         // RDTS activates at the BLAKE2b fork height: one fork instant, as on
         // mainnet. Only the deployment's expiry is schedulable here; a
@@ -126,6 +138,17 @@ void ReadRegTestArgs(const ArgsManager& args, CChainParams::RegTestOptions& opti
         options.coinbase_maturity_long_start_height = start_height;
         options.coinbase_maturity_long_enforce_height = enforce_height;
         options.coinbase_maturity_long_release_height = release_height;
+    }
+
+    if (const auto arg{args.GetArg("-testcoinbasematuritylongexpiry")}; arg) {
+        int64_t expiry;
+        if (!options.coinbase_maturity_long_start_height || !ParseInt64(*arg, &expiry) || expiry <= 1296688602) {
+            throw std::runtime_error("Invalid long coinbase maturity expiry: requires -testcoinbasematuritylong and a time after regtest genesis.");
+        }
+        if (options.rdts_expiry_time && *options.rdts_expiry_time != expiry) {
+            throw std::runtime_error("Long coinbase maturity expiry must match RDTS expiry.");
+        }
+        options.coinbase_maturity_long_expiry = expiry;
     }
 
     for (const std::string& strDeployment : args.GetArgs("-vbparams")) {

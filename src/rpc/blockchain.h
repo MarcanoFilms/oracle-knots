@@ -42,6 +42,9 @@ double GetDifficultyBlake2b(const CBlockIndex& blockindex);
 /** Push the appropriate user-facing difficulty field for this block. */
 void PushDifficulty(UniValue& result, const CBlockIndex& blockindex);
 
+/** Describe the coinbase maturity deployment for the next block, or null if unconfigured. */
+UniValue GetCoinbaseMaturityDeploymentInfo(const Consensus::Params& params, int next_block_height);
+
 /** Block description to JSON */
 UniValue blockToJSON(node::BlockManager& blockman, const CBlock& block, const CBlockIndex& tip, const CBlockIndex& blockindex, TxVerbosity verbosity, const uint256 pow_limit) LOCKS_EXCLUDED(cs_main);
 
@@ -52,7 +55,7 @@ UniValue blockheaderToJSON(const CBlockIndex& tip, const CBlockIndex& blockindex
 void CalculatePercentilesByWeight(CAmount result[NUM_GETBLOCKSTATS_PERCENTILES], std::vector<std::pair<CAmount, int64_t>>& scores, int64_t total_weight);
 
 /**
- * Test-only helper to create UTXO snapshots given a chainstate and a file handle.
+ * Helper to create UTXO snapshots given a chainstate and a file handle.
  * @return a UniValue map containing metadata about the snapshot.
  */
 UniValue CreateUTXOSnapshot(

@@ -108,6 +108,99 @@ BOOST_AUTO_TEST_CASE(outbound_slow_chain_eviction)
     peerman.FinalizeNode(dummyNode1);
 }
 
+BOOST_AUTO_TEST_CASE(headers_sync_requires_blake2b)
+{
+    LOCK(NetEventsInterface::g_msgproc_mutex);
+
+    ConnmanTestMsg& connman = static_cast<ConnmanTestMsg&>(*m_node.connman);
+    PeerManager& peerman = *m_node.peerman;
+    NodeId id{0};
+
+    const auto has_getheaders = [](CNode& node) {
+        LOCK(node.cs_vSend);
+        const auto& [to_send, _more, msg_type] = node.m_transport->GetBytesToSend(!node.vSendMsg.empty());
+        return (!to_send.empty() && msg_type == NetMsgType::GETHEADERS) ||
+               std::any_of(node.vSendMsg.begin(), node.vSendMsg.end(), [](const CSerializedNetMsg& msg) {
+                   return msg.m_type == NetMsgType::GETHEADERS;
+               });
+    };
+
+    CNode legacy_peer{id++,
+                      /*sock=*/nullptr,
+                      CAddress{ip(0xa0b0c001), NODE_NONE},
+                      /*nKeyedNetGroupIn=*/0,
+                      /*nLocalHostNonceIn=*/0,
+                      CAddress(),
+                      /*addrNameIn=*/"",
+                      ConnectionType::MANUAL,
+                      /*inbound_onion=*/false,
+                      /*network_key=*/0};
+    connman.Handshake(
+        /*node=*/legacy_peer,
+        /*successfully_connected=*/true,
+        /*remote_services=*/ServiceFlags(NODE_NETWORK | NODE_WITNESS),
+        /*local_services=*/ServiceFlags(NODE_NETWORK | NODE_WITNESS | NODE_BLAKE2B),
+        /*version=*/PROTOCOL_VERSION,
+        /*relay_txs=*/true);
+    BOOST_CHECK(!has_getheaders(legacy_peer));
+    peerman.FinalizeNode(legacy_peer);
+
+    CNode blake2b_peer{id++,
+                      /*sock=*/nullptr,
+                      CAddress{ip(0xa0b0c002), NODE_NONE},
+                      /*nKeyedNetGroupIn=*/0,
+                      /*nLocalHostNonceIn=*/0,
+                      CAddress(),
+                      /*addrNameIn=*/"",
+                      ConnectionType::MANUAL,
+                      /*inbound_onion=*/false,
+                      /*network_key=*/0};
+    connman.Handshake(
+        /*node=*/blake2b_peer,
+        /*successfully_connected=*/true,
+        /*remote_services=*/ServiceFlags(NODE_NETWORK | NODE_WITNESS | NODE_BLAKE2B),
+        /*local_services=*/ServiceFlags(NODE_NETWORK | NODE_WITNESS | NODE_BLAKE2B),
+        /*version=*/PROTOCOL_VERSION,
+        /*relay_txs=*/true);
+    BOOST_CHECK(has_getheaders(blake2b_peer));
+    peerman.FinalizeNode(blake2b_peer);
+}
+
+BOOST_FIXTURE_TEST_CASE(headers_sync_without_blake2b_scheduled, RegTestingSetup)
+{
+    LOCK(NetEventsInterface::g_msgproc_mutex);
+
+    ConnmanTestMsg& connman = static_cast<ConnmanTestMsg&>(*m_node.connman);
+    PeerManager& peerman = *m_node.peerman;
+
+    CNode legacy_peer{/*id=*/0,
+                      /*sock=*/nullptr,
+                      CAddress{ip(0xa0b0c001), NODE_NONE},
+                      /*nKeyedNetGroupIn=*/0,
+                      /*nLocalHostNonceIn=*/0,
+                      CAddress(),
+                      /*addrNameIn=*/"",
+                      ConnectionType::MANUAL,
+                      /*inbound_onion=*/false,
+                      /*network_key=*/0};
+    connman.Handshake(
+        /*node=*/legacy_peer,
+        /*successfully_connected=*/true,
+        /*remote_services=*/ServiceFlags(NODE_NETWORK | NODE_WITNESS),
+        /*local_services=*/ServiceFlags(NODE_NETWORK | NODE_WITNESS | NODE_BLAKE2B),
+        /*version=*/PROTOCOL_VERSION,
+        /*relay_txs=*/true);
+    {
+        LOCK(legacy_peer.cs_vSend);
+        const auto& [to_send, _more, msg_type] = legacy_peer.m_transport->GetBytesToSend(!legacy_peer.vSendMsg.empty());
+        BOOST_CHECK((!to_send.empty() && msg_type == NetMsgType::GETHEADERS) ||
+                    std::any_of(legacy_peer.vSendMsg.begin(), legacy_peer.vSendMsg.end(), [](const CSerializedNetMsg& msg) {
+                        return msg.m_type == NetMsgType::GETHEADERS;
+                    }));
+    }
+    peerman.FinalizeNode(legacy_peer);
+}
+
 struct OutboundTest : TestingSetup {
 void AddRandomOutboundPeer(NodeId& id, std::vector<CNode*>& vNodes, PeerManager& peerLogic, ConnmanTestMsg& connman, ConnectionType connType, bool onion_peer = false)
 {
@@ -482,6 +575,65 @@ BOOST_FIXTURE_TEST_CASE(stale_outbound_respects_maxconnections, OutboundTest)
     BOOST_CHECK(std::none_of(vNodes.begin(), vNodes.end(), [](const CNode* n) {
         return n->IsInboundConn() && n->fDisconnect;
     }));
+
+    for (const CNode* node : vNodes) {
+        peerLogic->FinalizeNode(*node);
+    }
+    connman->ClearTestNodes();
+}
+
+//! ThreadOpenConnections asks CanTolerateStaleOutbound before opening a
+//! connection precisely so it does not open one the handshake would drop, so the
+//! answer has to match what DemoteToStaleOutbound then does. The candidate is in
+//! m_nodes for one and not the other, which is what the exclude argument of
+//! CheckStaleOutboundRoom is for; check they agree on each refusal.
+BOOST_FIXTURE_TEST_CASE(stale_outbound_room_predicts_demotion, OutboundTest)
+{
+    NodeId id{0};
+    auto connman = std::make_unique<ConnmanTestMsg>(0x1337, 0x1337, *m_node.addrman, *m_node.netgroupman, Params());
+    auto peerLogic = PeerManager::make(*connman, *m_node.addrman, nullptr, *m_node.chainman, *m_node.mempool, *m_node.warnings, {});
+
+    CConnman::Options options;
+    options.m_max_automatic_connections = 20;
+    connman->Init(options);
+    std::vector<CNode*> vNodes;
+
+    // Ask whether one more stale peer of this type fits, then connect one and
+    // demote it. A refused peer keeps its outbound slot and is disconnected, so
+    // it drops out of the counts either way and the two stay comparable.
+    const auto ask_then_demote = [&](ConnectionType conn_type, unsigned int max_stale) {
+        const bool predicted{connman->CanTolerateStaleOutbound(conn_type, max_stale)};
+        AddRandomOutboundPeer(id, vNodes, *peerLogic, *connman, conn_type);
+        BOOST_CHECK_EQUAL(predicted, connman->DemoteToStaleOutbound(*vNodes.back(), max_stale));
+        return predicted;
+    };
+
+    // A budget of zero tolerates nothing, which is what makes a node started with
+    // -maxstaleoutbound=0 dial NODE_BLAKE2B peers only.
+    BOOST_CHECK(!ask_then_demote(ConnectionType::OUTBOUND_FULL_RELAY, 0));
+
+    // With room, both agree the peer is kept, up to the block-relay target.
+    BOOST_CHECK(ask_then_demote(ConnectionType::BLOCK_RELAY, 1000));
+    BOOST_CHECK(ask_then_demote(ConnectionType::BLOCK_RELAY, 1000));
+    // Which stale peers now fill, so another buys nothing.
+    BOOST_CHECK(!ask_then_demote(ConnectionType::BLOCK_RELAY, 1000));
+
+    // Those two also spend a -maxstaleoutbound budget of 2, whatever the target.
+    BOOST_CHECK(!ask_then_demote(ConnectionType::OUTBOUND_FULL_RELAY, 2));
+    BOOST_CHECK(ask_then_demote(ConnectionType::OUTBOUND_FULL_RELAY, 1000));
+
+    // Fill the inbound budget the stale peers already tolerated above draw on,
+    // counted rather than hardcoded so reordering the cases cannot silently turn
+    // the check below into one of the other two refusals.
+    const int tolerated{static_cast<int>(std::count_if(vNodes.begin(), vNodes.end(),
+        [](const CNode* n) -> bool { return n->m_is_stale_outbound; }))};
+    const int max_inbound = options.m_max_automatic_connections
+        - (MAX_OUTBOUND_FULL_RELAY_CONNECTIONS + MAX_BLOCK_RELAY_ONLY_CONNECTIONS + MAX_FEELER_CONNECTIONS);
+    BOOST_REQUIRE(tolerated < max_inbound);
+    for (int i = tolerated; i < max_inbound; ++i) {
+        AddRandomOutboundPeer(id, vNodes, *peerLogic, *connman, ConnectionType::INBOUND);
+    }
+    BOOST_CHECK(!ask_then_demote(ConnectionType::OUTBOUND_FULL_RELAY, 1000));
 
     for (const CNode* node : vNodes) {
         peerLogic->FinalizeNode(*node);
