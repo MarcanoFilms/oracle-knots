@@ -1624,9 +1624,65 @@ BOOST_AUTO_TEST_CASE(script_HasValidOps)
     BOOST_CHECK(!script.HasValidOps());
 }
 
-static std::string DatacarrierBytesStr(const CScript &script, const size_t remaining_outputs = 0) {
-    auto dcb = script.DatacarrierBytes(remaining_outputs);
+static std::string DatacarrierBytesStr(const CScript &script, const size_t remaining_outputs = 0, const bool dead_branches = true) {
+    auto dcb = script.DatacarrierBytes(remaining_outputs, nullptr, dead_branches);
     return strprintf("%s+%s", dcb.first, dcb.second);
+}
+
+static std::string DatacarrierBytesStr(const CScript& script, const CScriptWitness& witness)
+{
+    auto dcb = script.DatacarrierBytes(0, &witness);
+    return strprintf("%s+%s", dcb.first, dcb.second);
+}
+
+/** <m> <pubkey>*n <n> OP_CHECKMULTISIG, with distinct keys of the given size. */
+static CScript MultisigScript(const int m, const int n, const size_t key_size = 33)
+{
+    // CScript's operator<< encodes an int above 16 as a minimal push, as a real multisig does.
+    CScript script{CScript() << m};
+    for (int i{0}; i < n; ++i) {
+        script << std::vector<unsigned char>(key_size, i + 1);
+    }
+    return script << n << OP_CHECKMULTISIG;
+}
+
+/** A witness offering sigs signatures, as a spend of the given script would. */
+static CScriptWitness MultisigWitness(const int sigs, const CScript& script)
+{
+    CScriptWitness witness;
+    witness.stack.emplace_back(); // the CHECKMULTISIG dummy
+    for (int i{0}; i < sigs; ++i) {
+        witness.stack.emplace_back(72, i + 1);
+    }
+    witness.stack.emplace_back(script.begin(), script.end());
+    return witness;
+}
+
+/** <pubkey> OP_CHECKSIG (<pubkey> OP_CHECKSIGADD)*(n-1) <k> OP_NUMEQUAL, tapscript's k-of-n. */
+static CScript MultiAScript(const int k, const int n, const size_t key_size = 32,
+                            const opcodetype terminator = OP_NUMEQUAL)
+{
+    CScript script{CScript() << std::vector<unsigned char>(key_size, 1) << OP_CHECKSIG};
+    for (int i{1}; i < n; ++i) {
+        script << std::vector<unsigned char>(key_size, static_cast<unsigned char>(i + 1)) << OP_CHECKSIGADD;
+    }
+    return script << k << terminator;
+}
+
+/** A tapscript witness offering sigs signatures, as a spend of the given k-of-n would. */
+static CScriptWitness TapscriptWitness(const int sigs, const int n, const CScript& script)
+{
+    CScriptWitness witness;
+    // A key the spend does not sign for leaves an empty stack item in place of its signature.
+    for (int i{0}; i < n - sigs; ++i) {
+        witness.stack.emplace_back();
+    }
+    for (int i{0}; i < sigs; ++i) {
+        witness.stack.emplace_back(64, i + 1); // a BIP340 signature, which carries no sighash byte
+    }
+    witness.stack.emplace_back(script.begin(), script.end());
+    witness.stack.emplace_back(33, 0xc0); // the control block of a depth zero taproot leaf
+    return witness;
 }
 
 BOOST_AUTO_TEST_CASE(script_DataCarrierBytes)
@@ -1651,6 +1707,10 @@ BOOST_AUTO_TEST_CASE(script_DataCarrierBytes)
     BOOST_CHECK_EQUAL("0+6", DatacarrierBytesStr(CScript() << OP_FALSE << OP_IF << OP_TRUE << OP_IF << OP_ENDIF << OP_ENDIF));
     // pushing then immediately dropping is data: length(1), zero(11), OP_DROP
     BOOST_CHECK_EQUAL("0+13", DatacarrierBytesStr(CScript() << zeros(11) << OP_DROP));
+    // bare/BIP-110 envelope: a run of pushes balanced by OP_2DROP is all data
+    BOOST_CHECK_EQUAL("0+25", DatacarrierBytesStr(CScript() << zeros(11) << zeros(11) << OP_2DROP));
+    // pushnums interleaved in the run don't strand earlier pushes: 12 + 1 (OP_7) + 12 + 1 (OP_2DROP)
+    BOOST_CHECK_EQUAL("0+26", DatacarrierBytesStr(CScript() << zeros(11) << OP_7 << zeros(11) << OP_2DROP));
     // OLGA data obfuscated as p2wsh
     const auto olga_header = CScript() << OP_0 << "003e7374616d703a000000000000000000000000000000000000000000000000"_hex;
     BOOST_CHECK_EQUAL("0+82", DatacarrierBytesStr(olga_header, 2));
@@ -1658,6 +1718,415 @@ BOOST_AUTO_TEST_CASE(script_DataCarrierBytes)
     BOOST_CHECK_EQUAL("0+0", DatacarrierBytesStr(olga_header, 1));
     // OGLA with extra outputs still is OLGA
     BOOST_CHECK_EQUAL("0+82", DatacarrierBytesStr(olga_header, 3));
+
+    // A dead branch guarded by a true constant before OP_NOTIF is data, the
+    // mirror of the OP_FALSE OP_IF envelope above (JXL-n-hide witness shape).
+    BOOST_CHECK_EQUAL("0+4", DatacarrierBytesStr(CScript() << OP_1 << OP_NOTIF << OP_7 << OP_ENDIF));
+    BOOST_CHECK_EQUAL("0+4", DatacarrierBytesStr(CScript() << OP_16 << OP_NOTIF << OP_7 << OP_ENDIF));
+    // Empty dead branch counts its span, same as OP_FALSE OP_IF OP_ENDIF.
+    BOOST_CHECK_EQUAL("0+3", DatacarrierBytesStr(CScript() << OP_TRUE << OP_NOTIF << OP_ENDIF));
+    // A live branch is not data: false before OP_NOTIF, or true before OP_IF.
+    BOOST_CHECK_EQUAL("0+0", DatacarrierBytesStr(CScript() << OP_0 << OP_NOTIF << OP_7 << OP_ENDIF));
+    BOOST_CHECK_EQUAL("0+0", DatacarrierBytesStr(CScript() << OP_1 << OP_IF << OP_7 << OP_ENDIF));
+    // A guard that depends on the witness or a signature is not counted: this
+    // is how spendable scripts branch (Lightning, miniscript)
+    BOOST_CHECK_EQUAL("0+0", DatacarrierBytesStr(CScript() << OP_DUP << OP_IF << OP_7 << OP_ENDIF));
+    BOOST_CHECK_EQUAL("0+0", DatacarrierBytesStr(CScript() << OP_SIZE << 32 << OP_EQUAL << OP_NOTIF << OP_7 << OP_ENDIF));
+    BOOST_CHECK_EQUAL("0+0", DatacarrierBytesStr(CScript() << OP_1 << OP_CHECKSIG << OP_NOTIF << OP_7 << OP_ENDIF));
+    // A guard that constants decide is counted however it is computed
+    BOOST_CHECK_EQUAL("0+4", DatacarrierBytesStr(CScript() << OP_1 << OP_NOP << OP_NOTIF << OP_7 << OP_ENDIF));
+    BOOST_CHECK_EQUAL("0+4", DatacarrierBytesStr(CScript() << OP_1 << OP_DUP << OP_DROP << OP_NOTIF << OP_7 << OP_ENDIF));
+    BOOST_CHECK_EQUAL("0+4", DatacarrierBytesStr(CScript() << OP_1 << OP_TOALTSTACK << OP_FROMALTSTACK << OP_NOTIF << OP_7 << OP_ENDIF));
+    BOOST_CHECK_EQUAL("0+4", DatacarrierBytesStr(CScript() << OP_1 << OP_2 << OP_EQUAL << OP_IF << OP_7 << OP_ENDIF));
+    BOOST_CHECK_EQUAL("0+0", DatacarrierBytesStr(CScript() << OP_1 << OP_1 << OP_EQUAL << OP_IF << OP_7 << OP_ENDIF));
+    BOOST_CHECK_EQUAL("0+4", DatacarrierBytesStr(CScript() << OP_2 << OP_3 << OP_ADD << OP_5 << OP_NUMNOTEQUAL << OP_IF << OP_7 << OP_ENDIF));
+    BOOST_CHECK_EQUAL("0+4", DatacarrierBytesStr(CScript() << OP_1 << OP_16 << OP_CHECKSEQUENCEVERIFY << OP_DROP << OP_NOTIF << OP_7 << OP_ENDIF));
+    // A constant pushed before a witness-dependent conditional is still known inside it
+    BOOST_CHECK_EQUAL("0+4", DatacarrierBytesStr(CScript() << OP_DUP << OP_IF << OP_1 << OP_NOTIF << OP_7 << OP_ENDIF << OP_ENDIF));
+    // Lightning scripts (BOLT 3) count nothing
+    const std::vector<unsigned char> key(33, 0x02), hash(20, 0x11);
+    const CScript to_local{CScript() << OP_IF << key << OP_ELSE << 144 << OP_CHECKSEQUENCEVERIFY << OP_DROP << key << OP_ENDIF << OP_CHECKSIG};
+    BOOST_CHECK_EQUAL("0+0", DatacarrierBytesStr(to_local));
+    const CScript offered_htlc{CScript() << OP_DUP << OP_HASH160 << hash << OP_EQUAL << OP_IF << OP_CHECKSIG << OP_ELSE << key << OP_SWAP
+        << OP_SIZE << 32 << OP_EQUAL << OP_NOTIF << OP_DROP << 2 << OP_SWAP << key << 2 << OP_CHECKMULTISIG << OP_ELSE << OP_HASH160
+        << hash << OP_EQUALVERIFY << OP_CHECKSIG << OP_ENDIF << OP_ENDIF};
+    BOOST_CHECK_EQUAL("0+0", DatacarrierBytesStr(offered_htlc));
+    const CScript anchor{CScript() << key << OP_CHECKSIG << OP_IFDUP << OP_NOTIF << OP_16 << OP_CHECKSEQUENCEVERIFY << OP_ENDIF};
+    BOOST_CHECK_EQUAL("0+0", DatacarrierBytesStr(anchor));
+    // The guard can be a data push, judged by its value: a zero push is false
+    // (dead OP_IF), a one push is true (dead OP_NOTIF); the reverse is live.
+    BOOST_CHECK_EQUAL("0+4", DatacarrierBytesStr(CScript() << "00"_hex << OP_IF << OP_7 << OP_ENDIF));
+    BOOST_CHECK_EQUAL("0+4", DatacarrierBytesStr(CScript() << "01"_hex << OP_NOTIF << OP_7 << OP_ENDIF));
+    BOOST_CHECK_EQUAL("0+0", DatacarrierBytesStr(CScript() << "01"_hex << OP_IF << OP_7 << OP_ENDIF));
+    // The witness script shape from JXL-n-hide tx 23e8f946...: OP_1 OP_NOTIF,
+    // six 255-byte pushes, OP_ENDIF OP_1. The whole dead branch is counted.
+    CScript jxl_witness = CScript() << OP_1 << OP_NOTIF;
+    for (int i = 0; i < 6; ++i) jxl_witness << std::vector<unsigned char>(255, 0xab);
+    jxl_witness << OP_ENDIF << OP_1;
+    BOOST_CHECK_EQUAL("0+1545", DatacarrierBytesStr(jxl_witness));
+
+    // OP_ELSE switches between the counted and the live part: the live else of
+    // a dead branch is not data, and the dead else of a live one is
+    BOOST_CHECK_EQUAL("0+3", DatacarrierBytesStr(CScript() << OP_0 << OP_IF << OP_7 << OP_ELSE << OP_8 << OP_ENDIF));
+    BOOST_CHECK_EQUAL("0+3", DatacarrierBytesStr(CScript() << OP_1 << OP_IF << OP_7 << OP_ELSE << OP_8 << OP_ENDIF));
+    BOOST_CHECK_EQUAL("0+13", DatacarrierBytesStr(CScript() << OP_1 << OP_IF << OP_ELSE << zeros(10) << OP_ENDIF));
+    BOOST_CHECK_EQUAL("0+13", DatacarrierBytesStr(CScript() << OP_0 << OP_NOTIF << OP_ELSE << zeros(10) << OP_ENDIF));
+    BOOST_CHECK_EQUAL("0+0", DatacarrierBytesStr(CScript() << OP_DUP << OP_IF << OP_7 << OP_ELSE << OP_8 << OP_ENDIF));
+    // Repeated OP_ELSE keeps toggling, as the interpreter does
+    BOOST_CHECK_EQUAL("0+6", DatacarrierBytesStr(CScript() << OP_0 << OP_IF << OP_7 << OP_ELSE << OP_8 << OP_ELSE << OP_9 << OP_ENDIF));
+    // A dead branch nested in a live else is found
+    BOOST_CHECK_EQUAL("0+4", DatacarrierBytesStr(CScript() << OP_DUP << OP_IF << OP_ELSE << OP_0 << OP_IF << OP_7 << OP_ENDIF << OP_ENDIF));
+
+    // With -rejectdeadbranches=0 only the OP_FALSE OP_IF envelope counts, as before, through its OP_ENDIF
+    BOOST_CHECK_EQUAL("0+0", DatacarrierBytesStr(jxl_witness, 0, false));
+    BOOST_CHECK_EQUAL("0+0", DatacarrierBytesStr(CScript() << OP_1 << OP_NOTIF << OP_7 << OP_ENDIF, 0, false));
+    BOOST_CHECK_EQUAL("0+0", DatacarrierBytesStr(CScript() << "00"_hex << OP_IF << OP_7 << OP_ENDIF, 0, false));
+    BOOST_CHECK_EQUAL("0+4", DatacarrierBytesStr(CScript() << OP_FALSE << OP_IF << OP_7 << OP_ENDIF, 0, false));
+    BOOST_CHECK_EQUAL("0+13", DatacarrierBytesStr(CScript() << zeros(11) << OP_DROP, 0, false));
+    BOOST_CHECK_EQUAL("0+6", DatacarrierBytesStr(CScript() << OP_0 << OP_IF << OP_7 << OP_ELSE << OP_8 << OP_ENDIF, 0, false));
+    BOOST_CHECK_EQUAL("0+0", DatacarrierBytesStr(CScript() << OP_1 << OP_IF << OP_ELSE << zeros(10) << OP_ENDIF, 0, false));
+
+    // Following constants costs one step per opcode plus each OP_ROLL's depth, at most
+    // four per byte: one deep roll before the guard is followed, a string of them is not
+    const CScript dead_tail = CScript() << OP_1 << OP_NOTIF << OP_7 << OP_ENDIF;
+    const auto deep_rolls = [&](int rolls) {
+        CScript s;
+        for (int i{0}; i < 999; ++i) s << OP_1;
+        for (int i{0}; i < rolls; ++i) s << CScriptNum{998} << OP_ROLL;
+        s.insert(s.end(), dead_tail.begin(), dead_tail.end());
+        return s;
+    };
+    BOOST_CHECK_EQUAL("0+4", DatacarrierBytesStr(deep_rolls(1)));
+    BOOST_CHECK_EQUAL("0+0", DatacarrierBytesStr(deep_rolls(10)));
+}
+
+BOOST_AUTO_TEST_CASE(script_DataCarrierBytes_unproven_pubkeys)
+{
+    using zeros = std::vector<unsigned char>;
+
+    // A key a signature is offered for is a spending condition, not data
+    BOOST_CHECK_EQUAL("0+0", DatacarrierBytesStr(CScript() << zeros(33) << OP_CHECKSIG));
+    // Ordinary multisig is charged nothing, however wide, because the budget is per transaction
+    // and any per-input charge would accumulate across the inputs of a real spend
+    BOOST_CHECK_EQUAL("0+0", DatacarrierBytesStr(MultisigScript(2, 3)));
+    BOOST_CHECK_EQUAL("0+0", DatacarrierBytesStr(MultisigScript(3, 5)));
+    BOOST_CHECK_EQUAL("0+0", DatacarrierBytesStr(MultisigScript(1, 3)));
+    BOOST_CHECK_EQUAL("0+0", DatacarrierBytesStr(MultisigScript(2, 5)));
+    BOOST_CHECK_EQUAL("0+0", DatacarrierBytesStr(MultisigScript(2, 6)));
+    BOOST_CHECK_EQUAL("0+0", DatacarrierBytesStr(MultisigScript(3, 9)));
+    BOOST_CHECK_EQUAL("0+0", DatacarrierBytesStr(MultisigScript(11, 15)));
+    // Above 16 the key count is a minimal one byte push rather than an OP_N, and still counts
+    BOOST_CHECK_EQUAL("0+0", DatacarrierBytesStr(MultisigScript(17, 20)));
+    BOOST_CHECK_EQUAL("0+0", DatacarrierBytesStr(MultisigScript(20, 20)));
+    BOOST_CHECK_EQUAL("0+0", DatacarrierBytesStr(MultisigScript(19, 20)));
+    // The boundary: eleven keys behind one signature is free, twelve starts paying
+    BOOST_CHECK_EQUAL("0+0", DatacarrierBytesStr(MultisigScript(1, 11)));
+    BOOST_CHECK_EQUAL("33+0", DatacarrierBytesStr(MultisigScript(1, 12)));
+    BOOST_CHECK_EQUAL("132+0", DatacarrierBytesStr(MultisigScript(1, 15)));
+    // Uncompressed keys carry no more payload, so they are charged the same
+    BOOST_CHECK_EQUAL("132+0", DatacarrierBytesStr(MultisigScript(1, 15, 65)));
+
+    // Naming signatures the spend does not offer earns nothing: OP_CHECKSIG in a branch that
+    // never runs would otherwise buy off the whole count for one byte each
+    CScript evasion{MultisigScript(1, 15)};
+    evasion << OP_IF << OP_1 << OP_ELSE;
+    for (int i{0}; i < 15; ++i) {
+        evasion << OP_CHECKSIG;
+    }
+    evasion << OP_ENDIF;
+    BOOST_CHECK_EQUAL("0+0", DatacarrierBytesStr(evasion));
+    BOOST_CHECK_EQUAL("132+0", DatacarrierBytesStr(evasion, MultisigWitness(1, evasion)));
+    // A real 11-of-15 spend is charged nothing whether or not the witness is seen
+    const CScript multisig{MultisigScript(11, 15)};
+    BOOST_CHECK_EQUAL("0+0", DatacarrierBytesStr(multisig, MultisigWitness(11, multisig)));
+    // An empty witness means the signatures are elsewhere (P2SH), so the script is believed
+    BOOST_CHECK_EQUAL("0+0", DatacarrierBytesStr(multisig, CScriptWitness()));
+    // The witnessScript itself is not a signature, however close to one in size
+    BOOST_CHECK_EQUAL("165+0", DatacarrierBytesStr(MultisigScript(1, 15), MultisigWitness(0, MultisigScript(1, 15))));
+    // ... whereas offering one signature for the same script leaves fourteen keys unproven
+    BOOST_CHECK_EQUAL("132+0", DatacarrierBytesStr(multisig, MultisigWitness(1, multisig)));
+
+    // Breaking the key run forfeits the m credit rather than earning one
+    CScript padded{CScript() << OP_1};
+    for (int i{0}; i < 15; ++i) {
+        padded << zeros(33) << OP_NOP;
+    }
+    padded << CScript::EncodeOP_N(15) << OP_CHECKMULTISIG;
+    BOOST_CHECK_EQUAL("165+0", DatacarrierBytesStr(padded));
+
+    // A dropped key is already counted as dropped data; it is not charged twice
+    BOOST_CHECK_EQUAL("0+35", DatacarrierBytesStr(CScript() << zeros(33) << OP_DROP));
+    // A drop balancing the run discounts every key in it, whatever sits at the end of the run
+    BOOST_CHECK_EQUAL("0+105", DatacarrierBytesStr(CScript() << zeros(33) << zeros(33) << zeros(33) << 20 << OP_DROP));
+    BOOST_CHECK_EQUAL("0+36", DatacarrierBytesStr(CScript() << zeros(33) << OP_1 << OP_DROP));
+    // Keys inside an OP_FALSE OP_IF envelope are counted with the envelope, once
+    BOOST_CHECK_EQUAL("0+37", DatacarrierBytesStr(CScript() << OP_FALSE << OP_IF << zeros(33) << OP_ENDIF));
+    // An envelope that never closes is counted by neither rule. It cannot execute, so it is
+    // unspendable as a witness or redeem script and nonstandard as a scriptPubKey.
+    BOOST_CHECK_EQUAL("0+0", DatacarrierBytesStr(CScript() << OP_FALSE << OP_IF << zeros(33)
+                                                           << zeros(33) << zeros(33)));
+    // A bare envelope carries no pubkeys at all, so this rule must charge nothing for it
+    BOOST_CHECK_EQUAL("0+90", DatacarrierBytesStr(CScript() << std::vector<unsigned char>{'o', 'r', 'd'}
+                                                            << zeros(83) << OP_2DROP << OP_1));
+    // A run of keys balanced by drops is counted as dropped data, so it is not charged again
+    BOOST_CHECK_EQUAL("0+171", DatacarrierBytesStr(CScript() << zeros(33) << zeros(33) << zeros(33)
+                                                             << zeros(33) << zeros(33)
+                                                             << OP_2DROP << OP_2DROP << OP_DROP));
+}
+
+BOOST_AUTO_TEST_CASE(script_DataCarrierBytes_odd_key_slots)
+{
+    using zeros = std::vector<unsigned char>;
+    const zeros key(33, 2);
+    // 1-of-15 with the signing key last: consensus never examines the 14 slots before it, so they
+    // take any push. Each odd push counts in full.
+    auto slots = [&](const size_t size, const opcodetype between = OP_INVALIDOPCODE) {
+        CScript script{CScript() << OP_1};
+        for (int i{0}; i < 14; ++i) {
+            script << zeros(size);
+            if (between != OP_INVALIDOPCODE) script << between;
+        }
+        return script << key << CScript::EncodeOP_N(15) << OP_CHECKMULTISIG;
+    };
+    BOOST_CHECK_EQUAL("518+0", DatacarrierBytesStr(slots(37)));
+    BOOST_CHECK_EQUAL("1400+0", DatacarrierBytesStr(slots(100)));
+    BOOST_CHECK_EQUAL("518+0", DatacarrierBytesStr(slots(37), MultisigWitness(1, slots(37))));
+    // No way of writing the multisig hides them: a computed key count, or a no-op between the slots
+    {
+        CScript computed{CScript() << OP_1};
+        for (int i{0}; i < 14; ++i) computed << zeros(37);
+        computed << key << OP_8 << OP_7 << OP_ADD << OP_CHECKMULTISIG;
+        BOOST_CHECK_EQUAL("518+0", DatacarrierBytesStr(computed));
+    }
+    BOOST_CHECK_EQUAL("518+0", DatacarrierBytesStr(slots(37, OP_NOP)));
+    // Slots shorter than 6 bytes count too, since another push follows each of them, even across
+    // no-ops. Any other opcode after them leaves them alone, as a timelock check does.
+    BOOST_CHECK_EQUAL("70+0", DatacarrierBytesStr(slots(5)));
+    BOOST_CHECK_EQUAL("14+0", DatacarrierBytesStr(slots(1)));
+    BOOST_CHECK_EQUAL("70+0", DatacarrierBytesStr(slots(5, OP_NOP)));
+    BOOST_CHECK_EQUAL("70+0", DatacarrierBytesStr(slots(5, OP_CODESEPARATOR)));
+    BOOST_CHECK_EQUAL("70+0", DatacarrierBytesStr(slots(5), MultisigWitness(1, slots(5))));
+    {
+        CScript computed{CScript() << OP_1};
+        for (int i{0}; i < 14; ++i) computed << zeros(5);
+        computed << key << OP_8 << OP_7 << OP_ADD << OP_CHECKMULTISIG;
+        BOOST_CHECK_EQUAL("70+0", DatacarrierBytesStr(computed));
+    }
+    BOOST_CHECK_EQUAL("0+0", DatacarrierBytesStr(slots(5, OP_CHECKSEQUENCEVERIFY)));
+    // Real keys among the slots still count past the allowance, and the odd push breaks the
+    // run, so m is not credited
+    {
+        CScript mixed{CScript() << OP_1};
+        for (int i{0}; i < 12; ++i) mixed << key;
+        mixed << zeros(37) << key << CScript::EncodeOP_N(14) << OP_CHECKMULTISIG;
+        BOOST_CHECK_EQUAL("136+0", DatacarrierBytesStr(mixed));
+    }
+    // A 32 byte push in a slot is no key there either
+    BOOST_CHECK_EQUAL("448+0", DatacarrierBytesStr(slots(32)));
+
+    // What real multisig scripts carry besides keys is left alone
+    // ... a hash lock: a digest the size its hash opcode outputs, compared with OP_EQUAL(VERIFY)
+    {
+        CScript htlc{CScript() << OP_HASH160 << zeros(20) << OP_EQUALVERIFY};
+        const CScript multisig{MultisigScript(2, 2)};
+        htlc.insert(htlc.end(), multisig.begin(), multisig.end());
+        BOOST_CHECK_EQUAL("0+0", DatacarrierBytesStr(htlc));
+        CScript sha{CScript() << OP_SHA256 << zeros(32) << OP_EQUAL << OP_NOTIF};
+        sha.insert(sha.end(), multisig.begin(), multisig.end());
+        sha << OP_ENDIF;
+        BOOST_CHECK_EQUAL("0+0", DatacarrierBytesStr(sha));
+    }
+    // ... a tag in an OP_FALSE OP_IF envelope after a 3-of-5, counted once, as the envelope
+    {
+        CScript tagged{MultisigScript(3, 5)};
+        tagged << OP_FALSE << OP_IF << zeros(32) << OP_ENDIF;
+        BOOST_CHECK_EQUAL("0+36", DatacarrierBytesStr(tagged));
+    }
+    // ... a dropped push, counted once, by the drop rule
+    {
+        CScript dropped{CScript() << zeros(32) << OP_DROP};
+        const CScript multisig{MultisigScript(2, 3)};
+        dropped.insert(dropped.end(), multisig.begin(), multisig.end());
+        BOOST_CHECK_EQUAL("0+34", DatacarrierBytesStr(dropped));
+    }
+    // ... numbers, up to the 5 bytes a timelock reads; a 6 byte push is no number
+    {
+        CScript timelocked{MultisigScript(2, 3)};
+        timelocked << OP_NOTIF << zeros(5, 1) << OP_CHECKSEQUENCEVERIFY << OP_ENDIF;
+        BOOST_CHECK_EQUAL("0+0", DatacarrierBytesStr(timelocked));
+        CScript six{MultisigScript(2, 3)};
+        six << OP_NOTIF << zeros(6, 1) << OP_CHECKSEQUENCEVERIFY << OP_ENDIF;
+        BOOST_CHECK_EQUAL("6+0", DatacarrierBytesStr(six));
+    }
+    // ... a timelock number with a multisig after the check, which reads it
+    {
+        CScript timelock_first{CScript() << zeros(3, 1) << OP_CHECKSEQUENCEVERIFY};
+        const CScript multisig{MultisigScript(2, 3)};
+        timelock_first.insert(timelock_first.end(), multisig.begin(), multisig.end());
+        BOOST_CHECK_EQUAL("0+0", DatacarrierBytesStr(timelock_first));
+    }
+    // ... a key count above 16, a one byte push with a key after it
+    BOOST_CHECK_EQUAL("0+0", DatacarrierBytesStr(MultisigScript(17, 20)));
+    // ... uncompressed keys
+    BOOST_CHECK_EQUAL("0+0", DatacarrierBytesStr(MultisigScript(2, 3, 65)));
+    // ... a run of pushes an OP_2DROP balances, counted once, as dropped data
+    {
+        CScript two{CScript() << zeros(20) << zeros(20) << OP_2DROP};
+        const CScript multisig{MultisigScript(2, 3)};
+        two.insert(two.end(), multisig.begin(), multisig.end());
+        BOOST_CHECK_EQUAL("0+43", DatacarrierBytesStr(two));
+        // Short pushes in a dropped run are the drop rule's alone, and one a no-op keeps out of
+        // the run is this rule's
+        CScript short_two{CScript() << zeros(5) << zeros(5) << OP_2DROP};
+        short_two.insert(short_two.end(), multisig.begin(), multisig.end());
+        BOOST_CHECK_EQUAL("0+13", DatacarrierBytesStr(short_two));
+        CScript short_one{CScript() << zeros(5) << zeros(5) << OP_DROP};
+        short_one.insert(short_one.end(), multisig.begin(), multisig.end());
+        BOOST_CHECK_EQUAL("0+13", DatacarrierBytesStr(short_one));
+        CScript short_nop{CScript() << zeros(5) << OP_NOP << zeros(5) << OP_2DROP};
+        short_nop.insert(short_nop.end(), multisig.begin(), multisig.end());
+        BOOST_CHECK_EQUAL("5+7", DatacarrierBytesStr(short_nop));
+    }
+    // OP_EQUAL alone makes no hash lock: a push it compares counts unless a hash opcode of its size
+    // comes before it, so OP_EQUAL OP_DROP cannot carry data past the rule
+    {
+        CScript equal;
+        for (int i{0}; i < 5; ++i) equal << OP_1 << zeros(255) << OP_EQUAL << OP_DROP;
+        const CScript multisig{MultisigScript(1, 1)};
+        equal.insert(equal.end(), multisig.begin(), multisig.end());
+        BOOST_CHECK_EQUAL("1275+0", DatacarrierBytesStr(equal));
+        CScript dup{CScript() << OP_DUP << zeros(20) << OP_EQUALVERIFY};
+        dup.insert(dup.end(), multisig.begin(), multisig.end());
+        BOOST_CHECK_EQUAL("20+0", DatacarrierBytesStr(dup));
+        CScript wrong_size{CScript() << OP_SHA256 << zeros(20) << OP_EQUALVERIFY};
+        wrong_size.insert(wrong_size.end(), multisig.begin(), multisig.end());
+        BOOST_CHECK_EQUAL("20+0", DatacarrierBytesStr(wrong_size));
+    }
+    // OP_CHECKMULTISIGVERIFY makes it a multisig script as OP_CHECKMULTISIG does
+    {
+        CScript verify{CScript() << OP_1};
+        for (int i{0}; i < 14; ++i) verify << zeros(37);
+        verify << key << CScript::EncodeOP_N(15) << OP_CHECKMULTISIGVERIFY << OP_1;
+        BOOST_CHECK_EQUAL("518+0", DatacarrierBytesStr(verify));
+    }
+    // In a witness script 65 bytes is no key either, since segwit policy refuses an uncompressed key
+    // it checks: ten such slots before the signing key count in full. A redeem script may use them.
+    {
+        CScript wide{CScript() << OP_1};
+        for (int i{0}; i < 10; ++i) wide << zeros(65, 4);
+        wide << key << CScript::EncodeOP_N(11) << OP_CHECKMULTISIG;
+        BOOST_CHECK_EQUAL("650+0", DatacarrierBytesStr(wide, MultisigWitness(1, wide)));
+        BOOST_CHECK_EQUAL("0+0", DatacarrierBytesStr(wide));
+        // A P2SH spend passes an empty witness: that is a redeem script, where 65 bytes is a key
+        BOOST_CHECK_EQUAL("0+0", DatacarrierBytesStr(wide, CScriptWitness()));
+    }
+    // A script without OP_CHECKMULTISIG is not this rule's to judge
+    BOOST_CHECK_EQUAL("0+0", DatacarrierBytesStr(CScript() << zeros(37) << zeros(37) << OP_EQUAL));
+    BOOST_CHECK_EQUAL("0+0", DatacarrierBytesStr(CScript() << zeros(5) << zeros(5) << OP_EQUAL));
+}
+
+BOOST_AUTO_TEST_CASE(script_DataCarrierBytes_tapscript_unproven_pubkeys)
+{
+    using zeros = std::vector<unsigned char>;
+
+    // The same payload costs the same whichever way it is written. A 1-of-15 under P2WSH and
+    // the taproot leaf that says the same thing are charged alike, where once the leaf was free
+    BOOST_CHECK_EQUAL("132+0", DatacarrierBytesStr(MultisigScript(1, 15), MultisigWitness(1, MultisigScript(1, 15))));
+    BOOST_CHECK_EQUAL("132+0", DatacarrierBytesStr(MultiAScript(1, 15), TapscriptWitness(1, 15, MultiAScript(1, 15))));
+
+    // An x-only key a signature is offered for is a spending condition, not data
+    BOOST_CHECK_EQUAL("0+0", DatacarrierBytesStr(CScript() << zeros(32) << OP_CHECKSIG));
+    // Ordinary tapscript multisig keeps its spare keys, exactly as OP_CHECKMULTISIG does
+    for (const auto& [k, n] : {std::pair{2, 3}, std::pair{3, 5}, std::pair{1, 2}, std::pair{1, 3},
+                               std::pair{3, 3}, std::pair{5, 5}, std::pair{11, 15}, std::pair{20, 20}}) {
+        const CScript script{MultiAScript(k, n)};
+        BOOST_CHECK_EQUAL(DatacarrierBytesStr(MultisigScript(k, n)),
+                          DatacarrierBytesStr(script, TapscriptWitness(k, n, script)));
+    }
+    // Eleven keys behind one signature are free, as under OP_CHECKMULTISIG; past the tolerance
+    // every further key is payload, however honest the spend that offers it
+    BOOST_CHECK_EQUAL("0+0", DatacarrierBytesStr(MultiAScript(1, 11), TapscriptWitness(1, 11, MultiAScript(1, 11))));
+    BOOST_CHECK_EQUAL("33+0", DatacarrierBytesStr(MultiAScript(1, 12), TapscriptWitness(1, 12, MultiAScript(1, 12))));
+    BOOST_CHECK_EQUAL("66+0", DatacarrierBytesStr(MultiAScript(1, 13), TapscriptWitness(1, 13, MultiAScript(1, 13))));
+    BOOST_CHECK_EQUAL("33+0", DatacarrierBytesStr(MultiAScript(5, 16), TapscriptWitness(5, 16, MultiAScript(5, 16))));
+    for (const auto& [k, n] : {std::pair{1, 11}, std::pair{1, 12}, std::pair{1, 13}, std::pair{5, 16}}) {
+        const CScript script{MultiAScript(k, n)};
+        BOOST_CHECK_EQUAL(DatacarrierBytesStr(MultisigScript(k, n), MultisigWitness(k, MultisigScript(k, n))),
+                          DatacarrierBytesStr(script, TapscriptWitness(k, n, script)));
+    }
+    // Above 16 the key count is a minimal push rather than an OP_N, and still counts. A leaf may
+    // hold far more keys than OP_CHECKMULTISIG, so it is read up to MAX_PUBKEYS_PER_MULTI_A
+    BOOST_CHECK_EQUAL("33+0", DatacarrierBytesStr(MultiAScript(17, 28), TapscriptWitness(17, 28, MultiAScript(17, 28))));
+    // From 128 the minimal push carries a zero high byte to keep the sign clear, as in 80 00
+    for (const int k : {127, 128, 255, 256}) {
+        const CScript script{MultiAScript(k, k + 2)};
+        BOOST_CHECK_EQUAL("0+0", DatacarrierBytesStr(script, TapscriptWitness(k, k + 2, script)));
+    }
+    // ... while a zero high byte nothing needs is not minimal, and forfeits the credit
+    CScript non_minimal{CScript() << zeros(32) << OP_CHECKSIG};
+    for (int i{1}; i < 28; ++i) {
+        non_minimal << zeros(32) << OP_CHECKSIGADD;
+    }
+    non_minimal << std::vector<unsigned char>{17, 0} << OP_NUMEQUAL;
+    BOOST_CHECK_EQUAL("561+0", DatacarrierBytesStr(non_minimal, TapscriptWitness(17, 28, non_minimal)));
+    // The credit is the shape of the run, not the size of its keys: a leaf may hold either
+    BOOST_CHECK_EQUAL("0+0", DatacarrierBytesStr(MultiAScript(3, 5, 33), TapscriptWitness(3, 5, MultiAScript(3, 5, 33))));
+    // A run closed by OP_NUMEQUALVERIFY says the same thing as one closed by OP_NUMEQUAL
+    const CScript verify{MultiAScript(3, 5, 32, OP_NUMEQUALVERIFY)};
+    BOOST_CHECK_EQUAL("0+0", DatacarrierBytesStr(verify, TapscriptWitness(3, 5, verify)));
+
+    // A 32 byte push is only a key where something spends it. The preimage of a hashlock and
+    // the hash it is checked against are neither of them keys, in a leaf or anywhere else
+    BOOST_CHECK_EQUAL("0+0", DatacarrierBytesStr(CScript() << OP_SHA256 << zeros(32) << OP_EQUALVERIFY
+                                                           << zeros(33) << OP_CHECKSIG));
+    BOOST_CHECK_EQUAL("0+0", DatacarrierBytesStr(CScript() << zeros(32) << OP_SHA256 << zeros(32)
+                                                           << OP_EQUALVERIFY << zeros(32) << OP_CHECKSIG));
+
+    // Padding the run forfeits the credit rather than earning one, so an 11-of-15 written the
+    // long way round is charged as though it proved nothing but the key it opens on
+    CScript padded{CScript() << zeros(32) << OP_CHECKSIG};
+    for (int i{1}; i < 15; ++i) {
+        padded << zeros(32) << OP_NOP << OP_CHECKSIGADD;
+    }
+    padded << 11 << OP_NUMEQUAL;
+    BOOST_CHECK_EQUAL("132+0", DatacarrierBytesStr(padded, TapscriptWitness(11, 15, padded)));
+    // ... while an OP_NOP does not hide the key beneath it from the opcode that spends it
+    BOOST_CHECK_EQUAL("0+0", DatacarrierBytesStr(CScript() << zeros(32) << OP_NOP << OP_CHECKSIG));
+
+    // Naming a k the run cannot satisfy forfeits the credit too
+    CScript inflated{CScript() << zeros(32) << OP_CHECKSIG};
+    for (int i{1}; i < 15; ++i) {
+        inflated << zeros(32) << OP_CHECKSIGADD;
+    }
+    inflated << 20 << OP_NUMEQUAL;
+    BOOST_CHECK_EQUAL("132+0", DatacarrierBytesStr(inflated, TapscriptWitness(11, 15, inflated)));
+
+    // The OP_CHECKSIG a run opens on credits one of the k already, so a 1-of-n is credited once
+    BOOST_CHECK_EQUAL("0+0", DatacarrierBytesStr(MultiAScript(1, 3), TapscriptWitness(1, 3, MultiAScript(1, 3))));
+    // Naming more signatures than the spend offers earns nothing here as it does elsewhere
+    BOOST_CHECK_EQUAL("132+0", DatacarrierBytesStr(MultiAScript(11, 15), TapscriptWitness(1, 15, MultiAScript(11, 15))));
+
+    // A key inside an OP_FALSE OP_IF envelope is counted with the envelope, once
+    BOOST_CHECK_EQUAL("0+37", DatacarrierBytesStr(CScript() << OP_FALSE << OP_IF << zeros(32)
+                                                            << OP_CHECKSIG << OP_ENDIF));
+    // A dropped key is already counted as dropped data; it is not charged twice, and no credit
+    // drives the count below zero
+    BOOST_CHECK_EQUAL("0+35", DatacarrierBytesStr(CScript() << zeros(32) << OP_CHECKSIG << zeros(33) << OP_DROP));
+    CScript over_credited{MultiAScript(3, 3)};
+    over_credited << OP_3 << OP_NUMEQUAL << OP_3 << OP_NUMEQUAL;
+    BOOST_CHECK_EQUAL("0+0", DatacarrierBytesStr(over_credited));
+
+    // A 32 byte push nothing spends and no drop balances is reached by neither rule. It is
+    // stranded on the stack, which leaves the leaf unspendable, so it buys nothing.
+    CScript stranded;
+    for (int i{0}; i < 15; ++i) {
+        stranded << zeros(32);
+    }
+    BOOST_CHECK_EQUAL("0+0", DatacarrierBytesStr(stranded));
+    // Balance the same pushes with drops and the run rule charges them whole
+    BOOST_CHECK_EQUAL("0+496", DatacarrierBytesStr(CScript{stranded} << OP_2DROP << OP_2DROP << OP_2DROP
+                                                                     << OP_2DROP << OP_2DROP << OP_2DROP
+                                                                     << OP_2DROP << OP_DROP));
 }
 
 BOOST_AUTO_TEST_CASE(script_GetScriptForTransactionInput)

@@ -712,6 +712,7 @@ void SetupServerArgs(ArgsManager& argsman, bool can_listen_ipc)
                    strprintf("Relay and mine non-OP_RETURN datacarrier injection (default: %u)",
                              DEFAULT_ACCEPT_NON_STD_DATACARRIER),
                    ArgsManager::ALLOW_ANY, OptionsCategory::NODE_RELAY);
+    argsman.AddArg("-rejectbpub", strprintf("Count the witness scripts of inputs that carry a BPUB file as non-standard data carrier bytes (default: %u)", DEFAULT_REJECT_BPUB), ArgsManager::ALLOW_ANY, OptionsCategory::NODE_RELAY);
     argsman.AddArg("-acceptnonstdtxn", strprintf("Relay and mine \"non-standard\" transactions (default: %u)", DEFAULT_ACCEPT_NON_STD_TXN), ArgsManager::ALLOW_ANY, OptionsCategory::NODE_RELAY);
     argsman.AddArg("-acceptunknownwitness",
                    strprintf("Relay transactions sending to unknown/future witness script versions (default: %u)", DEFAULT_ACCEPTUNKNOWNWITNESS),
@@ -728,6 +729,7 @@ void SetupServerArgs(ArgsManager& argsman, bool can_listen_ipc)
     argsman.AddArg("-bytespersigopstrict", strprintf("Minimum bytes per sigop in transactions we relay and mine (default: %u)", DEFAULT_BYTES_PER_SIGOP_STRICT), ArgsManager::ALLOW_ANY, OptionsCategory::NODE_RELAY);
     argsman.AddArg("-datacarrier", strprintf("Relay and mine data carrier transactions (default: %u)", DEFAULT_ACCEPT_DATACARRIER), ArgsManager::ALLOW_ANY, OptionsCategory::NODE_RELAY);
     argsman.AddArg("-datacarriercost", strprintf("Treat extra data in transactions as at least N vbytes per actual byte (default: %s)", DEFAULT_WEIGHT_PER_DATA_BYTE / 4.0), ArgsManager::ALLOW_ANY, OptionsCategory::NODE_RELAY);
+    argsman.AddArg("-rejectdeadbranches", strprintf("Count data in a conditional branch that a pushed constant makes unreachable as data carrier bytes; the OP_FALSE OP_IF envelope is counted either way (default: %u)", DEFAULT_REJECT_DEAD_BRANCHES), ArgsManager::ALLOW_ANY, OptionsCategory::NODE_RELAY);
     argsman.AddArg("-datacarrierfullcount", strprintf("Apply datacarriersize limit to all known datacarrier methods (default: %u)", DEFAULT_DATACARRIER_FULLCOUNT), ArgsManager::ALLOW_ANY | (DEFAULT_DATACARRIER_FULLCOUNT ? uint32_t{ArgsManager::DEBUG_ONLY} : 0), OptionsCategory::NODE_RELAY);
     argsman.AddArg("-datacarriersize",
                    strprintf("Maximum size of data in data carrier transactions we relay and mine, in bytes (maximum %s, default: %u)",
@@ -796,7 +798,7 @@ void SetupServerArgs(ArgsManager& argsman, bool can_listen_ipc)
     argsman.AddArg("-blockmaxweight=<n>", strprintf("Set maximum BIP141 block weight (default: %d)", DEFAULT_BLOCK_MAX_WEIGHT), ArgsManager::ALLOW_ANY, OptionsCategory::BLOCK_CREATION);
     argsman.AddArg("-blockreservedweight=<n>", strprintf("Reserve space for the fixed-size block header plus the largest coinbase transaction the mining software may add to the block. (default: %d).", DEFAULT_BLOCK_RESERVED_WEIGHT), ArgsManager::ALLOW_ANY, OptionsCategory::BLOCK_CREATION);
     argsman.AddArg("-blockmintxfee=<amt>", strprintf("Set lowest fee rate (in %s/kvB) for transactions to be included in block creation. (default: %s)", CURRENCY_UNIT, FormatMoney(DEFAULT_BLOCK_MIN_TX_FEE)), ArgsManager::ALLOW_ANY, OptionsCategory::BLOCK_CREATION);
-    argsman.AddArg("-blockprioritysize=<n>", strprintf("Set maximum size of high-priority/low-fee transactions in bytes (default: %d)", DEFAULT_BLOCK_PRIORITY_SIZE), ArgsManager::ALLOW_ANY, OptionsCategory::BLOCK_CREATION);
+    argsman.AddArg("-blockprioritysize=<n>", strprintf("Set maximum size in bytes reserved for coin-age priority transactions meeting the mining fee floor (default: %d)", DEFAULT_BLOCK_PRIORITY_SIZE), ArgsManager::ALLOW_ANY, OptionsCategory::BLOCK_CREATION);
     argsman.AddArg("-blockversion=<n>", "Override block version to test forking scenarios", ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::BLOCK_CREATION);
 
     argsman.AddArg("-rest", strprintf("Accept public REST requests (default: %u)", DEFAULT_REST_ENABLE), ArgsManager::ALLOW_ANY, OptionsCategory::RPC);
@@ -890,6 +892,7 @@ void InitParameterInteraction(ArgsManager& args)
         args.SoftSetArg("-subdustfeepenalty", "0");
         args.SoftSetArg("-datacarriercost", "0.25");
         args.SoftSetArg("-datacarrierfullcount", "0");
+        args.SoftSetArg("-rejectdeadbranches", "0");
         args.SoftSetArg("-maxtxlegacysigops", strprintf("%s", std::numeric_limits<unsigned int>::max()));
         args.SoftSetArg("-maxscriptsize", strprintf("%s", std::numeric_limits<unsigned int>::max()));
         args.SoftSetArg("-mempooltruc", "enforce");
@@ -1230,8 +1233,11 @@ bool AppInitParameterInteraction(const ArgsManager& args)
     if (auto parsed = args.GetFixedPointArg("-datacarriercost", 2)) {
         g_weight_per_data_byte = ((*parsed * WITNESS_SCALE_FACTOR) + 99) / 100;
     }
+    g_reject_bpub = args.GetBoolArg("-rejectbpub", DEFAULT_REJECT_BPUB);
 
     g_script_size_policy_limit = args.GetIntArg("-maxscriptsize", g_script_size_policy_limit);
+
+    g_reject_dead_branches = args.GetBoolArg("-rejectdeadbranches", g_reject_dead_branches);
 
     nBytesPerSigOp = args.GetIntArg("-bytespersigop", nBytesPerSigOp);
     nBytesPerSigOpStrict = args.GetIntArg("-bytespersigopstrict", nBytesPerSigOpStrict);
@@ -1396,7 +1402,10 @@ static void SyncCoinsTipAfterChainSync(const NodeContext& node)
     }
 
     LogDebug(BCLog::COINDB, "Finished syncing to tip, syncing chainstate to disk\n");
-    node.chainman->ActiveChainstate().CoinsTip().Sync();
+    // Persist block/undo data and the block index before the coins database.
+    // An interrupted coins batch needs those entries to replay during recovery.
+    BlockValidationState state;
+    node.chainman->ActiveChainstate().FlushStateToDisk(state, FlushStateMode::FORCE_SYNC);
 }
 
 bool AppInitInterfaces(NodeContext& node)
@@ -2222,10 +2231,16 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
         vImportFiles.push_back(fs::PathFromString(strFile));
     }
 
-    node.background_init_thread = std::thread(&util::TraceThread, "initload", [=, &chainman, &args, &node] {
+    node.background_init_thread = std::thread(&util::TraceThread, "initload", [=, &chainman, &args, &kernel_notifications, &node] {
         ScheduleBatchPriority();
         // Import blocks and ActivateBestChain()
         ImportBlocks(chainman, vImportFiles);
+        // An interrupted import may return without activating genesis. Wake
+        // the init thread's genesis wait, which is otherwise only notified
+        // on blockTip, and that never fires when the import was interrupted
+        // before activating genesis. This wakeup lets the wait observe the
+        // shutdown request.
+        WITH_LOCK(kernel_notifications.m_tip_block_mutex, kernel_notifications.m_tip_block_cv.notify_all());
         WITH_LOCK(::cs_main, chainman.UpdateIBDStatus());
         if (args.GetBoolArg("-stopafterblockimport", DEFAULT_STOPAFTERBLOCKIMPORT)) {
             LogPrintf("Stopping after block import\n");

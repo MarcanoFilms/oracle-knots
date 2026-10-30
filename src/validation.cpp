@@ -440,7 +440,7 @@ void Chainstate::MaybeUpdateMempoolForReorg(
                 const Coin& coin{CoinsTip().AccessCoin(txin.prevout)};
                 assert(!coin.IsSpent());
                 const auto mempool_spend_height{m_chain.Tip()->nHeight + 1};
-                if (coin.IsCoinBase() && mempool_spend_height - coin.nHeight < consensusParams.CoinbaseMaturityLong) {
+                if (coin.IsCoinBase() && mempool_spend_height - coin.nHeight < Consensus::CoinbaseMaturityPolicy(consensusParams, m_chain[coin.nHeight])) {
                     return true;
                 }
             }
@@ -1020,7 +1020,9 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
     const auto& consensusParams{args.m_chainparams.GetConsensus()};
     if (!Consensus::CheckTxInputs(tx, state, m_view, block_height_next, ws.m_base_fees, CheckTxInputsRules::OutputSizeLimit,
                                   consensusParams.CoinbaseMaturityLong,
-                                  /*long_maturity_start_height=*/ 0)) {
+                                  consensusParams.CoinbaseMaturityLongStartHeight,
+                                  Consensus::CoinbaseMaturityLongEndHeight(consensusParams, m_active_chainstate.m_chain.Tip()),
+                                  consensusParams.CoinbaseMaturityBeforeRolling())) {
         return false; // state filled in by CheckTxInputs
     }
 
@@ -1063,10 +1065,10 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
     if (m_pool.m_opts.datacarrier_fullcount || !m_pool.m_opts.accept_non_std_datacarrier) {
         const auto dcb = DatacarrierBytes(tx, m_view);
         if (dcb.second > 0 && !(m_pool.m_opts.accept_non_std_datacarrier || ignore_rejects.count("txn-datacarrier-nonstandard"))) {
-            return state.Invalid(TxValidationResult::TX_INPUTS_NOT_STANDARD, "txn-datacarrier-nonstandard");
+            return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "txn-datacarrier-nonstandard");
         }
         if (m_pool.m_opts.datacarrier_fullcount && (!ignore_rejects.count("txn-datacarrier-exceeded")) && dcb.first + dcb.second > m_pool.m_opts.max_datacarrier_bytes.value_or(0)) {
-            return state.Invalid(TxValidationResult::TX_INPUTS_NOT_STANDARD, "txn-datacarrier-exceeded");
+            return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "txn-datacarrier-exceeded");
         }
     }
 
@@ -1115,6 +1117,14 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
 
     ws.m_vsize = ws.m_tx_handle->GetTxSize();
 
+    // Check actual fees and manual fee deltas before applying the automatic
+    // dust penalty. StageAddition already applied mapDeltas to the entry.
+    if (m_pool.m_opts.require_standard && !ignore_rejects.count("dust")) {
+        if (!PreCheckEphemeralTx(*ptx, m_pool.m_opts.dust_relay_feerate, ws.m_base_fees, ws.m_modified_fees, state)) {
+            return false; // state filled in by PreCheckEphemeralTx
+        }
+    }
+
     // Reduce effective fee by dust threshold for each sub-dust output
     if (m_pool.m_opts.subdustfeepenalty) {
         CAmount dust_penalty{0};
@@ -1129,13 +1139,6 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
                 e.UpdateModifiedFee(-dust_penalty);
             });
             ws.m_modified_fees = SaturatingAdd(ws.m_modified_fees, -dust_penalty);
-        }
-    }
-
-    // Enforces 0-fee for dust transactions, no incentive to be mined alone
-    if (m_pool.m_opts.require_standard && !ignore_rejects.count("dust")) {
-        if (!PreCheckEphemeralTx(*ptx, m_pool.m_opts.dust_relay_feerate, ws.m_base_fees, ws.m_modified_fees, state)) {
-            return false; // state filled in by PreCheckEphemeralTx
         }
     }
 
@@ -2361,10 +2364,7 @@ void Chainstate::CheckForkWarningConditions()
 {
     AssertLockHeld(cs_main);
 
-    // Before we get past initial download, we cannot reliably alert about forks
-    // (we assume we don't get stuck on a fork before finishing our initial sync)
-    // Also not applicable to the background chainstate
-    if (m_chainman.IsInitialBlockDownload() || this->GetRole() == ChainstateRole::BACKGROUND) {
+    if (this->GetRole() == ChainstateRole::BACKGROUND) {
         return;
     }
 
@@ -3009,8 +3009,7 @@ bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, 
         }
     }
 
-    const bool long_maturity_consensus_active{consensusParams.CoinbaseMaturityLongActiveAt(pindex->nHeight)};
-    const int long_maturity_start_height{long_maturity_consensus_active ? consensusParams.CoinbaseMaturityLongStartHeight : std::numeric_limits<int>::max()};
+    const int long_maturity_end_height{Consensus::CoinbaseMaturityLongEndHeight(consensusParams, pindex->pprev)};
 
     std::vector<int> prevheights;
     CAmount nFees = 0;
@@ -3030,8 +3029,7 @@ bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, 
             CAmount txfee = 0;
             TxValidationState tx_state;
             if (!Consensus::CheckTxInputs(tx, tx_state, view, pindex->nHeight, txfee, chk_input_rules,
-                                          consensusParams.CoinbaseMaturityLong,
-                                          long_maturity_start_height)) {
+                                          consensusParams, long_maturity_end_height)) {
                 // Any transaction validation failure in ConnectBlock is a block consensus failure
                 state.Invalid(BlockValidationResult::BLOCK_CONSENSUS,
                               tx_state.GetRejectReason(),
@@ -3259,7 +3257,7 @@ bool Chainstate::FlushStateToDisk(
         // It's been a while since we wrote the block index and chain state to disk. Do this frequently, so we don't need to redownload or reindex after a crash.
         bool fPeriodicWrite = mode == FlushStateMode::PERIODIC && nNow >= m_next_write;
         // Combine all conditions that result in a write to disk.
-        bool should_write = (mode == FlushStateMode::ALWAYS) || fCacheLarge || fCacheCritical || fPeriodicWrite || fFlushForPrune;
+        bool should_write = (mode == FlushStateMode::ALWAYS) || (mode == FlushStateMode::FORCE_SYNC) || fCacheLarge || fCacheCritical || fPeriodicWrite || fFlushForPrune;
         // Write blocks, block index and best chain related state to disk.
         if (should_write) {
             // Ensure we can write block index
@@ -4909,7 +4907,8 @@ bool ChainstateManager::AcceptBlockHeader(const CBlockHeader& block, BlockValida
                 *ppindex = pindex;
             if (pindex->nStatus & BLOCK_FAILED_MASK) {
                 LogDebug(BCLog::VALIDATION, "%s: block %s is marked invalid\n", __func__, hash.ToString());
-                return state.Invalid(BlockValidationResult::BLOCK_CACHED_INVALID, "duplicate-invalid");
+                return state.Invalid(BlockValidationResult::BLOCK_CACHED_INVALID, "duplicate-invalid",
+                                     strprintf("block %s was previously marked invalid", hash.ToString()));
             }
             return true;
         }
@@ -5342,6 +5341,8 @@ bool Chainstate::LoadChainTip()
         // Ignoring return value for now.
         (void)m_chainman.GetNotifications().blockTip(GetSynchronizationState(/*init=*/true, m_chainman.m_blockman.m_blockfiles_indexed), *pindex);
     }
+
+    CheckForkWarningConditions();
 
     return true;
 }
