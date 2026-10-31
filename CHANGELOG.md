@@ -1,11 +1,51 @@
 # Changelog
 
-## Unreleased — hardening
+## v2.1.0 — Knots 29.4.3, data-carrier filter, UA privacy
+
+Upstream refresh plus operator protections. Consensus for the BLAKE2b chain is
+unchanged throughout: the upstream merges bring Knots' own policy and maturity
+work, and everything else is policy, privacy, mining and GUI product.
+
+### Upstream
+- Rebased onto **Bitcoin Knots v29.4.2 final** and then **v29.4.3** (merges of
+  tags `v29.4.2.knots20260508` and `v29.4.3.knots20260508`), which ship the
+  rolling 180-day coinbase maturity (Knots #468) and the 29.4.x maintenance
+  fixes.
+
+### Privacy
+- **New `-uaprivacy` option, on by default.** Peers on public networks
+  (IPv4/IPv6/CJDNS) are sent a generic upstream user agent
+  (`/Satoshi:29.4.3/Knots:20260508/`); the real `/OracleKnots:…/` user agent
+  is only sent to peers reached over Tor or I2P. A user-agent scan of clearnet
+  listeners can no longer produce a list of Oracle Knots operators — on
+  2026-10-30 exactly that kind of scan was used to post a node operator's home
+  IP in public. `-uaprivacy=0` restores full advertising, `-uaspoof` still
+  overrides everything, and `getnetworkinfo` keeps reporting the real
+  subversion locally. Covered by the new `p2p_ua_privacy.py` functional test,
+  which Build CI runs.
+
+### Policy
+- **Fake 1-of-N bare-multisig data carriers are rejected by standardness.**
+  The `bpub`/bitfiles pattern hides arbitrary data in the keys of a 1-of-N
+  multisig output; those outputs are now recognized as data carriers and kept
+  out of the mempool like any other datacarrier violation.
+
+### Mining
+- CONVOY submodule updated to fix BLAKE2b coinbase sizing (DATUM templates no
+  longer overrun the coinbase budget).
+- The DATUM vardiff floor is configurable from the Control Center's Sovereign
+  Mining tab.
+
+### Control Center
+- The wallet view auto-refreshes and raises Sparrow-style desktop
+  notifications when a new transaction touches the wallet.
+
+### Security hardening
 
 Security fixes across the node and the Control Center. No consensus code is
 touched: the node's validation rules are unchanged.
 
-### Node
+#### Node
 - **The Prometheus exporter no longer listens on every interface.** It bound
   `INADDR_ANY` while `-prometheus` defaults to on, so every node published its
   height, peer counts, mempool and uptime to anyone who could reach the host,
@@ -15,7 +55,7 @@ touched: the node's validation rules are unchanged.
   per connection: a client that connected and stayed quiet used to stall every
   later scrape.
 
-### Control Center
+#### Control Center
 - **The API requires a per-run token.** Loopback alone was no boundary: any other
   user on the machine could reach wallet send, dump and unlock, plus the
   `bitcoin-cli` passthrough. The token is written to `~/.oracle-knots/gui.token`
@@ -38,7 +78,7 @@ touched: the node's validation rules are unchanged.
   always imported by `api/bitcoin_price.py`, so without it the price routes were
   silently skipped.
 
-### Tests and CI
+#### Tests and CI
 - New `test/gui/` suite (38 tests) covering the API guard, the Host/Origin checks,
   the token file's permissions, secret routing for every affected endpoint, and the
   outbound proxy policy. It needs no node build.
