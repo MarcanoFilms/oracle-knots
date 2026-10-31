@@ -78,6 +78,22 @@ std::string FormatSubVersion(const std::string& name, int nClientVersion, const 
     return ua;
 }
 
+/**
+ * Generic upstream-looking user agent, advertised to peers on public networks
+ * when -uaprivacy is on, so user-agent scans cannot single out Oracle Knots
+ * operators. Must carry no Oracle branding and no build suffix.
+ */
+std::string FormatSubVersionGeneric(int nClientVersion)
+{
+    static const auto knots_build = []() -> std::string {
+        const auto pos{CLIENT_BUILD.find(".knots")};
+        std::string s{CLIENT_BUILD.substr(pos + 6)};
+        // keep only the YYYYMMDD part; a -gHASH/-dirty suffix would stand out
+        return s.substr(0, s.find_first_not_of("0123456789"));
+    }();
+    return strprintf("/Satoshi:%s/Knots:%s/", FormatVersion(nClientVersion), knots_build);
+}
+
 std::string CopyrightHolders(const std::string& strPrefix)
 {
     const auto copyright_devs = strprintf(_(COPYRIGHT_HOLDERS), COPYRIGHT_HOLDERS_SUBSTITUTION).translated;

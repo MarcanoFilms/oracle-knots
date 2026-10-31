@@ -1541,10 +1541,14 @@ void PeerManagerImpl::PushNodeVersion(CNode& pnode, const Peer& peer)
     uint64_t your_services{addr.nServices};
 
     const bool tx_relay{!RejectIncomingTxs(pnode)};
+    // -uaprivacy: only peers reached over private networks get the real user agent
+    const Network conn_net{pnode.ConnectedThroughNetwork()};
+    const bool private_net{conn_net == NET_ONION || conn_net == NET_I2P};
+    const std::string& sub_version{(!strSubVersionPublic.empty() && !private_net) ? strSubVersionPublic : strSubVersion};
     MakeAndPushMessage(pnode, NetMsgType::VERSION, PROTOCOL_VERSION, my_services, nTime,
             your_services, CNetAddr::V1(addr_you), // Together the pre-version-31402 serialization of CAddress "addrYou" (without nTime)
             my_services, CNetAddr::V1(CService{}), // Together the pre-version-31402 serialization of CAddress "addrMe" (without nTime)
-            nonce, strSubVersion, nNodeStartingHeight, tx_relay);
+            nonce, sub_version, nNodeStartingHeight, tx_relay);
 
     if (fLogIPs) {
         LogDebug(BCLog::NET, "send version message: version %d, blocks=%d, them=%s, txrelay=%d, peer=%d\n", PROTOCOL_VERSION, nNodeStartingHeight, addr_you.ToStringAddrPort(), tx_relay, nodeid);
