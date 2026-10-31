@@ -703,6 +703,7 @@ void SetupServerArgs(ArgsManager& argsman, bool can_listen_ipc)
     argsman.AddArg("-printpriority", strprintf("Log transaction priority and fee rate in %s/kvB when mining blocks (default: %u)", CURRENCY_UNIT, DEFAULT_PRINT_MODIFIED_FEE), ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::DEBUG_TEST);
     argsman.AddArg("-uaappend=<uafragment>", "Append literal string to the user agent string (should only be used for software embedding)", ArgsManager::ALLOW_ANY, OptionsCategory::CONNECTION);
     argsman.AddArg("-uacomment=<cmt>", "Append comment to the user agent string", ArgsManager::ALLOW_ANY, OptionsCategory::CONNECTION);
+    argsman.AddArg("-uaprivacy", strprintf("Advertise a generic upstream user agent to peers on public networks (IPv4/IPv6/CJDNS), keeping the real Oracle Knots user agent only for peers reached over private networks (Tor, I2P). Protects node operators from being located through user-agent scans (default: %u on mainnet, 0 on test chains)", DEFAULT_UA_PRIVACY), ArgsManager::ALLOW_ANY, OptionsCategory::CONNECTION);
     argsman.AddArg("-uaspoof=<ua>", strprintf("Replace entire user agent string with custom identifier (should be formatted '%s' as specified in BIP 14)", BIP14_EXAMPLE_UA), ArgsManager::ALLOW_ANY | ArgsManager::DEBUG_ONLY, OptionsCategory::CONNECTION);
 
     SetupChainParamsBaseOptions(argsman);
@@ -1851,6 +1852,7 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
         uacomments.push_back(cmt);
     }
     strSubVersion = FormatSubVersion(UA_NAME, CLIENT_VERSION, uacomments);
+    bool ua_spoofed{false};
     if (gArgs.IsArgSet("-uaspoof")) {
         std::string uaspoof_val = gArgs.GetArg("-uaspoof", "");
         if (uaspoof_val == "0" || uaspoof_val.empty()) {
@@ -1858,6 +1860,7 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
         } else if (uaspoof_val == "1") {
             // enabled, but not specified: just use base name for now
             strSubVersion = FormatSubVersion(UA_NAME, CLIENT_VERSION, uacomments, /*base_name_only=*/ true);
+            ua_spoofed = true;
         } else {
             if (uaspoof_val.at(0) != '/') {
                 InitWarning(strprintf(_("Specified %s option is not in BIP 14 format. User-agent strings should look like '%s'."), "uaspoof", BIP14_EXAMPLE_UA));
@@ -1866,6 +1869,7 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
                 InitWarning(_("Both uaspoof and uacomment(s) are specified, but uacomment(s) are ignored when uaspoof is in use."));
             }
             strSubVersion = uaspoof_val;
+            ua_spoofed = true;
         }
     }
     for (auto append : gArgs.GetArgs("-uaappend")) {
@@ -1875,6 +1879,15 @@ bool AppInitMain(NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info)
     if (strSubVersion.size() > MAX_SUBVERSION_LENGTH) {
         return InitError(strprintf(_("Total length of network version string (%i) exceeds maximum length (%i). Reduce the number or size of uacomments."),
             strSubVersion.size(), MAX_SUBVERSION_LENGTH));
+    }
+    // -uaspoof already hides the real user agent from every peer; otherwise
+    // -uaprivacy keeps it visible only to peers reached over Tor/I2P. Scans
+    // target mainnet operators, so test chains default to the real UA (the
+    // functional test framework also matches peers by their wire subver).
+    const bool ua_privacy_default{DEFAULT_UA_PRIVACY && args.GetChainType() == ChainType::MAIN};
+    if (!ua_spoofed && args.GetBoolArg("-uaprivacy", ua_privacy_default)) {
+        strSubVersionPublic = FormatSubVersionGeneric(CLIENT_VERSION);
+        LogInfo("UA privacy: advertising %s to peers on public networks (set -uaprivacy=0 to always advertise %s)\n", strSubVersionPublic, strSubVersion);
     }
 
     // Requesting DNS seeds entails connecting to IPv4/IPv6, which -onlynet options may prohibit:

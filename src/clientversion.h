@@ -39,6 +39,7 @@ extern const std::string UA_NAME;
 
 std::string FormatFullVersion();
 std::string FormatSubVersion(const std::string& name, int nClientVersion, const std::vector<std::string>& comments, bool base_name_only = false);
+std::string FormatSubVersionGeneric(int nClientVersion);
 
 std::string CopyrightHolders(const std::string& strPrefix);
 
