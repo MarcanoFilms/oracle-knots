@@ -2,16 +2,25 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
+#include <bitcoin-build-config.h> // IWYU pragma: keep
 #include <flatfile.h>
 #include <node/blockstorage.h>
 #include <streams.h>
 #include <test/util/random.h>
 #include <test/util/setup_common.h>
 #include <util/fs.h>
+#include <util/fs_helpers.h>
 #include <util/obfuscation.h>
 #include <util/strencodings.h>
 
 #include <boost/test/unit_test.hpp>
+
+#include <limits>
+#include <memory>
+
+#if defined(USE_FTELLO) && !defined(WIN32)
+#include <unistd.h>
+#endif
 
 using namespace std::string_literals;
 using namespace util::hex_literals;
@@ -165,6 +174,94 @@ BOOST_AUTO_TEST_CASE(xor_file)
     }
 }
 
+BOOST_AUTO_TEST_CASE(autofile_large_seek)
+{
+    FILE* raw_file{fsbridge::fopen(m_args.GetDataDirBase() / "seek_test_tmp", "w+b")};
+    AutoFile file{raw_file};
+    BOOST_REQUIRE(!file.IsNull());
+
+#if !defined(WIN32)
+    const auto native_seek{[raw_file](long distance, int origin) {
+#if defined(USE_FSEEKO)
+        return fseeko(raw_file, distance, origin);
+#else
+        return std::fseek(raw_file, distance, origin);
+#endif
+    }};
+    constexpr long native_step{1L << 30};
+    constexpr int64_t offset{int64_t{native_step} * 4};
+    file.seek(7, SEEK_SET);
+    // Some implementations reject large positions even with small relative seeks.
+    bool can_seek_large{true};
+    for (int i = 0; i < 4; ++i) {
+        if (native_seek(native_step, SEEK_CUR) != 0) {
+            can_seek_large = false;
+            break;
+        }
+    }
+    if (!can_seek_large) BOOST_TEST_MESSAGE("Native seek does not support large positions");
+
+    for (const int origin : {SEEK_SET, SEEK_CUR, SEEK_END}) {
+        file.seek(7, SEEK_SET);
+        const int ret{FileSeek64(raw_file, offset, origin)};
+        if (!can_seek_large) {
+            BOOST_CHECK_NE(ret, 0);
+            continue;
+        }
+        BOOST_REQUIRE_EQUAL(ret, 0);
+        // An in-range displacement can still refer to a position beyond long.
+        BOOST_REQUIRE_EQUAL(FileSeek64(raw_file, 0, SEEK_CUR), 0);
+        for (int i = 0; i < 4; ++i) {
+            BOOST_REQUIRE_EQUAL(native_seek(-native_step, SEEK_CUR), 0);
+        }
+        BOOST_CHECK_EQUAL(std::ftell(raw_file), origin == SEEK_CUR ? 7 : 0);
+    }
+
+    if (can_seek_large) {
+        file.seek(7, SEEK_SET);
+        for (int i = 0; i < 4; ++i) {
+            BOOST_REQUIRE_EQUAL(native_seek(native_step, SEEK_CUR), 0);
+        }
+        BOOST_REQUIRE_EQUAL(FileSeek64(raw_file, -offset, SEEK_CUR), 0);
+        BOOST_CHECK_EQUAL(std::ftell(raw_file), 7);
+    }
+
+    for (const int origin : {SEEK_SET, SEEK_CUR, SEEK_END}) {
+        file.seek(7, SEEK_SET);
+        BOOST_CHECK_NE(FileSeek64(raw_file, -offset, origin), 0);
+    }
+#endif
+
+    file.seek(7, SEEK_SET);
+    file.seek(-7, SEEK_CUR);
+    BOOST_CHECK_EQUAL(file.tell(), 0);
+    BOOST_CHECK_EQUAL(std::ftell(raw_file), 0);
+}
+
+#if defined(USE_FTELLO) && !defined(WIN32)
+BOOST_AUTO_TEST_CASE(autofile_large_initial_position)
+{
+    constexpr int64_t position{int64_t{1} << 32};
+    const auto in_range{[min = std::numeric_limits<off_t>::min(), max = std::numeric_limits<off_t>::max()](auto value) {
+        return min <= value && value <= max;
+    }};
+    if (!in_range(position)) {
+        BOOST_TEST_MESSAGE("Skipping large file position test: off_t is too small");
+        return;
+    }
+
+    auto close_file{[](FILE* file) { std::fclose(file); }};
+    std::unique_ptr<FILE, decltype(close_file)> raw_file{fsbridge::fopen(m_args.GetDataDirBase() / "tell_test_tmp", "w+b"), close_file};
+    BOOST_REQUIRE(raw_file);
+    // Position the descriptor without passing the offset through long.
+    BOOST_REQUIRE(lseek(fileno(raw_file.get()), static_cast<off_t>(position), SEEK_SET) == static_cast<off_t>(position));
+    BOOST_CHECK_EQUAL(FileTell64(raw_file.get()), position);
+
+    AutoFile file{raw_file.release()};
+    BOOST_CHECK_EQUAL(file.tell(), position);
+}
+#endif
+
 BOOST_AUTO_TEST_CASE(streams_vector_writer)
 {
     unsigned char a(1);
@@ -222,6 +319,87 @@ BOOST_AUTO_TEST_CASE(streams_vector_writer)
     BOOST_CHECK((vch == std::vector<unsigned char>{{8, 8, 1, 3, 4, 5, 6, 2}}));
     vch.clear();
 }
+
+BOOST_AUTO_TEST_CASE(autofile_seek_failure)
+{
+    FILE* raw_file{fsbridge::fopen(m_args.GetDataDirBase() / "seek_failure_tmp", "w+b")};
+    AutoFile file{raw_file};
+    BOOST_REQUIRE(!file.IsNull());
+
+    for (const int origin : {SEEK_SET, SEEK_CUR, SEEK_END}) {
+        file.seek(7, SEEK_SET);
+        BOOST_CHECK_EXCEPTION(file.seek(-1, SEEK_SET), std::ios_base::failure, HasReason{"AutoFile::seek: fseek failed"});
+
+        // Establish a known native position without restoring the cache.
+        BOOST_REQUIRE_EQUAL(FileSeek64(raw_file, 11, SEEK_SET), 0);
+        file.seek(0, origin);
+        BOOST_CHECK_EQUAL(file.tell(), origin == SEEK_CUR ? 11 : 0);
+        BOOST_CHECK_EQUAL(file.tell(), FileTell64(raw_file));
+
+        // With the cache cleared, tell() asks the file
+        BOOST_CHECK_EXCEPTION(file.seek(-1, SEEK_SET), std::ios_base::failure, HasReason{"AutoFile::seek: fseek failed"});
+        BOOST_REQUIRE_EQUAL(FileSeek64(raw_file, 5, SEEK_SET), 0);
+        BOOST_CHECK_EQUAL(file.tell(), 5);
+    }
+}
+
+BOOST_AUTO_TEST_CASE(autofile_xor_read_unknown_position)
+{
+    const Obfuscation xor_pat{"0102040810204080"_hex};
+    FILE* raw_file{fsbridge::fopen(m_args.GetDataDirBase() / "xor_position_tmp", "w+b")};
+    AutoFile file{raw_file, xor_pat};
+    BOOST_REQUIRE(!file.IsNull());
+    file << uint32_t{0x11223344} << uint32_t{0x55667788};
+    BOOST_CHECK_EXCEPTION(file.seek(-1, SEEK_SET), std::ios_base::failure, HasReason{"AutoFile::seek: fseek failed"});
+
+    // The position is found before the read moves it, so the bytes decode at their own offset
+    BOOST_REQUIRE_EQUAL(FileSeek64(raw_file, 4, SEEK_SET), 0);
+    uint32_t value;
+    file >> value;
+    BOOST_CHECK_EQUAL(value, 0x55667788U);
+    BOOST_CHECK_EQUAL(file.tell(), 8);
+
+    // Writing works the same way
+    BOOST_CHECK_EXCEPTION(file.seek(-1, SEEK_SET), std::ios_base::failure, HasReason{"AutoFile::seek: fseek failed"});
+    BOOST_REQUIRE_EQUAL(FileSeek64(raw_file, 2, SEEK_SET), 0);
+    file << uint8_t{0xaa};
+    file.seek(0, SEEK_SET);
+    file >> value;
+    BOOST_CHECK_EQUAL(value, 0x11aa3344U);
+    BOOST_REQUIRE_EQUAL(file.fclose(), 0);
+}
+
+BOOST_AUTO_TEST_CASE(autofile_short_ignore)
+{
+    FILE* raw_file{fsbridge::fopen(m_args.GetDataDirBase() / "short_ignore_tmp", "w+b")};
+    AutoFile file{raw_file};
+    BOOST_REQUIRE(!file.IsNull());
+    file << uint64_t{0};
+    file.seek(6, SEEK_SET);
+
+    // The part read before the end of the file moved it, so the cache cannot be kept
+    BOOST_CHECK_EXCEPTION(file.ignore(5), std::ios_base::failure, HasReason{"AutoFile::ignore: end of file"});
+    BOOST_CHECK_EQUAL(file.tell(), FileTell64(raw_file));
+    BOOST_REQUIRE_EQUAL(file.fclose(), 0);
+}
+
+#ifndef WIN32
+BOOST_AUTO_TEST_CASE(autofile_partial_write)
+{
+    const std::vector<std::byte> data(10000);
+    for (const auto& xor_pat : {Obfuscation{}, Obfuscation{"0102040810204080"_hex}}) {
+        std::vector<char> buf(5000);
+        FILE* raw_file{fmemopen(buf.data(), buf.size(), "wb")};
+        BOOST_REQUIRE(raw_file);
+        AutoFile file{raw_file, xor_pat};
+
+        // The part written before the end of the buffer moved the file, so the cache cannot be kept
+        BOOST_CHECK_THROW(file.write(data), std::ios_base::failure);
+        BOOST_CHECK_EQUAL(file.tell(), FileTell64(raw_file));
+        BOOST_REQUIRE_EQUAL(file.fclose(), 0);
+    }
+}
+#endif
 
 BOOST_AUTO_TEST_CASE(streams_vector_reader)
 {
