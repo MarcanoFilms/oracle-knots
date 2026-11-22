@@ -1,5 +1,37 @@
 # Changelog
 
+## v2.2.0 — Knots 29.5.1
+
+Upstream refresh. Consensus for the BLAKE2b chain is unchanged by the Oracle
+overlay; the only consensus-adjacent change comes from upstream itself (see
+below).
+
+### Upstream
+- Rebased onto **Bitcoin Knots v29.5** and then **v29.5.1** (merges of tags
+  `v29.5.knots20260508` and `v29.5.1.knots20260508`). The real user agent is
+  now `/OracleKnots:29.5.1/OracleKnots:20260508/`.
+- **Security (29.5.1):** fixes CVE-2026-117348, where a peer could stall the
+  node by repeatedly announcing an orphan transaction with many missing
+  parents; and keeps wallet names literal in `-walletnotify` commands.
+- **Policy (29.5.1):** keys only escape the datacarrier limit when a signature
+  is actually verified against them (knots#470); out-of-range values for
+  `bytespersigop[strict]`, `maxscriptsize` and the ancestor/descendant size
+  limits now error at startup; `spkreuse=conflict` applies to package
+  submissions.
+- **Net (29.5 / 29.5.1):** feelers get through while stale peers hold the
+  outbound target, launched Tor processes are reaped with back-off, and
+  paused-send peers time out.
+- BIP110 rules are split into individual script flags (knots#520). In blocks
+  the result is equivalent, except that the taproot annex is now also rejected
+  in inputs exempt from BIP110 (UTXOs older than the deployment) — a slight
+  tightening; the annex is non-standard and unused in practice.
+
+### Oracle overlay
+- Merge conflicts resolved keeping the Oracle policy engine: the upstream
+  bounds checks run first and `OraclePolicy::LoadPolicyConfig` after them.
+- The fake 1-of-N multisig data-carrier filter, `-uaprivacy`, Prometheus
+  exporter, DATUM (CONVOY) and Control Center are unchanged from v2.1.0.
+
 ## v2.1.0 — Knots 29.4.3, data-carrier filter, UA privacy
 
 Upstream refresh plus operator protections. Consensus for the BLAKE2b chain is
