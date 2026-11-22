@@ -22,8 +22,8 @@ verification lightweight by aggressively filtering non-financial data spam.
 > <img width="310" height="192" alt="image" src="https://github.com/user-attachments/assets/dab8bdbb-8b6e-479a-9e53-9f42db785dbd" />
 
 >
-> The node is built on **Bitcoin Knots 29.4.1** and reports
-> `/OracleKnots:29.4.1/…`. Its consensus code is byte-for-byte identical to a
+> The node is built on **Bitcoin Knots 29.5.1** and reports
+> `/OracleKnots:29.5.1/…`. Its consensus code is byte-for-byte identical to a
 > node verified against the live BLAKE2b chain — the Oracle overlay only adds
 > non-consensus policy, mining and UI on top.
 ><img width="424" height="72" alt="image" src="https://github.com/user-attachments/assets/325f0e55-d9f5-4353-94d6-1c4276298177" />
