@@ -11,6 +11,7 @@
 #include <pubkey.h>
 #include <script/interpreter.h>
 #include <uint256.h>
+#include <util/check.h>
 #include <util/hash_type.h>
 
 #include <algorithm>
@@ -321,53 +322,81 @@ static bool DataCarrierCastToBool(const std::vector<unsigned char>& vch)
 }
 
 namespace {
-/** A value on the stack that follows from constants alone, as an index into KnownValues; 0 if it depends on the witness or a signature */
-using KnownValue = size_t;
-constexpr KnownValue UNKNOWN{0};
+/**
+ * A value on the stack that follows from constants alone, or UNKNOWN if it depends on the
+ * witness or a signature. Bytes that are the minimal encoding of a number of up to five bytes,
+ * as wide as any number computed here, are held as that number, so arithmetic costs no lookup;
+ * any other bytes were pushed by the script, and are held as which distinct push they are, with
+ * their size and truthiness. Each value has only one form, so equal values compare equal.
+ */
+struct KnownValue {
+    enum Kind : uint8_t { NONE, NUM, BYTES } kind{NONE};
+    bool truth{false}; // of BYTES
+    uint32_t size{0}; // of BYTES
+    int64_t n{0}; // the number, or which distinct bytes
+    friend bool operator==(const KnownValue&, const KnownValue&) = default;
+};
+constexpr KnownValue UNKNOWN{};
+constexpr size_t MAX_KNOWN_NUM_SIZE{5};
+
+bool IsMinimalNum(const std::vector<unsigned char>& vch)
+{
+    return vch.empty() || (vch.back() & 0x7f) != 0 || (vch.size() > 1 && (vch[vch.size() - 2] & 0x80) != 0);
+}
+
+/** The size of CScriptNum::serialize(n) */
+size_t NumSize(int64_t n)
+{
+    uint64_t abs(n < 0 ? -n : n);
+    size_t size{0};
+    while (abs >= 0x100) {
+        abs >>= 8;
+        ++size;
+    }
+    if (abs) size += abs & 0x80 ? 2 : 1;
+    return size;
+}
 
 /**
- * The values FindDeadParts has seen; the stacks hold indexes, so copying a value costs nothing.
- * Each distinct value is kept once, so equal values share an index and comparing them, or
- * judging one again, costs nothing either.
+ * The pushes FindDeadParts has seen that are not numbers, each distinct one kept once, by where
+ * it is in the script, so equal values share an index.
  */
 class KnownValues
 {
-    const std::vector<unsigned char> m_unknown;
-    std::map<std::vector<unsigned char>, KnownValue> m_index;
-    std::vector<const std::vector<unsigned char>*> m_values{&m_unknown};
-    std::vector<bool> m_true{false};
+    struct Less {
+        bool operator()(Span<const unsigned char> a, Span<const unsigned char> b) const
+        {
+            return std::lexicographical_compare(a.begin(), a.end(), b.begin(), b.end());
+        }
+    };
+    const CScript& m_script;
+    std::map<Span<const unsigned char>, KnownValue, Less> m_index;
 
 public:
-    KnownValues() = default;
-    KnownValues(const KnownValues&) = delete; // m_values points into this object
-    KnownValues& operator=(const KnownValues&) = delete;
-    KnownValue Add(std::vector<unsigned char> v)
+    explicit KnownValues(const CScript& script) : m_script{script} {}
+    /** The value of a push, whose data ends at offset end of the script */
+    KnownValue AddPush(const std::vector<unsigned char>& v, size_t end)
     {
-        const auto [it, added]{m_index.try_emplace(std::move(v), m_values.size())};
-        if (added) {
-            m_values.push_back(&it->first);
-            m_true.push_back(DataCarrierCastToBool(it->first));
+        if (v.size() <= MAX_KNOWN_NUM_SIZE && IsMinimalNum(v)) {
+            return AddNum(CScriptNum{v, /*fRequireMinimal=*/true, MAX_KNOWN_NUM_SIZE}.GetInt64());
         }
+        const auto [it, added]{m_index.try_emplace(Span{m_script.data() + end - v.size(), v.size()})};
+        if (added) it->second = {.kind = KnownValue::BYTES, .truth = DataCarrierCastToBool(v), .size = uint32_t(v.size()), .n = int64_t(m_index.size())};
         return it->second;
     }
-    KnownValue AddNum(int64_t n) { return Add(CScriptNum{n}.getvch()); }
-    const std::vector<unsigned char>& Get(KnownValue v) const { return *m_values[v]; }
-    bool True(KnownValue v) const { return m_true[v]; }
-    /** The value as a script number, if it is known and a valid one */
-    bool Num(KnownValue v, int64_t& out) const
+    static KnownValue AddNum(int64_t n)
     {
-        if (v == UNKNOWN) return false;
-        // Reject what CScriptNum would throw on before constructing one, since an
-        // exception costs far more than the opcode asking for the number
-        const auto& vch{Get(v)};
-        if (vch.size() > CScriptNum::nDefaultMaxNumSize) return false;
-        if (!vch.empty() && (vch.back() & 0x7f) == 0 && (vch.size() <= 1 || (vch[vch.size() - 2] & 0x80) == 0)) return false;
-        try {
-            out = CScriptNum{vch, /*fRequireMinimal=*/true}.GetInt64();
-            return true;
-        } catch (const scriptnum_error&) {
-            return false;
-        }
+        Assume(n >= -0x7fffffffff && n <= 0x7fffffffff); // five bytes, or a push of it would not equal it
+        return {.kind = KnownValue::NUM, .n = n};
+    }
+    static size_t Size(KnownValue v) { return v.kind == KnownValue::NUM ? NumSize(v.n) : v.size; }
+    static bool True(KnownValue v) { return v.kind == KnownValue::NUM ? v.n != 0 : v.truth; }
+    /** The value as a script number, if it is known and a valid one; pushed bytes never are */
+    static bool Num(KnownValue v, int64_t& out)
+    {
+        if (v.kind != KnownValue::NUM || v.n > 0x7fffffff || v.n < -0x7fffffff) return false;
+        out = v.n;
+        return true;
     }
 };
 
@@ -392,6 +421,8 @@ public:
     }
     KnownValue Peek(size_t depth) const { return depth < m_items.size() ? m_items[m_items.size() - 1 - depth] : UNKNOWN; }
     KnownValue& At(size_t depth) { return m_items[m_items.size() - 1 - depth]; }
+    /** Move the item at depth, which must exist, to the top */
+    void Roll(size_t depth) { std::rotate(m_items.end() - 1 - depth, m_items.end() - depth, m_items.end()); }
     void Forget() { m_items.clear(); }
 };
 
@@ -404,21 +435,19 @@ DeadParts FindDeadParts(const CScript& script)
     struct Frame { bool known; bool running; };
     std::vector<Frame> frames;
     size_t not_running{0}; // open frames whose current part does not run
-    KnownValues values;
+    KnownValues values{script};
     KnownStack stack, alt;
     opcodetype opcode;
     std::vector<unsigned char> push;
-    // Each opcode costs one step, and OP_ROLL also costs its depth, the one move
-    // that is not constant time. Stop, marking nothing more, after a few steps per
-    // byte: no spendable script rolls deep over and over, and one built to do so
-    // gets the plain scan instead of costing the node more than its size.
-    size_t steps_left{4 * size_t{script.size()}};
+    // OP_ROLL moves as many items as its depth, the one move that is not constant
+    // time. Past a few moves per byte, which no spendable script needs, a roll
+    // forgets what is known instead, so following costs no more than the script's
+    // size and what comes after is still followed.
+    size_t roll_left{4 * size_t{script.size()}};
 
     for (CScript::const_iterator it{script.begin()}; it < script.end();) {
         const size_t offset{size_t(it - script.begin())};
         if (!script.GetOp(it, opcode, push)) break;
-        if (steps_left == 0) break;
-        --steps_left;
 
         if (opcode == OP_IF || opcode == OP_NOTIF) {
             if (not_running) {
@@ -470,7 +499,7 @@ DeadParts FindDeadParts(const CScript& script)
         if (not_running) continue;
 
         if (opcode <= OP_PUSHDATA4) {
-            stack.Push(values.Add(push));
+            stack.Push(values.AddPush(push, size_t(it - script.begin())));
             continue;
         }
         if (opcode == OP_1NEGATE || (opcode >= OP_1 && opcode <= OP_16)) {
@@ -531,7 +560,7 @@ DeadParts FindDeadParts(const CScript& script)
         }
         case OP_SIZE: {
             const KnownValue top{stack.Peek(0)};
-            stack.Push(top == UNKNOWN ? UNKNOWN : values.AddNum(values.Get(top).size()));
+            stack.Push(top == UNKNOWN ? UNKNOWN : values.AddNum(values.Size(top)));
             break;
         }
         case OP_DEPTH:
@@ -561,40 +590,34 @@ DeadParts FindDeadParts(const CScript& script)
                 std::swap(stack.At(3), stack.At(1));
                 std::swap(stack.At(2), stack.At(0));
             } else {
-                std::vector<KnownValue> six;
-                for (int i{0}; i < 6; ++i) six.push_back(stack.Pop());
-                // six[5] and six[4] were deepest; they move to the top
-                for (int i{3}; i >= 0; --i) stack.Push(six[i]);
-                stack.Push(six[5]);
-                stack.Push(six[4]);
+                std::swap(stack.At(5), stack.At(3));
+                std::swap(stack.At(4), stack.At(2));
+                std::swap(stack.At(3), stack.At(1));
+                std::swap(stack.At(2), stack.At(0));
             }
             break;
         }
         case OP_PICK: case OP_ROLL: {
             int64_t n{0};
             const bool known{values.Num(stack.Pop(), n)};
-            if (!known || n < 0 || size_t(n) >= stack.size()) {
-                // Reaches below what is known, or the depth itself is unknown
+            if (!known || n < 0 || size_t(n) >= stack.size() || (opcode == OP_ROLL && size_t(n) > roll_left)) {
+                // Reaches below what is known, the depth itself is unknown, or the roll is past the budget
                 if (opcode == OP_ROLL || !known) stack.Forget();
                 stack.Push(UNKNOWN);
                 break;
             }
-            const KnownValue v{stack.At(n)};
             if (opcode == OP_ROLL) {
-                if (size_t(n) > steps_left) return dead;
-                steps_left -= n;
-                std::vector<KnownValue> above;
-                for (int64_t i{0}; i < n; ++i) above.push_back(stack.Pop());
-                stack.Pop();
-                for (auto i{above.rbegin()}; i != above.rend(); ++i) stack.Push(*i);
+                roll_left -= n;
+                stack.Roll(n);
+            } else {
+                stack.Push(stack.At(n));
             }
-            stack.Push(v);
             break;
         }
         case OP_EQUAL: case OP_EQUALVERIFY: {
             const KnownValue b{stack.Pop()}, a{stack.Pop()};
             if (opcode == OP_EQUAL) {
-                stack.Push(a == UNKNOWN || b == UNKNOWN ? UNKNOWN : values.Add(a == b ? std::vector<unsigned char>{1} : std::vector<unsigned char>{}));
+                stack.Push(a == UNKNOWN || b == UNKNOWN ? UNKNOWN : values.AddNum(a == b));
             }
             break;
         }
@@ -888,8 +911,15 @@ static size_t OddRunBytes(const size_t run_bytes, const size_t last_bytes, const
  * only a key count sits under keys, so a key count is left alone. None of the multisig spends
  * from block 961640 to 977870 has either that a hash lock, a drop or an OP_FALSE OP_IF envelope does
  * not account for, and none in a witness script has a 65 byte push.
+ *
+ * Which keys a signature can prove is first guessed from the script alone: a signature-check opcode
+ * beside a key, capped by the signatures the witness carries. That guess is cheap and early, but it
+ * trusts opcodes that may sit in code that never runs, or run and fail harmlessly. When the keys a
+ * signature really verified against are known, a key counts as proven only if it is among them, and
+ * the charge is the larger of the two, so knowing more can only ever add to it. Odd pushes are no key
+ * under either guess, so they are counted as data the same way regardless.
  */
-static size_t UnprovenPubkeyBytes(const CScript& script, const CScriptWitness* witness)
+static size_t UnprovenPubkeyBytes(const CScript& script, const CScriptWitness* witness, const VerifiedKeys* verified_keys)
 {
     /** Unproven pubkeys a script may carry before the rest are counted as data. Set so that ordinary
      *  multisig, including wide federations, is charged nothing at all: the budget is per
@@ -897,6 +927,9 @@ static size_t UnprovenPubkeyBytes(const CScript& script, const CScriptWitness* w
     static constexpr size_t MAX_UNPROVEN_PUBKEYS{10};
 
     size_t pubkeys{0}, provable{0};
+    // The bytes of the counted pubkeys that no verified signature vouches for, and the share of those
+    // in the current push run. Without a set of verified keys every counted push is unverified.
+    size_t unverified_bytes{0}, push_run_unverified_bytes{0};
     // The current run of adjacent pubkey pushes, and the count that opened it. A well-formed
     // m-of-n closes as <m> <pubkey>*n <n> OP_CHECKMULTISIG, and only that shape credits m.
     size_t run_keys{0};
@@ -910,7 +943,8 @@ static size_t UnprovenPubkeyBytes(const CScript& script, const CScriptWitness* w
     bool last_is_push{false};
     // Whether the item before this one was a key a checksig-family opcode can still claim, and
     // whether it was the 32 byte kind that is only a key because one does.
-    bool last_is_key{false}, last_is_xonly{false};
+    bool last_is_key{false}, last_is_xonly{false}, last_is_verified{false};
+    size_t last_key_size{0};
     opcodetype opcode{OP_INVALIDOPCODE}, last_opcode{OP_INVALIDOPCODE};
     std::vector<unsigned char> push_data;
     // Odd pushes counted so far, and those of the current push run, which its end decides.
@@ -953,6 +987,9 @@ static size_t UnprovenPubkeyBytes(const CScript& script, const CScriptWitness* w
         const bool is_xonly{IsXOnlyPush(opcode, push_data)};
         const int count{MultisigCount(opcode, push_data)};
         const int a_count{MultiACount(opcode, push_data)};
+        // Exactly these bytes were checked against a signature that verified. No other key, and no
+        // other bytes of the same key, can borrow it.
+        const bool is_verified{verified_keys && (is_pubkey || is_xonly) && verified_keys->count(push_data)};
         bool is_key{false};
 
         if (inside_noop) {
@@ -969,6 +1006,10 @@ static size_t UnprovenPubkeyBytes(const CScript& script, const CScriptWitness* w
             ++run_keys;
             ++push_run_keys;
             ++pubkeys;
+            if (!is_verified) {
+                push_run_unverified_bytes += push_data.size();
+                unverified_bytes += push_data.size();
+            }
             is_key = true;
         } else if (is_xonly) {
             // Nothing tells an x-only key from a hash but the opcode that spends it, so this
@@ -979,16 +1020,23 @@ static size_t UnprovenPubkeyBytes(const CScript& script, const CScriptWitness* w
         } else if ((opcode == OP_DROP || opcode == OP_2DROP) && last_is_push) {
             // The caller counts the whole run as dropped data, so do not charge it again.
             pubkeys -= push_run_keys;
+            unverified_bytes -= push_run_unverified_bytes;
             run_keys = 0;
             multi_a_keys = 0;
         } else if (opcode == OP_CHECKSIG || opcode == OP_CHECKSIGVERIFY) {
-            if (last_is_xonly) ++pubkeys;
+            if (last_is_xonly) {
+                ++pubkeys;
+                if (!last_is_verified) unverified_bytes += last_key_size;
+            }
             ++provable;
             run_keys = 0;
             // <pubkey> OP_CHECKSIG opens a tapscript k-of-n; anything else there ends one.
             multi_a_keys = (last_is_key && opcode == OP_CHECKSIG) ? 1 : 0;
         } else if (opcode == OP_CHECKSIGADD) {
-            if (last_is_xonly) ++pubkeys;
+            if (last_is_xonly) {
+                ++pubkeys;
+                if (!last_is_verified) unverified_bytes += last_key_size;
+            }
             // The run is credited the k it closes on, so a key earns nothing on its own here.
             multi_a_keys = (multi_a_keys && last_is_key) ? multi_a_keys + 1 : 0;
             run_keys = 0;
@@ -1015,7 +1063,7 @@ static size_t UnprovenPubkeyBytes(const CScript& script, const CScriptWitness* w
         }
 
         const bool is_push{IsRunPush(opcode)};
-        if (!is_push) push_run_keys = 0;
+        if (!is_push) push_run_keys = push_run_unverified_bytes = 0;
         // The caller counts an OP_FALSE OP_IF envelope whole, so what is inside it is left to the caller.
         if (has_multisig && !enveloped) {
             if (is_push) {
@@ -1049,6 +1097,8 @@ static size_t UnprovenPubkeyBytes(const CScript& script, const CScriptWitness* w
         if (!IsStackNeutralNop(opcode)) {
             last_is_key = is_key;
             last_is_xonly = is_xonly && !inside_noop;
+            last_is_verified = is_verified;
+            last_key_size = push_data.size();
         }
         last_opcode = opcode;
         last_count = count;
@@ -1072,14 +1122,30 @@ static size_t UnprovenPubkeyBytes(const CScript& script, const CScriptWitness* w
 
     if (has_multisig) odd_bytes += OddRunBytes(odd_run_bytes, odd_last_bytes, odd_last_is_digest, OP_INVALIDOPCODE);
 
-    if (pubkeys < provable + MAX_UNPROVEN_PUBKEYS) return odd_bytes;
-    // An uncompressed key carries no more payload than a compressed one, since only the x
-    // coordinate is free, so the compressed size is the unit.
-    return (pubkeys - provable - MAX_UNPROVEN_PUBKEYS) * CPubKey::COMPRESSED_SIZE + odd_bytes;
+    // The static count uses the compressed size as the unit for every key, which holds for a key a
+    // signature can check. An uncompressed key carries no more payload than a compressed one, since
+    // only the x coordinate is free, so the compressed size is the unit. Odd pushes are data in full,
+    // outside the allowance, and are added on top whichever count applies.
+    const size_t static_charge{(pubkeys < provable + MAX_UNPROVEN_PUBKEYS ? 0 : (pubkeys - provable - MAX_UNPROVEN_PUBKEYS) * CPubKey::COMPRESSED_SIZE) + odd_bytes};
+    if (!verified_keys) return static_charge;
+
+    // What was seen to verify replaces what the script merely claims. Each guess can be fooled where
+    // the other cannot, so a spend pays the larger. Odd pushes are no key under either guess, so they
+    // are charged in full on both sides and the larger is taken over the key charge alone.
+    //
+    // A push nothing verified need not be a point at all (a key slot that CHECKMULTISIG never reaches
+    // is never parsed), so it can hold as many bytes as it is long and is charged by its length. The
+    // allowance is the same MAX_UNPROVEN_PUBKEYS compressed keys, so a run of 33 byte pushes costs
+    // exactly what it did, and 65 byte or x-only pushes cost what they hold.
+    static constexpr size_t UNPROVEN_ALLOWANCE{MAX_UNPROVEN_PUBKEYS * CPubKey::COMPRESSED_SIZE};
+    const size_t verified_charge{(unverified_bytes < UNPROVEN_ALLOWANCE ? 0 : unverified_bytes - UNPROVEN_ALLOWANCE) + odd_bytes};
+    return std::max(static_charge, verified_charge);
 }
 
-std::pair<size_t, size_t> CScript::DatacarrierBytes(const size_t remaining_outputs, const CScriptWitness* witness, const bool dead_branches) const
+std::pair<size_t, size_t> CScript::DatacarrierBytes(const size_t remaining_outputs, const CScriptWitness* witness, const bool dead_branches, const VerifiedKeys* verified_keys, bool* reached_normal_return) const
 {
+    // Cleared here and set just before the normal return, so every early return below leaves it false.
+    if (reached_normal_return) *reached_normal_return = false;
     if (size_t olga_bytes = IsOLGA(remaining_outputs); olga_bytes) {
         return {0, olga_bytes};
     }
@@ -1162,7 +1228,24 @@ std::pair<size_t, size_t> CScript::DatacarrierBytes(const size_t remaining_outpu
             counted += it - data_began;
         }
     }
-    return {UnprovenPubkeyBytes(*this, witness), counted};
+    if (reached_normal_return) *reached_normal_return = true;
+    return {UnprovenPubkeyBytes(*this, witness, verified_keys), counted};
+}
+
+std::pair<size_t, size_t> CScript::DatacarrierBytesReusing(const size_t remaining_outputs, const CScriptWitness* witness, const VerifiedKeys* verified_keys, const size_t counted) const
+{
+    // The same early returns as DatacarrierBytes, which the verified keys cannot change. The caller only
+    // reuses counted for a script that reached DatacarrierBytes's normal return, so the dead-branch scan
+    // and the counting loop (which produce counted) are skipped and only the unproven-pubkey part is redone.
+    if (size_t olga_bytes = IsOLGA(remaining_outputs); olga_bytes) {
+        return {0, olga_bytes};
+    }
+    if (witness) {
+        if (uint32_t opnet_bytes = OPNetWitnessSize(*witness); opnet_bytes) {
+            return {0, opnet_bytes};
+        }
+    }
+    return {UnprovenPubkeyBytes(*this, witness, verified_keys), counted};
 }
 
 bool GetScriptOp(CScriptBase::const_iterator& pc, CScriptBase::const_iterator end, opcodetype& opcodeRet, std::vector<unsigned char>* pvchRet)

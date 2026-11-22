@@ -153,10 +153,18 @@ enum : uint32_t {
 
     // Enforce MAX_SCRIPT_ELEMENT_SIZE_REDUCED instead of MAX_SCRIPT_ELEMENT_SIZE
     // The P2SH redeemScript push is exempted
+    // It is enforced on the annex as well
+    // NOTE: more RDTS flags after SIGHASH_UNIFIED
+    SCRIPT_VERIFY_REDUCED_ELEMENT_SIZE = (1U << 21),
+
     // Taproot control blocks are limited to TAPROOT_CONTROL_MAX_SIZE_REDUCED
+    SCRIPT_VERIFY_REDUCED_CONTROL_BLOCK = (1U << 23),
+
     // Taproot annex is also invalid
-    // OP_IF is also forbidden inside Tapscript
-    SCRIPT_VERIFY_REDUCED_DATA = (1U << 21),
+    SCRIPT_VERIFY_BAN_ANNEX = (1U << 24),
+
+    // OP_IF is forbidden inside Tapscript
+    SCRIPT_VERIFY_BAN_OPIF = (1U << 25),
 
     // Accept the hardfork signature hash, opted into per signature by
     // SIGHASH_UNIFIED. Removes CVE-2013-2292 and CVE-2020-14199 for the inputs
@@ -178,8 +186,27 @@ enum : uint32_t {
     SCRIPT_VERIFY_END_MARKER
 };
 
+static constexpr unsigned int REDUCED_DATA_VERIFY_FLAGS{0
+    | SCRIPT_VERIFY_REDUCED_ELEMENT_SIZE
+    | SCRIPT_VERIFY_REDUCED_CONTROL_BLOCK
+    | SCRIPT_VERIFY_BAN_ANNEX
+    | SCRIPT_VERIFY_BAN_OPIF
+};
+
+static constexpr unsigned int REDUCED_DATA_STANDARD_VERIFY_FLAGS{0
+    | SCRIPT_VERIFY_REDUCED_ELEMENT_SIZE
+    | SCRIPT_VERIFY_REDUCED_CONTROL_BLOCK
+    | SCRIPT_VERIFY_BAN_ANNEX
+    | SCRIPT_VERIFY_BAN_OPIF
+    | SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM
+    | SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_TAPROOT_VERSION
+    | SCRIPT_VERIFY_DISCOURAGE_OP_SUCCESS
+};
+
 static constexpr unsigned int REDUCED_DATA_MANDATORY_VERIFY_FLAGS{0
-    | SCRIPT_VERIFY_REDUCED_DATA
+    | SCRIPT_VERIFY_REDUCED_ELEMENT_SIZE
+    | SCRIPT_VERIFY_REDUCED_CONTROL_BLOCK
+    | SCRIPT_VERIFY_BAN_OPIF
     | SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_WITNESS_PROGRAM
     | SCRIPT_VERIFY_DISCOURAGE_UPGRADABLE_TAPROOT_VERSION
     | SCRIPT_VERIFY_DISCOURAGE_OP_SUCCESS
@@ -425,6 +452,46 @@ public:
     bool CheckSequence(const CScriptNum& nSequence) const override
     {
         return m_checker.CheckSequence(nSequence);
+    }
+};
+
+/**
+ * Observes which public keys a non-empty signature verified against, and changes nothing else.
+ *
+ * Every result is passed through untouched. It only ever sees keys whose signature the wrapped
+ * checker accepted, and an empty signature is never accepted, so a key lands in the set only if a
+ * real signature was checked against exactly those bytes during this execution. Wrap the
+ * outermost checker, so a signature-cache hit in the one beneath still records. The signature hash
+ * rules are passed on as given, so a signature accepted under either set of rules is recorded.
+ *
+ * For policy use only. Consensus code must never be handed one: it has no effect on validity, but
+ * there is nothing for it to do there either.
+ */
+class KeyRecordingSignatureChecker : public DeferringSignatureChecker
+{
+    VerifiedKeys& m_keys;
+
+    void Record(Span<const unsigned char> key) const
+    {
+        // Past the cap further keys go unrecorded, which can only make a spend look less proven.
+        if (m_keys.size() < MAX_PUBKEYS_PER_MULTI_A) m_keys.emplace(key.begin(), key.end());
+    }
+
+public:
+    KeyRecordingSignatureChecker(const BaseSignatureChecker& checker, VerifiedKeys& keys) : DeferringSignatureChecker(checker), m_keys(keys) {}
+
+    bool CheckECDSASignature(const std::vector<unsigned char>& scriptSig, const std::vector<unsigned char>& vchPubKey, const CScript& scriptCode, SigVersion sigversion, SighashRules sighash_rules = SighashRules::LEGACY) const override
+    {
+        const bool ok{DeferringSignatureChecker::CheckECDSASignature(scriptSig, vchPubKey, scriptCode, sigversion, sighash_rules)};
+        if (ok) Record(vchPubKey);
+        return ok;
+    }
+
+    bool CheckSchnorrSignature(Span<const unsigned char> sig, Span<const unsigned char> pubkey, SigVersion sigversion, ScriptExecutionData& execdata, ScriptError* serror = nullptr, SighashRules sighash_rules = SighashRules::LEGACY) const override
+    {
+        const bool ok{DeferringSignatureChecker::CheckSchnorrSignature(sig, pubkey, sigversion, execdata, serror, sighash_rules)};
+        if (ok) Record(pubkey);
+        return ok;
     }
 };
 
